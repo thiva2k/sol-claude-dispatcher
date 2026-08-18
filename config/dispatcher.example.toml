@@ -1,0 +1,98 @@
+# sol-claude-dispatcher — example configuration
+#
+# Copy to config/dispatcher.toml and edit. The dispatcher FAILS CLOSED: an
+# unknown key, a missing required section, a nonexistent repository root, or
+# the untouched "/CONFIGURE/ME" placeholder below will all refuse to load.
+# That is intentional — an unconfigured dispatcher must not dispatch.
+
+[dispatcher]
+state_dir = "./state"
+default_timeout_seconds = 1800
+max_timeout_seconds = 3600
+default_max_turns = 40
+default_max_resume_count = 4
+
+# Model identifiers live here and nowhere else in the codebase.
+# The Claude CLI accepts aliases ("sonnet") and full ids
+# ("claude-sonnet-4-5"), so exact versions can be pinned later without a
+# code change.
+[models]
+sonnet = "sonnet"
+opus = "opus"
+fable = "fable"
+
+[routing]
+# Must be "sonnet" or "opus". Fable is a reviewer and can never be the
+# default implementation worker.
+default_model = "sonnet"
+
+[security]
+max_dispatch_depth = 1
+allow_network = false
+allow_push = false
+allow_merge = false
+allow_commit = false
+allow_subagents = false
+
+# REQUIRED. Repositories the dispatcher will accept work for, as absolute
+# paths. Each must exist and be a directory. "/" is rejected outright — do
+# not seed broad filesystem access. Keep this list as narrow as possible.
+allowed_repository_roots = [
+    "/CONFIGURE/ME",
+]
+
+[validation]
+# Re-run the envelope's trusted validation commands after the worker exits
+# and record the dispatcher's own result alongside the worker's claims.
+run_dispatcher_validation = true
+
+[claude]
+# Resolved on PATH unless an absolute path is given.
+binary = "claude"
+
+# One of: acceptEdits, auto, manual, dontAsk, plan.
+# "bypassPermissions" is deliberately not offered by this dispatcher.
+permission_mode = "auto"
+
+worker_policy_path = "./prompts/worker-policy.md"
+fable_policy_path = "./prompts/fable-reviewer-policy.md"
+empty_mcp_config_path = "./config/empty-mcp.json"
+worker_result_schema_path = "./schemas/worker-result.schema.json"
+fable_review_schema_path = "./schemas/fable-review.schema.json"
+
+# Built-in tools granted to an implementation worker. Note what is absent:
+# Agent/Task (no subagents), WebFetch, WebSearch.
+worker_tools = [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "TodoWrite",
+    "NotebookEdit",
+]
+
+# Fable is read-only. No Edit, no Write, no Bash.
+reviewer_tools = ["Read", "Glob", "Grep"]
+
+# Deny patterns applied on top of the tool list. Prompts are not sandboxing;
+# these are the enforcement.
+disallowed_tools = [
+    "mcp__*",
+    "Bash(git push:*)",
+    "Bash(git merge:*)",
+    "Bash(git rebase:*)",
+    "Bash(git commit:*)",
+    "Bash(git reset:*)",
+    "Bash(git clean:*)",
+    "Bash(git worktree:*)",
+    "Bash(claude:*)",
+    "Bash(codex:*)",
+]
+
+[logging]
+# Logs go to stderr or a file — NEVER stdout, which belongs to the MCP
+# stdio transport.
+level = "INFO"
+# log_file = "./logs/dispatcher.log"

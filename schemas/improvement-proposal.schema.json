@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sol-claude-dispatcher.local/schemas/improvement-proposal.schema.json",
+  "title": "ImprovementProposal",
+  "description": "A proposed improvement produced by read-only overnight analysis (Phase 2). Creating a proposal is NOT approval. No proposal may automatically dispatch work, edit code, merge, push, or deploy. The approval boundary is explicit and belongs to the human.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "proposal_id",
+    "created_at",
+    "repository",
+    "title",
+    "summary",
+    "evidence",
+    "impact",
+    "confidence",
+    "risk",
+    "proposed_plan",
+    "status",
+    "implementation_started"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "proposal_id": {
+      "type": "string",
+      "pattern": "^P-[0-9]{3,}$",
+      "description": "Stable identifier, e.g. P-106."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601."
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Canonical absolute repository path the proposal concerns."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "description": "Observed signals that motivated the proposal. A proposal without evidence is speculation and must not be raised.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "observation"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Where the signal came from, e.g. application.log, pytest, systemd."
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 20000,
+            "description": "Pointer to the specific occurrence: line range, timestamp, test id."
+          },
+          "observation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "occurrences": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "impact": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "proposed_plan": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "likely_affected_paths": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "validation_plan": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "How the change would be proven, if approved.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending_user_review",
+        "approved",
+        "rejected",
+        "superseded",
+        "implemented"
+      ],
+      "description": "Starts at pending_user_review. Only an explicit human decision may move it to approved or rejected."
+    },
+    "implementation_started": {
+      "type": "boolean",
+      "description": "Set by the dispatcher when a task is created from this proposal, after approval. Never set by the analysis pass."
+    },
+    "superseded_by": {
+      "type": ["string", "null"],
+      "description": "proposal_id that replaces this one."
+    },
+    "task_id": {
+      "type": ["string", "null"],
+      "description": "Dispatcher task created from this proposal, once approved and dispatched."
+    }
+  }
+}

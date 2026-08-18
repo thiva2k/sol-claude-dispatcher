@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sol-claude-dispatcher.local/schemas/fable-review.schema.json",
+  "title": "FableReview",
+  "description": "Independent review output. Advisory only: Sol decides whether the reviewer is correct. The dispatcher records this verdict and never acts on it by itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "verdict",
+    "findings",
+    "missing_tests",
+    "architecture_notes",
+    "recommended_next_action"
+  ],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["approve", "changes_required", "reject"],
+      "description": "Your overall judgement. Advisory to Sol."
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Material problems only. Do not manufacture findings to appear useful.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "category", "finding"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable short identifier, e.g. F1, F2. Sol references these when requesting fixes."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "low", "medium", "high", "critical"]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "correctness",
+              "architecture",
+              "security",
+              "tests",
+              "performance",
+              "maintainability",
+              "requirements"
+            ]
+          },
+          "path": {
+            "type": ["string", "null"],
+            "description": "Repository-relative path, when the finding is localised."
+          },
+          "line": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "finding": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What is wrong."
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 20000,
+            "description": "Why you believe it. Quote the code or the diff. Every material finding needs evidence."
+          },
+          "recommendation": {
+            "type": "string",
+            "maxLength": 20000,
+            "description": "What should change. You do not implement it."
+          }
+        }
+      }
+    },
+    "missing_tests": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Behaviour that is not covered and should be.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "architecture_notes": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Structural observations and challenged assumptions.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recommended_next_action": {
+      "type": "string",
+      "enum": [
+        "accept",
+        "resume_worker",
+        "escalate_to_opus",
+        "reject",
+        "human_review"
+      ],
+      "description": "A recommendation to Sol. Sol decides; the dispatcher does not execute this."
+    }
+  }
+}

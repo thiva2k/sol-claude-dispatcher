@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sol_claude_dispatcher"
+version = "0.1.0"
+description = "Deterministic MCP dispatcher letting Sol (Codex) delegate implementation to controlled Claude Code workers."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+
+dependencies = [
+    "mcp>=1.9",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+sol-claude-dispatcher = "sol_claude_dispatcher.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning:sol_claude_dispatcher.*"]
+addopts = "-q"

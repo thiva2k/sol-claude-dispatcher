@@ -1,0 +1,29 @@
+# Isolated virtual environment (never committed)
+.venv/
+venv/
+
+# Python build/caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime state: keep the directory shape, never the contents.
+state/tasks/*
+state/locks/*
+state/proposals/*
+!state/tasks/.gitkeep
+!state/locks/.gitkeep
+!state/proposals/.gitkeep
+
+# Local, non-example configuration (may name real repository roots)
+config/dispatcher.toml
+config/*.local.toml
+
+# Logs
+*.log
+logs/

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sol-claude-dispatcher.local/schemas/worker-result.schema.json",
+  "title": "WorkerResult",
+  "description": "Structured result an implementation worker returns via --json-schema. These are the worker's CLAIMS. The dispatcher records them separately from its own observations and treats nothing here as verified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary",
+    "changes",
+    "acceptance_criteria",
+    "tests",
+    "risks",
+    "blockers",
+    "needs_review"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["completed", "blocked", "failed"],
+      "description": "completed = you finished the work. blocked = you could not proceed and have reported why. failed = you attempted the work and it did not succeed. Completion is not approval."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000,
+      "description": "What you actually did, in plain terms. No marketing."
+    },
+    "changes": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Every file you changed. Must match the real diff.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "type"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Repository-relative path."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["added", "modified", "deleted", "renamed"]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 20000
+          }
+        }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "One entry per criterion you were given. Do not redefine, merge, or invent criteria.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "status"],
+        "properties": {
+          "criterion": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The criterion verbatim as supplied."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "satisfied",
+              "partially_satisfied",
+              "not_satisfied",
+              "unknown"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 20000,
+            "description": "Concrete evidence: a test name, a command and its output, a file and line. Not an assertion that it works."
+          }
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Test commands you actually ran. The dispatcher may re-run trusted commands independently and compare.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "status"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "skipped", "not_run"]
+          },
+          "exit_code": {
+            "type": ["integer", "null"]
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 20000
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Things that could break, regressions you suspect, assumptions you had to make.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "blockers": {
+      "type": "array",
+      "maxItems": 200,
+      "description": "Anything that stopped you. Report conflicts rather than inventing scope to resolve them.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "needs_review": {
+      "type": "boolean",
+      "description": "Always true in practice: Sol reviews everything. Completion is evidence, never approval."
+    }
+  }
+}
