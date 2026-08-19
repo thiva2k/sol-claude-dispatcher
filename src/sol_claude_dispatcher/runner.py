@@ -653,10 +653,14 @@ class StreamCapture:
 
         ``security.redact`` only ever rewrites ``KEY=value`` or ``"key": "value"``
         shaped text, so a line containing neither ``=`` nor ``"`` is passed
-        through untouched. That is not just an optimisation: the ``KEY=value``
-        pattern backtracks quadratically over a long token with no ``=`` in it,
-        and a worker that prints megabytes of unbroken output would otherwise
-        stall the drain long enough to trip its own timeout.
+        through untouched. This is now purely an optimisation —
+        ``security.redact`` is linear since its pattern was anchored — but it
+        is kept because the drain runs on the event loop and skipping bulk
+        non-secret output keeps that cheap.
+
+        Known limitation, unchanged: redaction here is line-oriented, so a
+        ``"key": "value"`` pair split across a newline is not masked in the
+        spool. The in-memory path redacts whole blocks and is unaffected.
         """
         if not self._redact_spool:
             return raw

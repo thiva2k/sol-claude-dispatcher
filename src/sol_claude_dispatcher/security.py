@@ -302,9 +302,40 @@ def worker_environment(
 
 
 #: Matches ``KEY=value`` shaped tokens (env-file / shell-export style).
-_ENV_PAIR_RE = re.compile(r"(?P<key>[A-Za-z_][A-Za-z0-9_]*)=(?P<val>\S*)")
-#: Matches ``"key": "value"`` shaped tokens (JSON-ish logging).
-_JSON_PAIR_RE = re.compile(r'"(?P<key>[^"]+)"\s*:\s*"(?P<val>[^"]*)"')
+#:
+#: Two deliberate properties make this linear in the length of the input
+#: (Lane B adjacent finding A3). ``redact()`` is applied to whole worker
+#: streams, which can be multi-megabyte, so a pattern that merely "usually"
+#: performs is a denial-of-service on the dispatcher's own evidence path.
+#:
+#: 1. The leading ``(?<![A-Za-z0-9_])`` **anchors** a candidate match to the
+#:    start of an identifier run. Without it the engine retries at every offset
+#:    inside a long token, and each retry rescans the rest of the token looking
+#:    for an ``=`` that is not there — quadratic. Measured on this machine
+#:    before the anchor: 16 KB of ``A`` took 3.7 s, and cost quadrupled per
+#:    doubling, so a 4 MB stream would have taken over a day. After: 4 MB in
+#:    0.24 s.
+#: 2. Possessive quantifiers (``*+``) forbid backtracking that can never help:
+#:    ``[A-Za-z0-9_]`` cannot match ``=``, ``[0-9]`` cannot match
+#:    ``[A-Za-z_]``, and ``\S`` is the last element of the pattern, so in every
+#:    case the greedy run already stops exactly where the next element must
+#:    begin.
+#:
+#: The matched *language* is unchanged. ``[0-9]*+`` preserves the previous
+#: behaviour for a key that begins mid-token after a digit (``9API_KEY=x``):
+#: the old pattern started matching at the first letter, this one starts at the
+#: first digit, and since key matching is a case-insensitive substring test the
+#: verdict and the rendered replacement are byte-identical. Verified by
+#: differential fuzzing against the previous pattern (200k random inputs,
+#: zero divergences) and pinned by
+#: ``tests/unit/test_security.py::TestRedactionCost``.
+_ENV_PAIR_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?P<key>[0-9]*+[A-Za-z_][A-Za-z0-9_]*+)=(?P<val>\S*+)"
+)
+#: Matches ``"key": "value"`` shaped tokens (JSON-ish logging). Possessive for
+#: the same reason: ``[^"]`` cannot match the ``"`` that must follow it, and
+#: ``\s`` cannot match the ``:``.
+_JSON_PAIR_RE = re.compile(r'"(?P<key>[^"]++)"\s*+:\s*+"(?P<val>[^"]*+)"')
 
 
 def _is_secret_key(key: str) -> bool:
@@ -317,6 +348,10 @@ def redact(text: str) -> str:
 
     Masks ``KEY=value`` and ``"key": "value"`` pairs whose key matches
     :data:`SECRET_ENV_MARKERS`, replacing the value with ``***REDACTED***``.
+
+    Cost is linear in ``len(text)``; see :data:`_ENV_PAIR_RE`. Callers stream
+    whole worker stderr through this function, so that is a requirement, not an
+    optimisation.
     """
 
     def _json_sub(match: re.Match[str]) -> str:

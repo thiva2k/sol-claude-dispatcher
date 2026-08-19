@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -303,3 +305,135 @@ def test_redact_is_case_insensitive() -> None:
     redacted = security.redact(text)
     assert "Bearer-xyz123" not in redacted
     assert "authorization=***REDACTED***" in redacted
+
+
+# ---------------------------------------------------------------------------
+# redact — cost (Lane B adjacent finding A3)
+#
+# ``redact()`` is applied to whole worker streams, which are bounded at
+# 2 x 1 MB per stream in memory and are unbounded on the spool path. The
+# original ``[A-Za-z_][A-Za-z0-9_]*=\S*`` pattern retried at every offset
+# inside a long ``=``-free token, so cost grew quadratically: Lane B observed a
+# 3 MB stderr redaction outliving the worker's own 60 s timeout. The fix must
+# not change what gets masked.
+# ---------------------------------------------------------------------------
+
+
+#: Cases chosen to pin the exact shapes the pre-fix pattern handled, including
+#: the awkward ones (a key that begins after a digit, a value containing a
+#: second ``=``, an empty value, a key immediately after punctuation).
+REDACTION_CASES = [
+    ("API_KEY=super-secret-value other=fine", "API_KEY=***REDACTED***"),
+    ("export AUTH_TOKEN=abc123", "AUTH_TOKEN=***REDACTED***"),
+    ("MY_PASSWORD=", "MY_PASSWORD=***REDACTED***"),
+    ("A=b=c TOKEN=x", "TOKEN=***REDACTED***"),
+    # A key reached mid-token after a digit: the old pattern began matching at
+    # the first letter, the anchored one begins at the digit, and both render
+    # the same text because key matching is a substring test.
+    ("9API_KEY=x", "9API_KEY=***REDACTED***"),
+    # An empty key can never start a pair; the pair after it still must.
+    ("=TOKEN=s", "=TOKEN=***REDACTED***"),
+    # Digits-only key is not a key: the following pair is still found.
+    ("12=TOKEN=s", "12=TOKEN=***REDACTED***"),
+    ('{"token": "abc123", "name": "ok"}', '"token": "***REDACTED***"'),
+    ("PATH=/usr/bin", "PATH=/usr/bin"),
+]
+
+
+@pytest.mark.parametrize(("text", "expected_fragment"), REDACTION_CASES)
+def test_redaction_semantics_survive_the_anchored_pattern(
+    text: str, expected_fragment: str
+) -> None:
+    assert expected_fragment in security.redact(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "API_KEY=super-secret-value other=fine",
+        "export AUTH_TOKEN=abc123",
+        "9API_KEY=x",
+        "=TOKEN=s",
+        "12=TOKEN=s",
+        "PATH=/usr/bin HOME=/home/dev",
+        "a" * 200,
+        "".join("k%d=v%d " % (i, i) for i in range(50)),
+    ],
+)
+def test_no_env_pair_match_starts_inside_an_identifier_run(text: str) -> None:
+    """The structural property that makes the pattern linear.
+
+    A match may only begin where an identifier run begins. This is what stops
+    the engine restarting — and rescanning — at every offset of a long token,
+    and it is checkable without measuring anything.
+    """
+    for match in security._ENV_PAIR_RE.finditer(text):
+        start = match.start()
+        if start == 0:
+            continue
+        preceding = text[start - 1]
+        assert not (preceding.isalnum() or preceding == "_"), (
+            f"match at offset {start} starts inside an identifier run: "
+            f"{text[max(0, start - 5):start + 10]!r}"
+        )
+
+
+#: Wall time the child is allowed for a 4 MB redaction. This is a *bound*, not
+#: a measurement: the linear implementation does it in well under a second on
+#: this machine, while the quadratic one extrapolates to over a day (measured:
+#: 3.7 s for 16 KB, cost x4 per doubling, 4 MB is 8 further doublings). Any
+#: value between "a second" and "a day" makes the test decide the same way, so
+#: there is no threshold to tune and nothing for machine load to flip.
+_REDACTION_BUDGET_SECONDS = 20.0
+
+_BULK_REDACTION_CHILD = r"""
+import sys
+from sol_claude_dispatcher.security import redact
+
+# 4 MB of one unbroken =-free identifier run: the exact shape that made the
+# unanchored pattern restart at every offset.
+blob = "A" * (4 * 1024 * 1024)
+text = "\n".join([
+    "GITHUB_TOKEN=ghp_realsecret",
+    blob,
+    '{"api_key": "leaked"}',
+    "HARMLESS=keepme",
+])
+out = redact(text)
+assert "ghp_realsecret" not in out, "env-style secret survived"
+assert "leaked" not in out, "json-style secret survived"
+assert "GITHUB_TOKEN=***REDACTED***" in out
+assert '"api_key": "***REDACTED***"' in out
+assert "HARMLESS=keepme" in out
+assert blob in out, "bulk text was corrupted"
+sys.stdout.write("OK")
+"""
+
+
+def test_bulk_redaction_completes_within_a_bounded_time(project_root: Path) -> None:
+    """A multi-megabyte stream must redact in bounded time, correctly.
+
+    Run in a child process so that a regression cannot hang the test session:
+    Python's ``re`` does not release the GIL, so a quadratic match in a thread
+    would freeze every other test rather than fail this one.
+    """
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(project_root / "src"), env.get("PYTHONPATH", "")]
+    ).rstrip(os.pathsep)
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", _BULK_REDACTION_CHILD],
+            capture_output=True,
+            text=True,
+            timeout=_REDACTION_BUDGET_SECONDS,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(
+            "redact() did not finish 4 MB of input within "
+            f"{_REDACTION_BUDGET_SECONDS:.0f}s — the pattern has regressed to "
+            "superlinear backtracking (Lane B adjacent finding A3)."
+        )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == "OK"
