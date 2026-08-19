@@ -1,0 +1,563 @@
+"""Runner tests (brief §11, §20, §22, §31, §32).
+
+Every process in this file is ``tests/fake_bin/claude``. Nothing here may spawn
+the real Claude CLI — that is the §32 rule and the reason the fake exists.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import uuid
+from pathlib import Path
+
+import pytest
+
+from sol_claude_dispatcher.config import load_config_from_mapping
+from sol_claude_dispatcher.errors import (
+    ClaudeBinaryNotFound,
+    ConfigurationError,
+    InternalDispatcherError,
+    RecursionDetected,
+)
+from sol_claude_dispatcher.models import TaskEnvelope, TaskRequest
+from sol_claude_dispatcher.runner import (
+    ALWAYS_DISALLOWED_TOOLS,
+    CLI_CAPABILITIES,
+    FORBIDDEN_FLAGS,
+    WorkerInvocation,
+    build_argv,
+    build_fable_invocation,
+    build_worker_invocation,
+    run_worker,
+)
+from sol_claude_dispatcher.security import assert_no_recursion
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+FAKE_CLAUDE = PROJECT_ROOT / "tests" / "fake_bin" / "claude"
+BASE_COMMIT = "a" * 40
+
+
+# ---------------------------------------------------------------------------
+# fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def dispatcher_config(tmp_path: Path):
+    """Config whose Claude binary is the fake, resolved against the real repo
+    so the shipped policy files and schemas are used verbatim."""
+    return load_config_from_mapping(
+        {
+            "dispatcher": {"state_dir": str(tmp_path / "state")},
+            "models": {"sonnet": "sonnet", "opus": "opus", "fable": "fable"},
+            "routing": {"default_model": "sonnet"},
+            "security": {
+                "max_dispatch_depth": 1,
+                "allowed_repository_roots": [str(tmp_path)],
+            },
+            "validation": {"run_dispatcher_validation": True},
+            "claude": {"binary": str(FAKE_CLAUDE)},
+        },
+        project_root=PROJECT_ROOT,
+    )
+
+
+@pytest.fixture
+def envelope(valid_request_dict: dict, git_repo: Path) -> TaskEnvelope:
+    request = TaskRequest.model_validate(valid_request_dict)
+    return TaskEnvelope.from_request(
+        request, canonical_root=str(git_repo), base_commit=BASE_COMMIT
+    )
+
+
+@pytest.fixture
+def fake_env(tmp_path: Path) -> dict[str, str]:
+    """Base environment handed to the fake. Deliberately carries a secret so
+    tests can prove ``worker_environment`` strips it (§22 layer 7)."""
+    return {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(tmp_path),
+        "LANG": "C.UTF-8",
+        "FAKE_CLAUDE_MODE": "success",
+        "FAKE_CLAUDE_LOG": str(tmp_path / "fake-claude.log"),
+        "GITHUB_TOKEN": "ghp_supersecret",
+        "AWS_SECRET_ACCESS_KEY": "nope",
+        "SOL_DISPATCHER_CONFIG": "/etc/dispatcher.toml",
+    }
+
+
+def read_fake_log(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def flag_value(argv: list[str], flag: str) -> str:
+    return argv[argv.index(flag) + 1]
+
+
+def flag_values(argv: list[str], flag: str) -> list[str]:
+    start = argv.index(flag) + 1
+    out: list[str] = []
+    for token in argv[start:]:
+        if token.startswith("-"):
+            break
+        out.append(token)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# argv construction — worker
+# ---------------------------------------------------------------------------
+
+
+def test_worker_argv_shape(dispatcher_config, envelope, fake_env, git_repo):
+    spec = build_worker_invocation(
+        envelope,
+        dispatcher_config,
+        model="sonnet",
+        session_id="11111111-1111-4111-8111-111111111111",
+        prompt="Implement the objective.",
+        cwd=git_repo,
+        base_env=fake_env,
+    )
+    argv = build_argv(spec)
+
+    assert argv[0] == str(FAKE_CLAUDE)
+    assert argv[1] == "-p"
+    assert flag_value(argv, "--model") == "sonnet"
+    assert flag_value(argv, "--output-format") == "json"
+    assert flag_value(argv, "--permission-mode") == "auto"
+    assert "--strict-mcp-config" in argv
+    assert flag_value(argv, "--mcp-config").endswith("config/empty-mcp.json")
+    assert flag_value(argv, "--session-id") == "11111111-1111-4111-8111-111111111111"
+    assert flag_value(argv, "--worktree") == envelope.worktree_name
+    assert argv[-1] == "Implement the objective."
+    # The prompt is the ONLY positional.
+    assert argv.count("Implement the objective.") == 1
+
+
+def test_worker_argv_strips_mcp_and_subagents(dispatcher_config, envelope, git_repo, fake_env):
+    argv = build_argv(
+        build_worker_invocation(
+            envelope,
+            dispatcher_config,
+            model="sonnet",
+            session_id=str(uuid.uuid4()),
+            prompt="p",
+            cwd=git_repo,
+            base_env=fake_env,
+        )
+    )
+    disallowed = flag_values(argv, "--disallowedTools")
+    for pattern in ALWAYS_DISALLOWED_TOOLS:
+        assert pattern in disallowed
+    assert "mcp__*" in disallowed
+    assert "Bash(claude:*)" in disallowed
+    assert "Bash(codex:*)" in disallowed
+    # Granted tools never include a subagent spawner (§22 layer 2).
+    granted = flag_values(argv, "--tools")
+    assert "Agent" not in granted and "Task" not in granted
+    assert "Read" in granted and "Write" in granted
+
+
+def test_worker_argv_json_schema_is_minified_inline(dispatcher_config, envelope, git_repo, fake_env):
+    argv = build_argv(
+        build_worker_invocation(
+            envelope, dispatcher_config, model="sonnet",
+            session_id=str(uuid.uuid4()), prompt="p", cwd=git_repo, base_env=fake_env,
+        )
+    )
+    schema = flag_value(argv, "--json-schema")
+    parsed = json.loads(schema)
+    # Minified: identical to its own compact re-encoding, and strictly smaller
+    # than the pretty-printed file on disk.
+    assert schema == json.dumps(parsed, separators=(",", ":"))
+    raw = (PROJECT_ROOT / "schemas" / "worker-result.schema.json").read_text()
+    assert len(schema) < len(raw)
+    assert parsed["properties"]["status"]  # it really is the worker schema
+
+
+def test_worker_argv_policy_is_inline_text_not_a_path(dispatcher_config, envelope, git_repo, fake_env):
+    argv = build_argv(
+        build_worker_invocation(
+            envelope, dispatcher_config, model="sonnet",
+            session_id=str(uuid.uuid4()), prompt="p", cwd=git_repo, base_env=fake_env,
+        )
+    )
+    policy = flag_value(argv, "--append-system-prompt")
+    on_disk = (PROJECT_ROOT / "prompts" / "worker-policy.md").read_text()
+    assert policy == on_disk
+    assert not policy.endswith(".md")
+    assert "--append-system-prompt-file" not in argv
+
+
+def test_worker_argv_never_emits_max_turns(dispatcher_config, envelope, git_repo, fake_env):
+    """§Wave-1 finding: Claude Code 2.1.234 has no --max-turns."""
+    spec = build_worker_invocation(
+        envelope, dispatcher_config, model="sonnet",
+        session_id=str(uuid.uuid4()), prompt="p", cwd=git_repo, base_env=fake_env,
+    )
+    assert envelope.execution.max_turns == 40
+    assert spec.max_turns == 40           # recorded policy...
+    assert "--max-turns" not in build_argv(spec)   # ...but never emitted
+    assert CLI_CAPABILITIES["max_turns"] is False
+
+
+def test_max_turns_gate_can_be_flipped_without_touching_call_sites(
+    dispatcher_config, envelope, git_repo, fake_env, monkeypatch
+):
+    monkeypatch.setitem(CLI_CAPABILITIES, "max_turns", True)
+    argv = build_argv(
+        build_worker_invocation(
+            envelope, dispatcher_config, model="sonnet",
+            session_id=str(uuid.uuid4()), prompt="p", cwd=git_repo, base_env=fake_env,
+        )
+    )
+    assert flag_value(argv, "--max-turns") == "40"
+
+
+def test_worker_argv_never_contains_a_forbidden_flag(dispatcher_config, envelope, git_repo, fake_env):
+    argv = build_argv(
+        build_worker_invocation(
+            envelope, dispatcher_config, model="sonnet",
+            session_id=str(uuid.uuid4()), prompt="p", cwd=git_repo, base_env=fake_env,
+        )
+    )
+    assert FORBIDDEN_FLAGS.isdisjoint(argv)
+
+
+def test_worker_env_carries_markers_and_drops_secrets(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    spec = build_worker_invocation(
+        envelope, dispatcher_config, model="sonnet",
+        session_id=str(uuid.uuid4()), prompt="p", cwd=git_repo, base_env=fake_env,
+    )
+    assert spec.env["SOL_WORKER"] == "1"
+    assert spec.env["SOL_DISPATCH_DEPTH"] == "1"
+    assert spec.env["SOL_TASK_ID"] == envelope.task_id
+    assert "GITHUB_TOKEN" not in spec.env
+    assert "AWS_SECRET_ACCESS_KEY" not in spec.env
+    assert "SOL_DISPATCHER_CONFIG" not in spec.env
+
+
+# ---------------------------------------------------------------------------
+# argv construction — resume
+# ---------------------------------------------------------------------------
+
+
+def test_resume_argv_uses_resume_and_no_new_worktree(dispatcher_config, envelope, git_repo, fake_env):
+    argv = build_argv(
+        build_worker_invocation(
+            envelope, dispatcher_config, model="sonnet",
+            session_id="ignored-on-resume", prompt="Fix R1 only.",
+            cwd=git_repo, base_env=fake_env,
+            resume_session_id="22222222-2222-4222-8222-222222222222",
+        )
+    )
+    assert flag_value(argv, "--resume") == "22222222-2222-4222-8222-222222222222"
+    assert "--session-id" not in argv
+    assert "--worktree" not in argv
+    assert argv[-1] == "Fix R1 only."
+
+
+def test_resume_with_worktree_is_refused():
+    spec = WorkerInvocation(
+        binary="claude", model="sonnet", session_id="s", cwd=Path("/tmp"),
+        prompt="p", timeout_seconds=10, role="implementer",
+        worktree_name="sol-abcd1234", resume_session_id="sess",
+    )
+    with pytest.raises(InternalDispatcherError):
+        build_argv(spec)
+
+
+# ---------------------------------------------------------------------------
+# argv construction — Fable
+# ---------------------------------------------------------------------------
+
+
+def test_fable_argv_is_read_only_and_fresh(dispatcher_config, envelope, git_repo, fake_env):
+    spec = build_fable_invocation(
+        envelope, dispatcher_config,
+        session_id="33333333-3333-4333-8333-333333333333",
+        prompt="Review the diff.", cwd=git_repo, base_env=fake_env,
+    )
+    argv = build_argv(spec)
+
+    assert spec.role == "reviewer"
+    assert flag_value(argv, "--model") == "fable"
+    tools = flag_values(argv, "--tools")
+    assert tools == ["Read", "Glob", "Grep"]
+    for banned in ("Edit", "Write", "Bash", "NotebookEdit", "Agent", "Task"):
+        assert banned not in tools
+    disallowed = flag_values(argv, "--disallowedTools")
+    assert "Edit" in disallowed and "Write" in disallowed and "Bash" in disallowed
+    assert "mcp__*" in disallowed
+    assert "--worktree" not in argv
+    assert "--resume" not in argv
+    assert flag_value(argv, "--session-id") == "33333333-3333-4333-8333-333333333333"
+    assert "--strict-mcp-config" in argv
+    assert flag_value(argv, "--mcp-config").endswith("config/empty-mcp.json")
+    # Reviewer policy, inline, verbatim.
+    assert flag_value(argv, "--append-system-prompt") == (
+        PROJECT_ROOT / "prompts" / "fable-reviewer-policy.md"
+    ).read_text()
+
+
+def test_fable_config_with_write_tools_is_refused(dispatcher_config, envelope, git_repo, fake_env):
+    dispatcher_config.claude.reviewer_tools = ["Read", "Edit"]
+    with pytest.raises(ConfigurationError):
+        build_fable_invocation(
+            envelope, dispatcher_config, session_id="s", prompt="p",
+            cwd=git_repo, base_env=fake_env,
+        )
+
+
+# ---------------------------------------------------------------------------
+# argv construction — fail-closed guards
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"permission_mode": "bypassPermissions"},
+        {"tools": ["Read", "Agent"]},
+        {"prompt": "   "},
+    ],
+)
+def test_build_argv_fails_closed(kwargs):
+    base = dict(
+        binary="claude", model="sonnet", session_id="s", cwd=Path("/tmp"),
+        prompt="p", timeout_seconds=10, role="implementer",
+    )
+    base.update(kwargs)
+    with pytest.raises(InternalDispatcherError):
+        build_argv(WorkerInvocation(**base))  # type: ignore[arg-type]
+
+
+def test_reviewer_may_not_receive_a_worktree():
+    spec = WorkerInvocation(
+        binary="claude", model="fable", session_id="s", cwd=Path("/tmp"),
+        prompt="p", timeout_seconds=10, role="reviewer", worktree_name="sol-abcd1234",
+    )
+    with pytest.raises(InternalDispatcherError):
+        build_argv(spec)
+
+
+# ---------------------------------------------------------------------------
+# run_worker — the fake binary, §32
+# ---------------------------------------------------------------------------
+
+
+def invocation(config, envelope, cwd, env, **overrides) -> WorkerInvocation:
+    kwargs = dict(
+        model="sonnet",
+        session_id=str(uuid.uuid4()),
+        prompt="Implement the objective.",
+        cwd=cwd,
+        base_env=env,
+        timeout_seconds=30,
+        grace_seconds=0.5,
+    )
+    kwargs.update(overrides)
+    return build_worker_invocation(envelope, config, **kwargs)  # type: ignore[arg-type]
+
+
+async def test_run_worker_success(dispatcher_config, envelope, git_repo, fake_env, tmp_path):
+    run = await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+
+    assert run.exit_code == 0
+    assert run.timed_out is False
+    assert run.killed_with_sigkill is False
+    assert run.start_failed is False
+    payload = json.loads(run.stdout)
+    assert payload["structured_output"]["status"] == "completed"
+    assert run.duration_ms >= 0
+
+    log = read_fake_log(tmp_path / "fake-claude.log")
+    assert len(log) == 1
+    assert log[0]["cwd"] == str(git_repo)
+    assert log[0]["has_worktree"] is True
+    assert log[0]["has_resume"] is False
+
+
+async def test_run_worker_records_env_markers_and_no_secrets(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+    record = read_fake_log(tmp_path / "fake-claude.log")[0]
+
+    assert record["env_markers"]["SOL_WORKER"] == "1"
+    assert record["env_markers"]["SOL_DISPATCH_DEPTH"] == "1"
+    assert record["env_markers"]["SOL_TASK_ID"] == envelope.task_id
+    assert "GITHUB_TOKEN" not in record["env_keys"]
+    assert "AWS_SECRET_ACCESS_KEY" not in record["env_keys"]
+    assert "SOL_DISPATCHER_CONFIG" not in record["env_keys"]
+
+
+async def test_worker_environment_would_refuse_a_nested_dispatcher(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    """§22 layer 4: the env we hand the worker is exactly the env that makes a
+    dispatcher refuse to initialise."""
+    spec = invocation(dispatcher_config, envelope, git_repo, fake_env)
+    with pytest.raises(RecursionDetected):
+        assert_no_recursion(dispatcher_config, env=spec.env)
+    # ...and the override escape hatch is test-only, never in the worker env.
+    assert "SOL_DISPATCHER_TEST_OVERRIDE" not in spec.env
+
+
+async def test_run_worker_nonzero_exit_is_reported_not_raised(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    fake_env["FAKE_CLAUDE_MODE"] = "failure"
+    run = await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+
+    assert run.exit_code == 2
+    assert run.timed_out is False
+    assert "simulated worker failure" in run.stderr
+
+
+async def test_run_worker_timeout_terminates_and_preserves_evidence(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    """§20/§31: TERM → status=timeout → partial output and task state survive."""
+    fake_env["FAKE_CLAUDE_MODE"] = "timeout"
+    fake_env["FAKE_CLAUDE_SLEEP"] = "60"
+    spec = invocation(
+        dispatcher_config, envelope, git_repo, fake_env,
+        timeout_seconds=1, grace_seconds=0.5,
+    )
+    run = await run_worker(spec)
+
+    assert run.timed_out is True
+    assert run.killed_with_sigkill is False          # SIGTERM was enough
+    assert run.exit_code == -15                      # died on SIGTERM
+    assert "partial stdout before timeout" in run.stdout
+    assert "still working" in run.stderr
+    assert run.duration_ms < 30_000
+
+    # State that must never be lost on a timeout (§20).
+    assert spec.session_id
+    assert spec.worktree_name == envelope.worktree_name
+    assert flag_value(run.argv, "--session-id") == spec.session_id
+    assert flag_value(run.argv, "--worktree") == envelope.worktree_name
+    record = read_fake_log(tmp_path / "fake-claude.log")[0]
+    assert record["session_id"] == spec.session_id
+
+
+async def test_run_worker_escalates_to_sigkill_when_sigterm_ignored(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    fake_env["FAKE_CLAUDE_MODE"] = "hang"
+    fake_env["FAKE_CLAUDE_SLEEP"] = "60"
+    run = await run_worker(
+        invocation(
+            dispatcher_config, envelope, git_repo, fake_env,
+            timeout_seconds=1, grace_seconds=0.5,
+        )
+    )
+
+    assert run.timed_out is True
+    assert run.killed_with_sigkill is True
+    assert run.exit_code == -9
+    assert "partial stdout before timeout" in run.stdout
+
+
+async def test_run_worker_missing_binary(dispatcher_config, envelope, git_repo, fake_env, tmp_path):
+    dispatcher_config.claude.binary = str(tmp_path / "no-such-claude")
+    with pytest.raises(ClaudeBinaryNotFound):
+        await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+
+
+async def test_run_worker_non_executable_binary(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    dud = tmp_path / "claude-not-executable"
+    dud.write_text("#!/bin/sh\n")
+    dud.chmod(0o644)
+    dispatcher_config.claude.binary = str(dud)
+    with pytest.raises(ClaudeBinaryNotFound):
+        await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+
+
+async def test_run_worker_malformed_json_is_not_the_runners_problem(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    fake_env["FAKE_CLAUDE_MODE"] = "malformed-json"
+    run = await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+
+    assert run.exit_code == 0
+    assert run.timed_out is False
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(run.stdout)
+
+
+async def test_run_worker_blocked_mode(dispatcher_config, envelope, git_repo, fake_env):
+    fake_env["FAKE_CLAUDE_MODE"] = "blocked"
+    run = await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+
+    payload = json.loads(run.stdout)["structured_output"]
+    assert payload["status"] == "blocked"
+    assert payload["blockers"]
+
+
+async def test_run_worker_scope_violation_mode_writes_outside_allowed_paths(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    fake_env["FAKE_CLAUDE_MODE"] = "scope-violation"
+    run = await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+
+    assert run.exit_code == 0
+    # The worker CLAIMS success while having touched a forbidden path — the
+    # exact divergence dispatcher observations exist to catch (§16).
+    assert json.loads(run.stdout)["structured_output"]["status"] == "completed"
+    assert (git_repo / ".github" / "workflows" / "pwn.yml").exists()
+    assert (git_repo / "src" / "unrelated" / "leak.py").exists()
+
+
+async def test_fake_resume_mode_distinguishes_resume_from_fresh(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    fake_env["FAKE_CLAUDE_MODE"] = "resume"
+
+    fresh = await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+    assert fresh.exit_code == 3          # no --resume: the fake refuses
+
+    resumed = await run_worker(
+        invocation(
+            dispatcher_config, envelope, git_repo, fake_env,
+            resume_session_id="44444444-4444-4444-8444-444444444444",
+        )
+    )
+    assert resumed.exit_code == 0
+    payload = json.loads(resumed.stdout)
+    assert payload["resumed_session_id"] == "44444444-4444-4444-8444-444444444444"
+    assert "Resumed session" in payload["structured_output"]["summary"]
+
+    records = read_fake_log(tmp_path / "fake-claude.log")
+    assert [r["has_resume"] for r in records] == [False, True]
+    assert records[1]["has_worktree"] is False
+
+
+async def test_fable_review_mode_returns_review_shaped_json(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    fake_env["FAKE_CLAUDE_MODE"] = "fable-review"
+    spec = build_fable_invocation(
+        envelope, dispatcher_config, session_id=str(uuid.uuid4()),
+        prompt="Review the diff.", cwd=git_repo, base_env=fake_env,
+        timeout_seconds=30, grace_seconds=0.5,
+    )
+    run = await run_worker(spec)
+
+    payload = json.loads(run.stdout)["structured_output"]
+    assert payload["verdict"] == "changes_required"
+    assert payload["recommended_next_action"] == "resume_worker"
+    assert payload["findings"][0]["severity"] == "high"
+
+    record = read_fake_log(tmp_path / "fake-claude.log")[0]
+    assert record["tools"] == ["Read", "Glob", "Grep"]
+    assert record["has_worktree"] is False
+    assert record["model"] == "fable"

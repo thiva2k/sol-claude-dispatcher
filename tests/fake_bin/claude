@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+"""Fake ``claude`` binary for the dispatcher test suite (brief §32).
+
+**Nothing in this repository's test suite may spawn the real Claude CLI.** This
+script is the only worker binary tests are allowed to execute. It is
+deterministic, offline, and does exactly what the environment tells it to.
+
+Control surface
+---------------
+
+``FAKE_CLAUDE_MODE``   selects the scenario (default ``success``):
+
+==================== ======================================================
+mode                 behaviour
+==================== ======================================================
+``success``          valid ``--output-format json`` envelope carrying a
+                     schema-valid ``WorkerResult``; exit 0
+``failure``          diagnostic on stderr; exit 2 (or ``FAKE_CLAUDE_EXIT_CODE``)
+``timeout``          writes partial stdout/stderr, flushes, then sleeps past
+                     the dispatcher deadline; dies on SIGTERM
+``hang``             like ``timeout`` but **ignores SIGTERM**, so the runner
+                     must escalate to SIGKILL
+``malformed-json``   emits non-JSON prose on stdout; exit 0
+``scope-violation``  writes files outside the task's allowed paths (relative
+                     to cwd) and then claims success
+``blocked``          valid envelope with ``status="blocked"``; exit 0
+``resume``           requires ``--resume``; echoes session continuity. Without
+                     ``--resume`` it exits 3, so a resume test that forgets the
+                     flag fails loudly instead of silently passing
+``fable-review``     valid envelope carrying a ``FableReview`` payload; exit 0
+==================== ======================================================
+
+``FAKE_CLAUDE_LOG``        path to append one JSON record per invocation:
+                           full argv, cwd, parsed flags, and the environment
+                           markers (``SOL_WORKER``/``SOL_DISPATCH_DEPTH``/
+                           ``SOL_TASK_ID``) plus the full env key list, so
+                           tests can assert both what was passed and what was
+                           *stripped*.
+``FAKE_CLAUDE_SLEEP``      seconds the sleeping modes sleep (default 60).
+``FAKE_CLAUDE_EXIT_CODE``  override the exit code of any mode.
+``FAKE_CLAUDE_STDOUT``     replace stdout entirely with this literal text.
+``FAKE_CLAUDE_TOUCH``      comma-separated cwd-relative paths to create in
+                           ``scope-violation`` mode (default
+                           ``.github/workflows/pwn.yml,src/unrelated/leak.py``).
+
+Never add a mode that shells out, touches the network, or launches a real
+agent. That would defeat the entire point of this file.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import signal
+import sys
+import time
+
+MARKER_KEYS = ("SOL_WORKER", "SOL_DISPATCH_DEPTH", "SOL_TASK_ID")
+
+_VALUE_FLAGS = {
+    "--model",
+    "--session-id",
+    "--resume",
+    "-r",
+    "--worktree",
+    "-w",
+    "--output-format",
+    "--json-schema",
+    "--append-system-prompt",
+    "--mcp-config",
+    "--permission-mode",
+    "--max-budget-usd",
+    "--max-turns",
+    "--add-dir",
+    "--settings",
+}
+_LIST_FLAGS = {"--tools", "--allowedTools", "--disallowedTools"}
+_BOOL_FLAGS = {"-p", "--print", "--strict-mcp-config", "--fork-session",
+               "--no-session-persistence", "--verbose"}
+
+
+def parse_argv(argv: list[str]) -> dict:
+    """Best-effort argv parse. Mirrors the real CLI's shapes closely enough
+    for assertions; unknown flags land in ``unknown`` rather than exploding."""
+    parsed: dict = {
+        "flags": [],
+        "values": {},
+        "lists": {},
+        "positional": [],
+        "unknown": [],
+    }
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token in _BOOL_FLAGS:
+            parsed["flags"].append(token)
+            i += 1
+        elif token in _VALUE_FLAGS:
+            parsed["values"][token] = argv[i + 1] if i + 1 < len(argv) else None
+            i += 2
+        elif token in _LIST_FLAGS:
+            collected: list[str] = []
+            i += 1
+            while i < len(argv) and not argv[i].startswith("-"):
+                collected.append(argv[i])
+                i += 1
+            parsed["lists"][token] = collected
+        elif token.startswith("-"):
+            parsed["unknown"].append(token)
+            i += 1
+        else:
+            parsed["positional"].append(token)
+            i += 1
+    return parsed
+
+
+def write_log(parsed: dict, mode: str) -> None:
+    path = os.environ.get("FAKE_CLAUDE_LOG")
+    if not path:
+        return
+    record = {
+        "mode": mode,
+        "argv": sys.argv[1:],
+        "argv0": sys.argv[0],
+        "cwd": os.getcwd(),
+        "pid": os.getpid(),
+        "parsed": parsed,
+        "model": parsed["values"].get("--model"),
+        "session_id": parsed["values"].get("--session-id"),
+        "resume_session_id": parsed["values"].get("--resume") or parsed["values"].get("-r"),
+        "worktree": parsed["values"].get("--worktree") or parsed["values"].get("-w"),
+        "has_resume": "--resume" in parsed["values"] or "-r" in parsed["values"],
+        "has_session_id": "--session-id" in parsed["values"],
+        "has_worktree": "--worktree" in parsed["values"] or "-w" in parsed["values"],
+        "prompt": parsed["positional"][-1] if parsed["positional"] else None,
+        "tools": parsed["lists"].get("--tools", []),
+        "disallowed_tools": parsed["lists"].get("--disallowedTools", []),
+        "append_system_prompt": parsed["values"].get("--append-system-prompt"),
+        "json_schema": parsed["values"].get("--json-schema"),
+        "env_markers": {k: os.environ.get(k) for k in MARKER_KEYS},
+        "env_keys": sorted(os.environ),
+    }
+    # Append-only, one JSON object per line: concurrent fakes never clobber
+    # each other's records.
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+        handle.flush()
+
+
+def worker_envelope(payload: dict, session_id: str | None) -> dict:
+    """Wrap a worker payload the way ``--output-format json`` does."""
+    return {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "duration_ms": 12,
+        "num_turns": 3,
+        "session_id": session_id or "00000000-0000-4000-8000-000000000000",
+        "total_cost_usd": 0.0,
+        "result": "fake claude run complete",
+        "structured_output": payload,
+    }
+
+
+def success_payload(summary: str = "Fake worker completed the task.") -> dict:
+    return {
+        "status": "completed",
+        "summary": summary,
+        "changes": [
+            {"path": "src/example.py", "type": "modified",
+             "description": "fake edit"},
+        ],
+        "acceptance_criteria": [
+            {"criterion": "Deployment must be atomic.", "status": "satisfied",
+             "evidence": "tests/test_deploy.py::test_atomic"},
+        ],
+        "tests": [
+            {"command": "pytest -q", "status": "passed", "exit_code": 0,
+             "summary": "1 passed"},
+        ],
+        "risks": [],
+        "blockers": [],
+        "needs_review": True,
+    }
+
+
+def blocked_payload() -> dict:
+    return {
+        "status": "blocked",
+        "summary": "Fake worker is blocked and stopped rather than guessing.",
+        "changes": [],
+        "acceptance_criteria": [
+            {"criterion": "Deployment must be atomic.", "status": "not_satisfied",
+             "evidence": "blocked before implementation"},
+        ],
+        "tests": [],
+        "risks": [],
+        "blockers": ["Requirements conflict: spec says atomic, tests assume in-place."],
+        "needs_review": True,
+    }
+
+
+def fable_payload() -> dict:
+    return {
+        "verdict": "changes_required",
+        "findings": [
+            {
+                "id": "F1",
+                "severity": "high",
+                "category": "correctness",
+                "path": "src/example.py",
+                "line": 91,
+                "finding": "Rename is not atomic across filesystems.",
+                "evidence": "os.replace across devices raises OSError",
+                "recommendation": "Stage the temp file in the destination directory.",
+            }
+        ],
+        "missing_tests": ["cross-device rename"],
+        "architecture_notes": ["Deployment logic is duplicated in two modules."],
+        "recommended_next_action": "resume_worker",
+    }
+
+
+def sleep_forever() -> None:
+    seconds = float(os.environ.get("FAKE_CLAUDE_SLEEP", "60"))
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+
+
+def main() -> int:
+    mode = os.environ.get("FAKE_CLAUDE_MODE", "success")
+    parsed = parse_argv(sys.argv[1:])
+    write_log(parsed, mode)
+
+    session_id = parsed["values"].get("--session-id")
+    resume_id = parsed["values"].get("--resume") or parsed["values"].get("-r")
+    override = os.environ.get("FAKE_CLAUDE_EXIT_CODE")
+    forced_stdout = os.environ.get("FAKE_CLAUDE_STDOUT")
+
+    if forced_stdout is not None:
+        sys.stdout.write(forced_stdout)
+        sys.stdout.flush()
+        return int(override) if override else 0
+
+    if mode == "success":
+        print(json.dumps(worker_envelope(success_payload(), session_id)))
+
+    elif mode == "failure":
+        sys.stderr.write("fake claude: simulated worker failure\n")
+        sys.stderr.flush()
+        return int(override) if override else 2
+
+    elif mode in ("timeout", "hang"):
+        # Partial evidence BEFORE the stall: §20 says a timeout must not lose
+        # whatever the worker already produced.
+        sys.stdout.write('{"type":"partial","result":"partial stdout before timeout"')
+        sys.stdout.flush()
+        sys.stderr.write("fake claude: still working...\n")
+        sys.stderr.flush()
+        if mode == "hang":
+            # Force the runner to escalate to SIGKILL.
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+        sleep_forever()
+        return 0
+
+    elif mode == "malformed-json":
+        print("I decided prose was clearer than JSON today. {not: json,,,")
+
+    elif mode == "scope-violation":
+        raw = os.environ.get(
+            "FAKE_CLAUDE_TOUCH",
+            ".github/workflows/pwn.yml,src/unrelated/leak.py",
+        )
+        for rel in [p.strip() for p in raw.split(",") if p.strip()]:
+            target = os.path.join(os.getcwd(), rel)
+            os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write("touched by fake claude outside the allowed paths\n")
+        print(json.dumps(worker_envelope(
+            success_payload("Fake worker edited files it was not allowed to touch."),
+            session_id,
+        )))
+
+    elif mode == "blocked":
+        print(json.dumps(worker_envelope(blocked_payload(), session_id)))
+
+    elif mode == "resume":
+        if not resume_id:
+            sys.stderr.write(
+                "fake claude: resume mode invoked without --resume; "
+                "the dispatcher must never start a fresh session on resume\n"
+            )
+            sys.stderr.flush()
+            return int(override) if override else 3
+        if session_id:
+            sys.stderr.write(
+                "fake claude: --session-id and --resume are mutually exclusive\n"
+            )
+            sys.stderr.flush()
+            return int(override) if override else 4
+        payload = success_payload(f"Resumed session {resume_id} and applied the fix.")
+        envelope = worker_envelope(payload, resume_id)
+        envelope["resumed_session_id"] = resume_id
+        print(json.dumps(envelope))
+
+    elif mode == "fable-review":
+        envelope = worker_envelope(fable_payload(), session_id)
+        envelope["result"] = "fake fable review complete"
+        print(json.dumps(envelope))
+
+    else:
+        sys.stderr.write(f"fake claude: unknown FAKE_CLAUDE_MODE {mode!r}\n")
+        return 64
+
+    sys.stdout.flush()
+    return int(override) if override else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
