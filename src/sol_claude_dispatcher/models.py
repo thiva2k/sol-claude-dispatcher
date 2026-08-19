@@ -35,6 +35,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -449,12 +450,21 @@ class ExecutionSpec(StrictModel):
 
 
 class ConstraintsSpec(StrictModel):
-    """Hard-ish constraints carried into the worker environment (§8, §22).
+    """Constraints carried into the worker prompt and argv (§8, §22).
 
-    Honesty note (§23): only some of these are hard-enforced. ``allow_push`` /
-    ``allow_merge`` / ``allow_commit`` are enforced by omitting the tools and
-    denying the Bash patterns; ``allow_network`` is policy-only in V1 unless an
-    OS sandbox is enabled. ``docs/SECURITY.md`` states which is which.
+    Honesty note (§23), rewritten for finding P1-9: ``allow_push`` /
+    ``allow_merge`` / ``allow_commit`` / ``allow_subagents`` are **not**
+    switches. The operations they name are prohibited in V1 by code-level
+    invariants (``runner.ALWAYS_DISALLOWED_TOOLS``,
+    ``runner.CORE_DENIED_GIT_OPERATIONS``, and the subagent refusal in
+    ``runner._assert_invocation_sane``) that no caller and no configuration can
+    lift. Rather than leave four fields that look functional and do nothing,
+    they are validated as always-false: asking for one is refused, loudly,
+    instead of being silently ignored.
+
+    ``allow_network`` is different and stays a real field: it is honestly
+    labelled POLICY in ``docs/SECURITY.md`` — it changes the instructions the
+    worker receives and is not backed by any OS-level enforcement.
     """
 
     allow_network: bool = False
@@ -462,6 +472,17 @@ class ConstraintsSpec(StrictModel):
     allow_merge: bool = False
     allow_commit: bool = False
     allow_subagents: bool = False
+
+    @field_validator("allow_push", "allow_merge", "allow_commit", "allow_subagents")
+    @classmethod
+    def _prohibited_in_v1(cls, v: bool, info: ValidationInfo) -> bool:
+        if v:
+            raise ValueError(
+                f"{info.field_name} cannot be enabled: the operation it names is "
+                "prohibited by a V1 code-level invariant, not by this flag. "
+                "Remove the field rather than setting it to true"
+            )
+        return v
 
 
 class TaskRequest(StrictModel):
@@ -741,6 +762,13 @@ class ValidationResult(StrictModel):
     duration_ms: int = Field(ge=0)
     stdout_tail: str = Field(default="", max_length=_MAX_TEXT)
     stderr_tail: str = Field(default="", max_length=_MAX_TEXT)
+    #: Bytes the command actually wrote, versus what the bounded tail retains.
+    #: ``*_truncated`` says plainly that the tail is an excerpt, so a reader
+    #: never mistakes bounded evidence for the complete stream (P1-8).
+    stdout_bytes: int = Field(default=0, ge=0)
+    stderr_bytes: int = Field(default=0, ge=0)
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 class RunMetadata(StrictModel):

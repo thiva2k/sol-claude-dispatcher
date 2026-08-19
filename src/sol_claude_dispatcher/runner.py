@@ -9,6 +9,11 @@ Hard requirements:
   signal was needed.
 * Evidence survives a timeout. Partial stdout, stderr, the session id, and the
   worktree must all still be recorded (§20).
+* Evidence survives *volume*, too (P1-8). Retained buffers are bounded, but the
+  bound is never allowed to silently swallow the structured result: the complete
+  stream is spooled to disk when the caller supplies a path, truncation is
+  reported as a fact on :class:`WorkerRun`, and the trailing structured JSON
+  document is recovered explicitly (:attr:`WorkerRun.stdout_for_parsing`).
 * Never forward dispatcher secrets into the child (§22 layer 7); build the
   environment with ``security.worker_environment``.
 
@@ -44,11 +49,12 @@ from .errors import (
     InternalDispatcherError,
 )
 from .models import TaskEnvelope
-from .security import worker_environment
+from .security import redact, worker_environment
 
 __all__ = [
     "WorkerInvocation",
     "WorkerRun",
+    "StreamCapture",
     "run_worker",
     "build_argv",
     "build_worker_invocation",
@@ -58,10 +64,12 @@ __all__ = [
     "CLI_CAPABILITIES",
     "SUBAGENT_TOOL_NAMES",
     "ALWAYS_DISALLOWED_TOOLS",
+    "CORE_DENIED_GIT_OPERATIONS",
     "FORBIDDEN_FLAGS",
     "MUTATING_TOOL_NAMES",
     "DEFAULT_GRACE_SECONDS",
     "MAX_CAPTURED_BYTES",
+    "MAX_RECOVERED_BYTES",
 ]
 
 #: Feature flags for the installed Claude CLI. Keyed by flag name; values are
@@ -92,18 +100,41 @@ MUTATING_TOOL_NAMES: tuple[str, ...] = (
     "WebSearch",
 )
 
+#: Git operations V1 prohibits outright (P1-9). These used to live only in
+#: ``config.claude.disallowed_tools``, i.e. an operator could delete them by
+#: editing a TOML file. They are code-level invariants now: config may *add*
+#: deny rules, never remove one of these.
+#:
+#: Honesty (§23, ``docs/SECURITY.md``): a deny pattern is a **prefix match on
+#: the Bash command text** performed by the Claude CLI's own permission engine.
+#: It is HARD in the sense that no configuration can remove it, and it is not
+#: an OS boundary: it does not inspect the resolved executable, so a command
+#: that reaches git without the literal ``git push``-style prefix (absolute
+#: path, wrapper script, alias) is not covered by it. The post-run evidence and
+#: primary-tree checks — not this list — are what actually detect a violation.
+CORE_DENIED_GIT_OPERATIONS: tuple[str, ...] = (
+    "Bash(git push:*)",
+    "Bash(git merge:*)",
+    "Bash(git rebase:*)",
+    "Bash(git commit:*)",
+    "Bash(git reset:*)",
+    "Bash(git clean:*)",
+    "Bash(git worktree:*)",
+)
+
 #: Deny patterns the runner appends unconditionally, whatever the config says.
 #: Config is operator-editable; these are not. ``mcp__*`` strips every MCP tool
 #: including this dispatcher's own (§22 layer 1); the Agent/Task entries close
 #: the subagent path (§22 layer 2); the ``claude``/``codex`` bash patterns close
-#: the child-orchestrator path (§22 layer 3).
+#: the child-orchestrator path (§22 layer 3); the git entries are the
+#: V1-prohibited repository mutations (P1-9).
 ALWAYS_DISALLOWED_TOOLS: tuple[str, ...] = (
     "mcp__*",
     "Agent",
     "Task",
     "Bash(claude:*)",
     "Bash(codex:*)",
-)
+) + CORE_DENIED_GIT_OPERATIONS
 
 #: Flags this dispatcher will never emit, at any call site, for any reason.
 FORBIDDEN_FLAGS: frozenset[str] = frozenset(
@@ -117,10 +148,25 @@ FORBIDDEN_FLAGS: frozenset[str] = frozenset(
 #: report note); callers may override per invocation, and the tests do.
 DEFAULT_GRACE_SECONDS: float = 5.0
 
-#: Retained stream cap. The *full* streams are written to the run directory by
-#: the caller; this only bounds what is carried around in memory (§12 of
-#: INTERFACES: every unbounded field gets a documented cap).
+#: Retained stream cap, per end. Up to this many bytes of the *head* and this
+#: many bytes of the *tail* of each stream are kept in memory, so a stream up to
+#: ``2 * MAX_CAPTURED_BYTES`` is retained in full and anything larger keeps both
+#: ends with an explicit in-band marker naming the omitted byte count. Nothing
+#: is ever discarded silently (§12 of INTERFACES: every unbounded field gets a
+#: documented cap; P1-8: a cap must not destroy the structured result).
 MAX_CAPTURED_BYTES: int = 1_000_000
+
+#: Ceiling on how much of a spooled stream is re-read to recover the trailing
+#: structured JSON document after truncation. Bounded so a runaway worker
+#: cannot make the dispatcher read an arbitrarily large file into memory.
+MAX_RECOVERED_BYTES: int = 32 * 1024 * 1024
+
+#: How many trailing lines the structured-result recovery scan will consider.
+_MAX_RECOVERY_LINES: int = 4096
+
+#: Characters without which ``security.redact`` cannot match anything. Used to
+#: skip redaction of bulk output (see ``StreamCapture._render_spool``).
+_REDACTION_TRIGGERS: tuple[bytes, ...] = (b"=", b'"')
 
 
 @dataclass(frozen=True)
@@ -145,6 +191,12 @@ class WorkerInvocation:
     max_budget_usd: float | None = None
     env: dict[str, str] = field(default_factory=dict)
     grace_seconds: float = DEFAULT_GRACE_SECONDS
+    #: When set, every byte the child writes to stdout is streamed to this file
+    #: (created 0600) so the complete stream survives the in-memory cap (P1-8).
+    stdout_spool_path: Path | None = None
+    #: Same for stderr, except the spool is redacted line by line on the way to
+    #: disk (§28) — stderr is diagnostics and may quote a secret-shaped value.
+    stderr_spool_path: Path | None = None
     #: Recorded policy only. Never emitted while
     #: ``CLI_CAPABILITIES["max_turns"]`` is False (the flag does not exist on
     #: Claude Code 2.1.234). Kept here so the gate has something to gate.
@@ -153,7 +205,14 @@ class WorkerInvocation:
 
 @dataclass
 class WorkerRun:
-    """Raw process outcome. No interpretation, no parsing."""
+    """Raw process outcome. No interpretation, no parsing.
+
+    ``stdout``/``stderr`` are the *retained* streams. When the corresponding
+    ``*_truncated`` flag is set they carry an explicit in-band marker naming the
+    omitted byte count, and ``*_total_bytes`` records what the child actually
+    wrote — a caller must never treat them as the complete stream without
+    checking (P1-8: "never silently claim full evidence").
+    """
 
     argv: list[str]
     exit_code: int | None
@@ -163,6 +222,30 @@ class WorkerRun:
     timed_out: bool = False
     killed_with_sigkill: bool = False
     start_failed: bool = False
+    #: Bytes the child actually wrote, regardless of what was retained.
+    stdout_total_bytes: int = 0
+    stderr_total_bytes: int = 0
+    #: True when the retained stream is a head+tail excerpt, not the whole thing.
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
+    #: Where the complete stream was spooled, when the caller asked for one.
+    stdout_spool_path: str | None = None
+    stderr_spool_path: str | None = None
+    #: The trailing structured JSON document, recovered from the complete
+    #: spooled stream (or the retained tail) after truncation. ``None`` when
+    #: nothing was truncated — ``stdout`` is then already the whole thing.
+    structured_stdout: str | None = None
+
+    @property
+    def stdout_for_parsing(self) -> str:
+        """The text a structured-result parser should be handed.
+
+        Identical to :attr:`stdout` for every run that fit inside the retention
+        cap; the recovered structured document when it did not. Call sites that
+        parse worker output must use this rather than :attr:`stdout`, otherwise
+        a very large run loses its result to the truncation marker.
+        """
+        return self.structured_stdout if self.structured_stdout is not None else self.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +367,16 @@ def _assert_invocation_sane(spec: WorkerInvocation) -> None:
         raise InternalDispatcherError(
             "Refusing to launch a worker with an empty prompt.",
             details={"role": spec.role},
+        )
+    # P1-9: the core deny set is an invariant, not configuration. The builders
+    # append it unconditionally; this catches a hand-assembled invocation (or a
+    # future refactor) that drops one of the prohibited operations.
+    missing_denies = [t for t in ALWAYS_DISALLOWED_TOOLS if t not in spec.disallowed_tools]
+    if missing_denies:
+        raise InternalDispatcherError(
+            "Refusing to launch: the non-configurable disallowed-tool set is "
+            "incomplete. Operator config may add deny rules, never remove one.",
+            details={"missing": missing_denies},
         )
 
 
@@ -472,16 +565,149 @@ def build_fable_argv(envelope: TaskEnvelope, config: Config, **kwargs: object) -
 # ---------------------------------------------------------------------------
 
 
-async def _drain(stream: asyncio.StreamReader | None, cap: int) -> bytes:
-    """Read a pipe to EOF, retaining at most *cap* bytes.
+class StreamCapture:
+    """Bounded in-memory capture of one pipe, plus an optional complete spool.
 
-    Draining continues past the cap so the child never blocks on a full pipe;
-    only what we *keep* is bounded.
+    Keeps the first ``cap`` bytes and the last ``cap`` bytes. A stream of at
+    most ``2 * cap`` bytes is therefore reconstructed exactly; anything larger
+    is rendered as ``head`` + an explicit marker naming the omitted byte count
+    + ``tail``. The counters are always exact, so the caller can state what was
+    dropped instead of implying nothing was.
+
+    The capture object is owned by the caller, not by the pumping task, so a
+    cancelled or timed-out drain still leaves every byte read so far in hand
+    (§20: a timeout must not destroy evidence).
+    """
+
+    def __init__(
+        self,
+        cap: int,
+        spool_path: Path | None = None,
+        *,
+        redact_spool: bool = False,
+    ) -> None:
+        self.cap = cap
+        self.total = 0
+        self.spool_path = spool_path
+        self._head = bytearray()
+        self._tail = bytearray()
+        self._redact_spool = redact_spool
+        self._pending = b""
+        self._spool = None if spool_path is None else _open_spool(spool_path)
+
+    def feed(self, chunk: bytes) -> None:
+        self.total += len(chunk)
+        if len(self._head) < self.cap:
+            self._head += chunk[: self.cap - len(self._head)]
+        self._tail += chunk
+        if len(self._tail) > self.cap:
+            del self._tail[: len(self._tail) - self.cap]
+        self._spool_write(chunk)
+
+    def close(self) -> None:
+        if self._spool is None:
+            return
+        try:
+            if self._pending:
+                self._spool.write(self._render_spool(self._pending))
+                self._pending = b""
+            self._spool.flush()
+        finally:
+            self._spool.close()
+            self._spool = None
+
+    # -- rendering --------------------------------------------------------
+
+    @property
+    def truncated(self) -> bool:
+        return self.total > 2 * self.cap
+
+    def text(self) -> str:
+        if self.total <= self.cap:
+            return self._head.decode("utf-8", errors="replace")
+        if self.total <= 2 * self.cap:
+            # head and tail overlap and together cover the whole stream.
+            overlap = 2 * self.cap - self.total
+            return (bytes(self._head) + bytes(self._tail)[overlap:]).decode(
+                "utf-8", errors="replace"
+            )
+        omitted = self.total - len(self._head) - len(self._tail)
+        marker = (
+            f"\n\n[dispatcher] {omitted} bytes omitted from the middle of this "
+            f"stream ({self.total} bytes total, retention cap {self.cap} bytes "
+            f"per end). This excerpt is NOT the complete stream.\n\n"
+        )
+        return (
+            self._head.decode("utf-8", errors="replace")
+            + marker
+            + self._tail.decode("utf-8", errors="replace")
+        )
+
+    def tail_text(self) -> str:
+        return self._tail.decode("utf-8", errors="replace")
+
+    # -- spooling ---------------------------------------------------------
+
+    def _render_spool(self, raw: bytes) -> bytes:
+        """Redact a block on its way to disk, line by line.
+
+        ``security.redact`` only ever rewrites ``KEY=value`` or ``"key": "value"``
+        shaped text, so a line containing neither ``=`` nor ``"`` is passed
+        through untouched. That is not just an optimisation: the ``KEY=value``
+        pattern backtracks quadratically over a long token with no ``=`` in it,
+        and a worker that prints megabytes of unbroken output would otherwise
+        stall the drain long enough to trip its own timeout.
+        """
+        if not self._redact_spool:
+            return raw
+        if not any(trigger in raw for trigger in _REDACTION_TRIGGERS):
+            return raw
+        rendered: list[bytes] = []
+        for line in raw.splitlines(keepends=True):
+            if any(trigger in line for trigger in _REDACTION_TRIGGERS):
+                rendered.append(redact(line.decode("utf-8", errors="replace")).encode("utf-8"))
+            else:
+                rendered.append(line)
+        return b"".join(rendered)
+
+    def _spool_write(self, chunk: bytes) -> None:
+        if self._spool is None:
+            return
+        if not self._redact_spool:
+            self._spool.write(chunk)
+            return
+        # Redaction is line-oriented, so only complete lines are written; the
+        # remainder is held back until the next newline or close().
+        buffered = self._pending + chunk
+        cut = buffered.rfind(b"\n")
+        if cut == -1:
+            self._pending = buffered
+            return
+        self._spool.write(self._render_spool(buffered[: cut + 1]))
+        self._pending = buffered[cut + 1 :]
+
+
+def _open_spool(path: Path):
+    """Open a run-stream spool file 0600, failing closed if that is impossible."""
+    try:
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(fd, 0o600)
+        return os.fdopen(fd, "wb")
+    except OSError as exc:
+        raise InternalDispatcherError(
+            "Could not open the worker output spool file.",
+            details={"path": str(path), "error": str(exc)},
+        ) from exc
+
+
+async def _pump(stream: asyncio.StreamReader | None, capture: StreamCapture) -> None:
+    """Read a pipe to EOF into *capture*.
+
+    Reading continues past the retention cap so the child never blocks on a
+    full pipe; only what is *kept in memory* is bounded.
     """
     if stream is None:
-        return b""
-    chunks: list[bytes] = []
-    kept = 0
+        return
     while True:
         try:
             chunk = await stream.read(65536)
@@ -489,11 +715,63 @@ async def _drain(stream: asyncio.StreamReader | None, cap: int) -> bytes:
             continue
         if not chunk:
             break
-        if kept < cap:
-            room = cap - kept
-            chunks.append(chunk[:room])
-            kept += min(room, len(chunk))
-    return b"".join(chunks)
+        capture.feed(chunk)
+
+
+def _recover_structured_json(text: str) -> str | None:
+    """Return the trailing JSON *object* in ``text``, or ``None``.
+
+    Used only after truncation: the structured result Claude emits sits at the
+    very end of stdout, so losing it to a retention cap would mean discarding
+    the one part of the stream the dispatcher actually parses. This is a real
+    ``json.loads``, never a regex scrape (§15) — a candidate that does not
+    parse is not accepted.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None
+    try:
+        if isinstance(json.loads(stripped), dict):
+            return stripped
+    except (json.JSONDecodeError, RecursionError, ValueError):
+        pass
+
+    lines = stripped.splitlines()
+    lowest = max(0, len(lines) - _MAX_RECOVERY_LINES)
+    for start in range(len(lines) - 1, lowest - 1, -1):
+        candidate = "\n".join(lines[start:]).strip()
+        for attempt in _json_candidates(candidate):
+            try:
+                if isinstance(json.loads(attempt), dict):
+                    return attempt
+            except (json.JSONDecodeError, RecursionError, ValueError):
+                continue
+    return None
+
+
+def _json_candidates(candidate: str):
+    """The candidate itself, plus the same text from its first ``{``."""
+    if candidate.startswith("{"):
+        yield candidate
+        return
+    brace = candidate.find("{")
+    if brace > 0:
+        yield candidate[brace:]
+
+
+def _recover_from_spool(path: Path | None) -> str | None:
+    """Recover the trailing structured document from a complete spooled stream."""
+    if path is None:
+        return None
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            if size > MAX_RECOVERED_BYTES:
+                handle.seek(size - MAX_RECOVERED_BYTES)
+            raw = handle.read(MAX_RECOVERED_BYTES)
+    except OSError:  # pragma: no cover - defensive
+        return None
+    return _recover_structured_json(raw.decode("utf-8", errors="replace"))
 
 
 def _killpg(proc: asyncio.subprocess.Process, sig: int) -> bool:
@@ -516,6 +794,18 @@ async def run_worker(spec: WorkerInvocation) -> WorkerRun:
     argv = build_argv(spec)
     started = time.monotonic()
 
+    # Opened before the process starts: an unusable spool path is a dispatcher
+    # configuration fault, and it is better to refuse than to run a worker whose
+    # evidence we already know we cannot keep.
+    stdout_capture = StreamCapture(MAX_CAPTURED_BYTES, spec.stdout_spool_path)
+    try:
+        stderr_capture = StreamCapture(
+            MAX_CAPTURED_BYTES, spec.stderr_spool_path, redact_spool=True
+        )
+    except InternalDispatcherError:
+        stdout_capture.close()
+        raise
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -527,18 +817,24 @@ async def run_worker(spec: WorkerInvocation) -> WorkerRun:
             start_new_session=True,
         )
     except FileNotFoundError as exc:
+        stdout_capture.close()
+        stderr_capture.close()
         raise ClaudeBinaryNotFound(
             "The configured Claude binary was not found.",
             details={"binary": spec.binary, "cwd": str(spec.cwd)},
             remediation="Set claude.binary in the dispatcher config to an existing executable.",
         ) from exc
     except PermissionError as exc:
+        stdout_capture.close()
+        stderr_capture.close()
         raise ClaudeBinaryNotFound(
             "The configured Claude binary is not executable.",
             details={"binary": spec.binary, "cwd": str(spec.cwd)},
             remediation="chmod +x the binary or point claude.binary elsewhere.",
         ) from exc
     except OSError as exc:
+        stdout_capture.close()
+        stderr_capture.close()
         return WorkerRun(
             argv=argv,
             exit_code=None,
@@ -550,45 +846,70 @@ async def run_worker(spec: WorkerInvocation) -> WorkerRun:
 
     # Read the pipes in dedicated tasks rather than via communicate(): when the
     # deadline fires we cancel only the *wait*, so everything the worker had
-    # already written is still recoverable (§20).
-    stdout_task = asyncio.ensure_future(_drain(proc.stdout, MAX_CAPTURED_BYTES))
-    stderr_task = asyncio.ensure_future(_drain(proc.stderr, MAX_CAPTURED_BYTES))
+    # already written is still recoverable (§20). The captures are owned here,
+    # not by the tasks, so even a cancelled pump leaves its bytes behind.
+    stdout_task = asyncio.ensure_future(_pump(proc.stdout, stdout_capture))
+    stderr_task = asyncio.ensure_future(_pump(proc.stderr, stderr_capture))
 
     timed_out = False
     killed_with_sigkill = False
 
     try:
-        await asyncio.wait_for(proc.wait(), timeout=spec.timeout_seconds)
-    except (asyncio.TimeoutError, TimeoutError):
-        timed_out = True
-        _killpg(proc, signal.SIGTERM)
         try:
-            await asyncio.wait_for(proc.wait(), timeout=max(spec.grace_seconds, 0.0))
+            await asyncio.wait_for(proc.wait(), timeout=spec.timeout_seconds)
         except (asyncio.TimeoutError, TimeoutError):
-            killed_with_sigkill = _killpg(proc, signal.SIGKILL)
+            timed_out = True
+            _killpg(proc, signal.SIGTERM)
             try:
-                await asyncio.wait_for(proc.wait(), timeout=10.0)
-            except (asyncio.TimeoutError, TimeoutError):  # pragma: no cover - defensive
-                pass
+                await asyncio.wait_for(proc.wait(), timeout=max(spec.grace_seconds, 0.0))
+            except (asyncio.TimeoutError, TimeoutError):
+                killed_with_sigkill = _killpg(proc, signal.SIGKILL)
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=10.0)
+                except (asyncio.TimeoutError, TimeoutError):  # pragma: no cover - defensive
+                    pass
 
-    # EOF arrives once the (now dead) process closes its pipes. Bounded so a
-    # stray grandchild holding the pipe open cannot wedge the dispatcher.
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            asyncio.gather(stdout_task, stderr_task), timeout=10.0
-        )
-    except (asyncio.TimeoutError, TimeoutError):  # pragma: no cover - defensive
-        stdout_task.cancel()
-        stderr_task.cancel()
-        stdout_bytes, stderr_bytes = b"", b""
+        # EOF arrives once the (now dead) process closes its pipes. Bounded so a
+        # stray grandchild holding the pipe open cannot wedge the dispatcher —
+        # and if that bound fires, whatever was already read is still kept.
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(stdout_task, stderr_task), timeout=10.0
+            )
+        except (asyncio.TimeoutError, TimeoutError):  # pragma: no cover - defensive
+            stdout_task.cancel()
+            stderr_task.cancel()
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+    finally:
+        stdout_capture.close()
+        stderr_capture.close()
+
+    structured_stdout: str | None = None
+    if stdout_capture.truncated:
+        # The complete stream (when spooled) is the authoritative source for
+        # recovery; the retained tail is the fallback.
+        structured_stdout = _recover_from_spool(
+            spec.stdout_spool_path
+        ) or _recover_structured_json(stdout_capture.tail_text())
 
     duration_ms = int((time.monotonic() - started) * 1000)
     return WorkerRun(
         argv=argv,
         exit_code=proc.returncode,
-        stdout=stdout_bytes.decode("utf-8", errors="replace"),
-        stderr=stderr_bytes.decode("utf-8", errors="replace"),
+        stdout=stdout_capture.text(),
+        stderr=stderr_capture.text(),
         duration_ms=duration_ms,
         timed_out=timed_out,
         killed_with_sigkill=killed_with_sigkill,
+        stdout_total_bytes=stdout_capture.total,
+        stderr_total_bytes=stderr_capture.total,
+        stdout_truncated=stdout_capture.truncated,
+        stderr_truncated=stderr_capture.truncated,
+        stdout_spool_path=(
+            str(spec.stdout_spool_path) if spec.stdout_spool_path is not None else None
+        ),
+        stderr_spool_path=(
+            str(spec.stderr_spool_path) if spec.stderr_spool_path is not None else None
+        ),
+        structured_stdout=structured_stdout,
     )

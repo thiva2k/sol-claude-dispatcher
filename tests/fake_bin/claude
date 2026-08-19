@@ -28,6 +28,10 @@ mode                 behaviour
                      ``--resume`` it exits 3, so a resume test that forgets the
                      flag fails loudly instead of silently passing
 ``fable-review``     valid envelope carrying a ``FableReview`` payload; exit 0
+``huge-output``      emits ``FAKE_CLAUDE_NOISE_BYTES`` of noise on stdout and
+                     ``FAKE_CLAUDE_STDERR_NOISE_BYTES`` on stderr, then the
+                     valid success envelope **last** — the P1-8 case where the
+                     structured result sits past any retention cap; exit 0
 ==================== ======================================================
 
 ``FAKE_CLAUDE_LOG``        path to append one JSON record per invocation:
@@ -42,6 +46,12 @@ mode                 behaviour
 ``FAKE_CLAUDE_TOUCH``      comma-separated cwd-relative paths to create in
                            ``scope-violation`` mode (default
                            ``.github/workflows/pwn.yml,src/unrelated/leak.py``).
+``FAKE_CLAUDE_NOISE_BYTES``         stdout noise emitted before the structured
+                                    result in ``huge-output`` mode (default 0).
+``FAKE_CLAUDE_STDERR_NOISE_BYTES``  stderr noise in ``huge-output`` mode
+                                    (default 0).
+``FAKE_CLAUDE_STDERR_TEXT``         literal text written to stderr in
+                                    ``huge-output`` mode before the noise.
 
 Never add a mode that shells out, touches the network, or launches a real
 agent. That would defeat the entire point of this file.
@@ -304,6 +314,32 @@ def main() -> int:
         envelope = worker_envelope(payload, resume_id)
         envelope["resumed_session_id"] = resume_id
         print(json.dumps(envelope))
+
+    elif mode == "huge-output":
+        # The structured result is emitted LAST, after an arbitrary amount of
+        # noise, so a retention cap that keeps only the head of the stream
+        # loses it entirely (finding P1-8).
+        stderr_text = os.environ.get("FAKE_CLAUDE_STDERR_TEXT", "")
+        if stderr_text:
+            sys.stderr.write(stderr_text)
+            sys.stderr.flush()
+        line = "x" * 4095 + "\n"
+        written = 0
+        target = int(os.environ.get("FAKE_CLAUDE_STDERR_NOISE_BYTES", "0"))
+        while written < target:
+            sys.stderr.write(line)
+            written += len(line)
+        sys.stderr.flush()
+
+        written = 0
+        target = int(os.environ.get("FAKE_CLAUDE_NOISE_BYTES", "0"))
+        while written < target:
+            sys.stdout.write(line)
+            written += len(line)
+        print(json.dumps(worker_envelope(
+            success_payload("Fake worker produced a very large stream."),
+            session_id,
+        )))
 
     elif mode == "fable-review":
         envelope = worker_envelope(fable_payload(), session_id)
