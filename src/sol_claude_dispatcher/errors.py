@@ -40,6 +40,7 @@ __all__ = [
     "PolicyViolation",
     "ValidationFailed",
     "WorktreeCreationFailed",
+    "GitEvidenceCollectionFailed",
     "RecursionDetected",
     "ConfigurationError",
     "StateCorruption",
@@ -121,6 +122,21 @@ class WorktreeCreationFailed(DispatcherError):
     """Could not create or locate the isolated worktree for a task (§12)."""
 
     code = "WorktreeCreationFailed"
+
+
+class GitEvidenceCollectionFailed(DispatcherError):
+    """An authoritative git command failed, timed out, or produced unusable output.
+
+    The dispatcher's scope and non-interference decisions are only as good as
+    the evidence they are made from. "git could not tell us" is *not* "nothing
+    changed": conflating the two would let a run whose changes could not be
+    measured land as ``changed_paths=[] / scope_valid=true``. So evidence
+    collection fails closed with this error and the task lands in an explicit
+    failure state with the diagnostics preserved, rather than in a state that
+    implies a clean, in-scope result nobody actually observed.
+    """
+
+    code = "GitEvidenceCollectionFailed"
 
 
 # --------------------------------------------------------------------------
@@ -261,6 +277,7 @@ ERROR_CODES: frozenset[str] = frozenset(
         "PolicyViolation",
         "ValidationFailed",
         "WorktreeCreationFailed",
+        "GitEvidenceCollectionFailed",
         "RecursionDetected",
         "ConfigurationError",
     }

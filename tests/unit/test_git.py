@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from sol_claude_dispatcher import git as git_mod
-from sol_claude_dispatcher.errors import InvalidRepository
+from sol_claude_dispatcher.errors import GitEvidenceCollectionFailed, InvalidRepository
 from sol_claude_dispatcher.models import ScopeSpec
 
 def _git(args: list[str], cwd: Path) -> None:
@@ -28,6 +28,30 @@ def test_is_git_repository_false_for_plain_directory(tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
     assert git_mod.is_git_repository(plain) is False
+
+
+# ---------------------------------------------------------------------------
+# git_top_level (repository identity, P0-2)
+# ---------------------------------------------------------------------------
+
+
+def test_git_top_level_of_a_repository_is_itself(git_repo: Path) -> None:
+    assert git_mod.git_top_level(git_repo) == git_repo.resolve()
+
+
+def test_git_top_level_from_a_subdirectory_is_the_repository_root(
+    git_repo: Path,
+) -> None:
+    sub = git_repo / "a" / "b"
+    sub.mkdir(parents=True)
+    assert git_mod.git_top_level(sub) == git_repo.resolve()
+
+
+def test_git_top_level_refuses_a_plain_directory(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    with pytest.raises(InvalidRepository):
+        git_mod.git_top_level(plain)
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +134,9 @@ def test_collect_diff_evidence_truncates_large_diffs(git_repo: Path) -> None:
 
     assert evidence.truncated is True
     assert len(evidence.diff_text.encode("utf-8")) <= 1000
+    # Truncation is quantified, never left for a reader to infer: the full
+    # patch size travels with the evidence and write_full_diff can reproduce it.
+    assert evidence.diff_total_bytes > 1000
 
 
 def test_collect_diff_evidence_no_changes_is_clean(git_repo: Path) -> None:
@@ -205,3 +232,38 @@ def test_primary_tree_status_reports_untracked_file(git_repo: Path) -> None:
     (git_repo / "untracked.txt").write_text("x")
     status = git_mod.primary_tree_status(git_repo)
     assert "untracked.txt" in status
+
+
+def test_primary_tree_status_refuses_to_answer_for_a_non_repository(
+    tmp_path: Path,
+) -> None:
+    """P0-3: an empty status string means "clean", so failure must not produce one."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    with pytest.raises(GitEvidenceCollectionFailed):
+        git_mod.primary_tree_status(plain)
+
+
+# ---------------------------------------------------------------------------
+# fail-closed evidence collection (P0-3)
+# ---------------------------------------------------------------------------
+
+
+def test_collect_diff_evidence_refuses_an_unresolvable_base(git_repo: Path) -> None:
+    with pytest.raises(GitEvidenceCollectionFailed):
+        git_mod.collect_diff_evidence(git_repo, "0" * 40)
+
+
+def test_collect_diff_evidence_refuses_a_non_repository(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    with pytest.raises(GitEvidenceCollectionFailed):
+        git_mod.collect_diff_evidence(plain, "HEAD")
+
+
+def test_worktree_lookup_refuses_a_non_repository(tmp_path: Path) -> None:
+    """``None`` may only mean "git looked and found nothing"."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    with pytest.raises(GitEvidenceCollectionFailed):
+        git_mod.worktree_path_for(plain, "sol-deadbeef")
