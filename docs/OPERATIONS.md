@@ -56,17 +56,55 @@ state/tasks/<task-id>/
 │   ├── 001/
 │   │   ├── worker-result.json     # the worker's CLAIM (WorkerResult)
 │   │   ├── dispatcher-result.json # the dispatcher's OBSERVATION
-│   │   ├── stdout.json            # raw captured stdout
-│   │   ├── stderr.log             # raw captured stderr
-│   │   └── validation.json        # independent validation command results
+│   │   ├── stdout.json            # RETAINED stdout: head+tail, with an
+│   │   │                          # in-band marker when truncated
+│   │   ├── stdout.raw             # the COMPLETE stdout, every byte
+│   │   ├── stderr.log             # the complete stderr, redacted
+│   │   ├── validation.json        # independent validation command results
+│   │   └── claim-verification.json # worker's claims vs validation outcomes
 │   └── 002/                       # a resume creates the next run directory
 ├── reviews/
 │   └── fable-001.json     # FableReview, one file per review
-└── evidence/
-    ├── diff.patch          # full unified diff (untruncated)
+└── evidence/                       # latest run wins; per-run history is in runs/
+    ├── diff.patch                  # the COMPLETE unified diff, or explicitly
+    │                               # marked incomplete — never an unmarked
+    │                               # short patch
     ├── diff-stat.txt
-    └── changed-paths.json
+    ├── diff-check.txt
+    ├── status.txt
+    ├── changed-paths.json          # + diff_bytes_retained, diff_total_bytes,
+    │                               #   diff_patch_bytes, diff_patch_complete
+    ├── pre-validation-changed-paths.json   # EVIDENCE A: as the worker left it
+    ├── pre-validation-status.txt
+    ├── pre-validation-diff-stat.txt
+    ├── evidence-phases.json        # attribution: worker_changed_paths,
+    │                               #   final_changed_paths,
+    │                               #   validation_added_paths,
+    │                               #   validation_removed_paths
+    ├── primary-tree-before.txt     # baseline fingerprint, written before the
+    │                               #   worker started
+    ├── primary-tree-after.txt
+    ├── primary-tree-invariant.json # verdict + the honest limitation text
+    └── primary-tree-status.txt
 ```
+
+Two of these answer questions the others cannot:
+
+* **`evidence-phases.json`** distinguishes what the *worker* changed from what
+  the dispatcher's *own validation commands* changed. The scope decision is
+  taken on the final state, so a validation command that writes outside the
+  declared scope lands the task in `POLICY_VIOLATION` — read the attribution
+  before blaming the worker (`docs/SECURITY.md` §1.3).
+* **`primary-tree-invariant.json`** carries the before/after fingerprints, the
+  divergence, the verdict, and the limitation text stating that this is
+  detection and not containment. That text is embedded in every such file on
+  purpose, so it travels with the evidence.
+
+A truncated run is visible without opening any stream:
+`runs/NNN/dispatcher-result.json`'s sibling `state.json` run metadata carries
+`stdout_bytes` / `stderr_bytes` (what the child actually wrote) alongside
+`stdout_truncated` / `stderr_truncated`. If a `*_truncated` flag is `true`,
+`stdout.json` is an excerpt and `stdout.raw` is the whole thing.
 
 Fast ways to answer common questions:
 
@@ -119,7 +157,13 @@ To follow one task end to end:
 5. `jq '.scope' state/tasks/<id>/runs/<n>/dispatcher-result.json` — whether
    the run's changes matched the declared scope, and which paths didn't if
    not.
-6. `ls state/tasks/<id>/reviews/` — whether Fable has weighed in, and what
+6. `jq . state/tasks/<id>/evidence/primary-tree-invariant.json` — whether the
+   primary working tree came out of the run exactly as it went in, and (if
+   not) precisely what appeared, disappeared, or moved.
+7. `jq . state/tasks/<id>/evidence/evidence-phases.json` — which changed paths
+   the worker produced and which the dispatcher's own validation commands
+   produced. Do this before concluding a policy violation was the worker's.
+8. `ls state/tasks/<id>/reviews/` — whether Fable has weighed in, and what
    it found.
 
 A task's `last_error` field on `state.json` (present only after a failure)
@@ -142,10 +186,18 @@ its child processes' stderr (Codex's own logs, not this project's).
 
 Every operational log line carries `task_id`, `run_id`, `timestamp`,
 `event`, `duration`, `status` where applicable (§28). Secret-shaped values
-(`TOKEN`, `API_KEY`, `AUTHORIZATION`, `COOKIE`, `SECRET`, `PASSWORD`,
-`PRIVATE_KEY`, `CREDENTIAL`) are redacted before anything is logged or
-written to `argv_redacted` — see `security.redact()`. The full environment
-is never persisted; command output is not saved.
+(`TOKEN`, `API_KEY`, `APIKEY`, `AUTHORIZATION`, `COOKIE`, `SECRET`,
+`PASSWORD`, `PRIVATE_KEY`, `CREDENTIAL`) are redacted before anything is
+logged or written to `argv_redacted` — see `security.redact()`. The full
+environment is never persisted.
+
+Worker *output* is a different thing from application logs and **is** kept, in
+the task's own run directory at `0600` (`stdout.json`, `stdout.raw`,
+`stderr.log`), because §20 requires evidence to survive a timeout or a crash.
+Stderr is redacted on the way to disk; stdout is not, because redacting it
+would corrupt the structured JSON result. Redaction of the spooled stream is
+line-oriented, so a `"key": "value"` pair split across a newline is not masked
+there.
 
 ---
 
@@ -157,10 +209,12 @@ returned as `{"error": <code>, "message": ..., "retryable": bool,
 
 | Code | Retryable | Meaning | Typical remediation |
 |---|---|---|---|
-| `InvalidRepository` | no | Path missing, not a directory, or not a git repo | Fix the path or `git init` it |
-| `RepositoryNotAllowed` | no | Canonical path is outside `allowed_repository_roots` | Add it to `[security].allowed_repository_roots` |
-| `RepositoryBusy` | **yes** | Another mutating worker already holds the repo's lock | Wait for the other task to finish, or check `state/locks/` (§6 below) |
+| `InvalidRepository` | no | Path missing, not a directory, not inside a git work tree, **or not itself the git top level** | Fix the path or `git init` it. If you dispatched against a subdirectory, dispatch against the repository root and use `[scope].allowed_paths` to narrow the task |
+| `InvalidTaskEnvelope` (malformed `task_id`) | no | A `task_id` that is not a canonical lowercase UUID reached `get_task` / `resume_claude_task` / `review_task_with_fable` | Use the `task_id` `dispatch_claude_task` returned, verbatim. The dispatcher refuses rather than repairing the id, and refuses it at the boundary rather than deeper in the stack |
+| `RepositoryNotAllowed` | no | The repository's git top level is not **exactly** one of `allowed_repository_roots` | Add the repository's own top-level path. A parent directory does not authorise the repositories inside it |
+| `RepositoryBusy` | **yes** | Another mutating worker **or a Fable review** already holds the repo's lock | Wait and retry. Not a failure of the call that was refused — check `state/locks/` (§7 below) |
 | `WorktreeCreationFailed` | no | Worker exited without leaving a worktree the dispatcher can find | Inspect `runs/<n>/stderr.log`; the worker may have failed before `--worktree` took effect |
+| `GitEvidenceCollectionFailed` | no | An authoritative git command failed, timed out, produced unusable output, or `git` could not be run at all | **Never read this as "nothing changed".** It means the evidence could not be obtained, so no scope or non-interference verdict is available for that run. Check the error's `details` (command, cwd, stderr excerpt); the task lands in an explicit failure state with the diagnostics preserved |
 | `InvalidTaskEnvelope` | no | Caller input or a persisted envelope failed model validation | Fix the request; extra/unknown fields are rejected, not ignored |
 | `InvalidStateTransition` | no | Requested a transition `ALLOWED_TRANSITIONS` does not permit | Check `docs/STATE-MACHINE.md`; the task is not where you think it is |
 | `TaskNotFound` | no | No persisted task for that `task_id` | Check the id; `get_task` against a wrong id fails the same way |
@@ -170,7 +224,7 @@ returned as `{"error": <code>, "message": ..., "retryable": bool,
 | `ClaudeStructuredOutputInvalid` | no | stdout wasn't JSON, or didn't match the worker/reviewer schema | Read `runs/<n>/stdout.json`; `worker_result_error` on the dispatcher observation names the specific reason (`not_json`, `no_structured_payload`, `schema_mismatch`) |
 | `ClaudeTimedOut` | no | Exceeded `execution.timeout_seconds`; SIGTERM→grace→SIGKILL ran | Not a correctness verdict (§20) — evidence (session id, worktree, partial output) survives; resume or re-dispatch with more time |
 | `ResumeLimitReached` | no | `resume_count >= max_resume_count` | Not actually surfaced as this error code from the MCP tool — see below |
-| `PolicyViolation` | no | Diff touched paths outside declared scope | Inspect `dispatcher-result.json`'s `out_of_scope_paths`/`forbidden_paths_touched`; widen scope or reject |
+| `PolicyViolation` | no | Diff touched paths outside declared scope, **and/or** the primary working tree diverged from its pre-run baseline | Inspect `dispatcher-result.json`'s `out_of_scope_paths`/`forbidden_paths_touched` and `state.json`'s `policy_violations` (primary-tree entries are prefixed `primary_tree_head:` / `primary_tree_appeared:` / `primary_tree_disappeared:`), plus `evidence/primary-tree-invariant.json` and `evidence/evidence-phases.json`. A path the dispatcher's own validation produced is attributed as such — check before blaming the worker |
 | `ValidationFailed` | no | A trusted dispatcher validation command failed | Check `runs/<n>/validation.json` |
 | `RecursionDetected` | no | `SOL_WORKER=1` was present at startup/dispatch, or depth exceeded the max | Should never happen outside a bug; if it does, something is invoking the dispatcher from inside a worker |
 | `ConfigurationError` | no | Config missing, malformed, or semantically invalid | Fail-closed by design; fix the named key |
@@ -212,11 +266,16 @@ keeps the default action narrow.
 
 ## 7. Lock troubleshooting
 
-V1 allows exactly one mutating worker per repository at a time (§25). The
-lock file lives at `state/locks/<sha256-of-canonical-repo-path>.lock` and is
+V1 allows exactly one mutating worker per repository at a time (§25). The lock
+file lives at `state/locks/<sha256-of-canonical-repo-path>.lock`, where the
+canonical path is the repository's **git top level** — so a subdirectory of a
+repository contends with the repository itself, which is the point. It is
 acquired with `flock(LOCK_EX | LOCK_NB)` — non-blocking, so a busy repo
 raises `RepositoryBusy` immediately rather than stalling an MCP call until
 Codex's own tool-call timeout fires.
+
+**Three tools take this lock: `dispatch_claude_task`, `resume_claude_task`,
+and `review_task_with_fable`.**
 
 If a dispatch or resume fails with `RepositoryBusy`:
 
@@ -245,13 +304,32 @@ If a dispatch or resume fails with `RepositoryBusy`:
    repository roots yourself and compare:
    ```bash
    .venv/bin/python -c "
-   import hashlib
+   from sol_claude_dispatcher.locks import lock_name_for
    from pathlib import Path
-   print(hashlib.sha256(str(Path('/path/to/candidate/repo').resolve()).encode()).hexdigest())
+   print(lock_name_for(Path('/path/to/candidate/repo')))
    "
    ```
-   and compare against the `.lock` filename.
+   and compare against the `.lock` filename. Use `lock_name_for` rather than
+   hashing a path by hand: identity is the git top level, so hashing the
+   spelling you happen to have typed can give the wrong answer.
 
-Fable review never takes this lock (§25: it is read-only and runs only
-against stable post-worker state), so a Fable review in progress never
-blocks a new dispatch, and vice versa.
+### Fable review holds the lock — expect this
+
+A Fable review takes the **same exclusive lock**, for its whole duration,
+including the reviewer subprocess.
+
+* **A long Fable review blocks `dispatch_claude_task` and
+  `resume_claude_task` on that repository until it finishes.** Those calls are
+  refused immediately with `RepositoryBusy`; they do not queue.
+* A review requested while a worker is running is refused the same way.
+* Two concurrent reviews of the same repository: one wins, one is refused.
+
+This is deliberate. A review that reads a worktree while a resume is rewriting
+it produces a verdict describing a state that never existed as a whole. Sol
+should treat `RepositoryBusy` from `review_task_with_fable` as "retry once the
+worker finishes", **never** as a review failure — nothing is recorded against
+the task when a review is refused, and the repository is usable again the
+moment the holder releases.
+
+Earlier versions of this document (and of `locks.py`'s own docstring) said
+Fable takes no lock. That was true, and it was the defect.

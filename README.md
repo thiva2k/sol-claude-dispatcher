@@ -99,6 +99,11 @@ python3 -m venv .venv                 # or: uv venv
 cp config/dispatcher.example.toml config/dispatcher.toml
 # then edit [security].allowed_repository_roots — the example ships with a
 # "/CONFIGURE/ME" placeholder and REFUSES TO LOAD until you replace it.
+#
+# Each entry must be a repository's own git top level, listed exactly.
+# Allowlisting a parent directory does NOT authorise the repositories inside
+# it, and dispatching against a subdirectory of an allowed repository is
+# refused. Scope a task to a subdirectory with [scope].allowed_paths instead.
 ```
 
 The dispatcher fails closed on configuration. An unknown key, a missing
@@ -160,8 +165,8 @@ repository.**
 Tests never spawn a real Claude or Codex process. The full suite (unit +
 integration) runs against `tests/fake_bin/claude`, a scriptable,
 deterministic, offline stand-in (`success`, `failure`, `timeout`, `hang`,
-`malformed-json`, `scope-violation`, `blocked`, `resume`, `fable-review`
-modes — see the file's own docstring).
+`malformed-json`, `scope-violation`, `blocked`, `resume`, `fable-review`,
+`huge-output` modes — see the file's own docstring).
 
 ## Safety boundaries
 
@@ -171,18 +176,37 @@ isolation. The difference is documented honestly, protection-by-protection,
 in `docs/SECURITY.md` — this project does not pretend a prompt is a
 sandbox.
 
-**Hard:** isolated git worktree, MCP stripped from workers
+**Hard:** isolated git worktree; MCP stripped from workers
 (`--strict-mcp-config` + empty `mcp-config` + `mcp__*` denied,
-non-configurably), subagent tools never granted, `SOL_WORKER=1` refuse-init,
-dispatch-depth cap, resume cap, repository allowlist with symlink-resolved
-ancestry checks, argv-only subprocess execution (never a shell), real-diff
-scope inspection (including untracked files), process-group timeouts,
-secret-stripped worker environment.
+non-configurably); subagent tools never granted; `SOL_WORKER=1` refuse-init;
+dispatch-depth cap; resume cap; repository identity pinned to the **exact git
+top level**, allowlisted by exact equality (a parent directory does not
+authorise the repositories inside it, and a subdirectory dispatch is refused);
+task-id containment at two independent layers (canonical-UUID validation at
+every MCP entry point, plus `TaskStore` proving every derived path resolves
+inside `state/tasks/`); git evidence that **fails closed** — "could not
+determine" is never reported as "nothing changed"; a core deny set that
+operator config can only ADD to, never remove; argv-only subprocess execution
+(never a shell); real-diff scope inspection (including untracked files);
+process-group timeouts; secret-stripped worker **and validation**
+environments; one exclusive repository lock shared by dispatch, resume **and
+Fable review**.
 
-**Policy:** total network prohibition, preventing every conceivable shell
-escape inside the worker's own `Bash` tool, preventing writes outside the
-repository when the host OS permissions available to the worker process
-would themselves allow it.
+**Policy:** total network prohibition; preventing every conceivable shell
+escape inside the worker's own `Bash` tool (deny patterns are prefix matches on
+Bash command text, not an OS boundary — they do not resolve the executable);
+preventing writes outside the repository when the host OS permissions
+available to the worker process would themselves allow it; primary-tree
+non-interference, which is **detection, not containment** — the dispatcher
+fingerprints the primary tree before and after every run, but a worker that
+modifies a file and restores it, or that touches a git-ignored file, is not
+detected.
+
+**Operational consequence worth knowing before you run this:** a Fable review
+holds the repository's exclusive lock for its entire duration, so a long review
+blocks `dispatch_claude_task` and `resume_claude_task` on that repository until
+it finishes — those calls are refused immediately with `RepositoryBusy` rather
+than queuing. Retry; it is not a failure.
 
 `bwrap` (bubblewrap) is present on this host as a documented **future**
 optional hard-isolation mode — not a V1 dependency, and nothing here invokes

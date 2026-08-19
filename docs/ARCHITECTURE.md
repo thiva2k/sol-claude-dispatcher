@@ -56,9 +56,9 @@ The package is 13 Python modules plus `__init__.py` (14 files under
 | `config.py` | 1 | Fail-closed TOML loading (§35). Validates `[dispatcher]`, `[models]`, `[routing]`, `[security]`, `[validation]`, `[claude]`, `[logging]`; derives filesystem paths (`state_path`, `worker_policy_file`, …) so no other module hand-builds a path from config. |
 | `router.py` | 2 | `route()`/`explain_route()` — pure, deterministic Sonnet/Opus selection. No I/O, no randomness, never returns Fable. |
 | `state.py` | 2 | `TaskStore` — atomic JSON persistence, the on-disk layout of §27, and the only code path allowed to call `is_transition_allowed()` and commit a state change. |
-| `locks.py` | 2 | `RepositoryLock` — one exclusive `flock` per canonical repository path (§25), non-blocking by default so a busy repo fails fast as `RepositoryBusy` instead of stalling an MCP call. |
-| `git.py` | 2 | Evidence collection and scope checking (§12, §13): base-commit resolution, worktree lookup, diff/status/diff-check collection, glob-based scope matching. Read-only with respect to git state — never commits, merges, pushes, or touches the primary tree. |
-| `security.py` | 2 | Repository allowlist validation (§24), the recursion-prevention checks that don't belong to `runner.py` (§22 layers 4/5/7), and secret redaction (§28). |
+| `locks.py` | 2 | `RepositoryLock` — one exclusive `flock` per canonical repository identity, which is the *git top level* (§25), non-blocking by default so a busy repo fails fast as `RepositoryBusy` instead of stalling an MCP call. Dispatch, resume **and Fable review** all take it. |
+| `git.py` | 2 | Evidence collection and scope checking (§12, §13): repository identity (`git_top_level`), base-commit resolution, worktree lookup, diff/status/diff-check collection, full-patch streaming, glob-based scope matching. Every authoritative command fails closed with `GitEvidenceCollectionFailed` rather than degrading to an empty result. Read-only with respect to git state — never commits, merges, pushes, or touches the primary tree. |
+| `security.py` | 2 | Task-id validation (`validate_task_id`), repository allowlist validation (§24), the recursion-prevention checks that don't belong to `runner.py` (§22 layers 4/5/7), and secret redaction (§28). |
 | `runner.py` | 3 | Builds the exact Claude CLI `argv` (`build_argv`) and runs it as a subprocess with process-group timeout/SIGTERM/SIGKILL discipline (`run_worker`, §20). The only module that spawns a worker process. |
 | `results.py` | 3 | Parses `--output-format json` stdout into `WorkerResult`/`FableReview`, following the §15 resolution order. Never regex-scrapes prose; an unparseable result is reported as such, not guessed at. |
 | `sessions.py` | 3 | Session lifecycle (§18): new session IDs, resume plans built only from stored state (never from the caller), the resume cap, and the §18 escalation-is-a-new-task handoff. |
@@ -78,7 +78,7 @@ ordering and error-to-payload translation.
 ```text
 assert_no_recursion
   → validate TaskRequest (pydantic, extra="forbid")
-  → security.validate_repository_root         (allowlist + git check)
+  → security.validate_repository_root      (git top level, EXACT allowlist match)
   → security.assert_dispatch_depth
   → RepositoryLock.acquire()                   (exclusive, non-blocking)
   → git.resolve_base_commit
@@ -87,12 +87,22 @@ assert_no_recursion
   → router.route + explain_route                (deterministic Sonnet/Opus)
   → store.transition → ROUTED                    (records model + reason)
   → sessions.new_session                         (uuid4)
+  → snapshot_primary_tree                        (BASELINE, before the worker;
+                                                   written to evidence/ at once)
   → store.transition → RUNNING
-  → runner.run_worker                            (--worktree, --session-id)
+  → runner.run_worker                            (--worktree, --session-id,
+                                                   complete streams spooled 0600)
   → git.worktree_path_for
-  → git.collect_diff_evidence + check_scope
+  → git.collect_diff_evidence                    (EVIDENCE A — as the worker
+                                                   left it; persisted first)
   → results.parse_worker_result                  (claim, not evidence)
-  → validation.run_validations                   (independent re-run, §17)
+  → validation.run_validations                   (independent re-run, §17,
+                                                   sanitized environment)
+  → git.collect_diff_evidence                    (EVIDENCE B — after validation)
+  → attribute_changed_paths                      (A vs B: who produced what)
+  → check_scope on the FINAL state
+  → snapshot_primary_tree + compare              (post_state == pre_state?)
+  → write evidence bundle                         (before any state decision)
   → build DispatcherObservations                  (measurement, not claim)
   → store.append_run
   → store.transition → IMPLEMENTED | TIMED_OUT | BLOCKED | FAILED |
@@ -103,8 +113,24 @@ assert_no_recursion
 
 Returns `task_id`, `run_id`, `selected_model`, `session_id`, `worktree`,
 `status`, `worker_claims`, `dispatcher_observations`, `validation_results`,
-and the scope verdict — claims and observations kept in clearly separate
-fields (§16, see §4 below).
+`evidence_attribution`, `primary_tree`, and the scope verdict — claims and
+observations kept in clearly separate fields (§16, see §4 below).
+
+Two things in that sequence are load-bearing and easy to get wrong if this
+document is read as a mere ordering:
+
+* **Evidence is collected twice.** Validation commands mutate worktrees
+  routinely (formatters, coverage files, lockfiles, snapshot updates), so
+  post-worker evidence is stale the moment one runs. The *decision* is taken on
+  the final state, because that is what is actually on disk; the *attribution*
+  keeps a dispatcher-generated path from being charged to the worker. See
+  `docs/SECURITY.md` §1.3.
+* **The primary-tree baseline is taken before the worker starts**, inside the
+  lock, and written to `evidence/primary-tree-before.txt` immediately so it
+  survives whatever happens next. The invariant is `post == pre`, not "clean".
+  A divergence lands `POLICY_VIOLATION` and can never fall through to
+  `AWAITING_SOL_REVIEW`. It is *detection*, not containment —
+  `docs/SECURITY.md` §1.2 states the limitation in full.
 
 ### `resume_claude_task` (§7.2)
 
@@ -113,6 +139,7 @@ come from the stored `TaskRecord` — never from the caller:
 
 ```text
 assert_no_recursion
+  → security.validate_task_id                      (canonical UUID or refuse)
   → store.load                                    (authoritative state)
   → sessions.assert_resume_allowed                 (cap check, §22 layer 6)
   → store.transition → RESUME_REQUESTED
@@ -133,25 +160,42 @@ decides what happens next; the dispatcher does not guess.
 
 ```text
 assert_no_recursion
+  → security.validate_task_id                (canonical UUID or refuse)
   → store.load
+  → RepositoryLock.acquire()                 (EXCLUSIVE, non-blocking —
+                                               refuses with RepositoryBusy)
+  → store.load again, inside the lock         (run_index names a directory)
   → fresh session_id, config.models.fable, reviewer_tools only (Read/Glob/Grep)
   → no --worktree, no --resume — Fable never touches the worker's
     conversation or creates a worktree of its own
   → cwd = the worker's own worktree; prompt assembled from objective,
-    acceptance criteria, base commit, changed files, the stored
-    evidence/diff.patch, the worker's report, and Sol's review focus
+    acceptance criteria, base commit, changed files, a bounded read of the
+    stored evidence/diff.patch, the paths the dispatcher's own validation
+    produced, the worker's report, and Sol's review focus
   → runner.run_worker
   → results.parse_fable_review
   → store.append_review
   → store.transition → FABLE_REVIEWED
+  → lock.release()                            (always, in a finally)
 ```
 
-Does **not** take the repository lock (§25: review is read-only and runs
-only against stable post-worker state).
+**Takes the same exclusive repository lock as dispatch and resume**, on the
+same canonical identity, for the whole snapshot. "Read-only" describes the
+reviewer, not the repository: a concurrent `resume_claude_task` mutates the
+very worktree the reviewer is reading, and the resulting verdict would
+describe a state that never existed as a whole. One exclusive lock, no
+reader/writer split — deliberately simple for V1.
+
+Operational consequence: a long review blocks dispatch and resume on that
+repository for its duration, and a review requested while a worker is running
+is refused immediately with `RepositoryBusy`. That refusal is retryable and is
+not a review failure; see `docs/SECURITY.md` §1.6.
 
 ### `get_task` (§7.4)
 
-Read-only. No transition, no subprocess, no lock. Reads the envelope,
+Read-only. No transition, no subprocess, no lock — but the caller-supplied
+`task_id` still goes through `security.validate_task_id` first, and `TaskStore`
+still proves every derived path resolves inside `state/tasks/`. Reads the envelope,
 current `TaskRecord`, run history, validation history, latest worker result,
 and latest Fable review straight off disk and returns them.
 
@@ -182,6 +226,19 @@ at all, `worker_claims` is `None` and `dispatcher_observations` still exists
 and is still trustworthy (`worker_result_parsed=False`,
 `worker_result_error` populated) — the measurement layer does not depend on
 the claim layer succeeding.
+
+Three observation fields are easy to confuse and are deliberately distinct:
+
+| Field | Question it answers |
+|---|---|
+| `primary_worktree_clean` | Does the primary tree have uncommitted changes *right now*? A literal measurement. An ordinary developer's checkout makes this `False` with no violation. |
+| `primary_tree_unchanged` | Is the primary tree's fingerprint identical to the baseline taken before the worker started? This is the non-interference verdict. `None` means the comparison was not performed for that run. |
+| `diff_bytes` vs `diff_total_bytes` | How much diff the dispatcher held in memory, vs how much git actually produced. A difference means the in-memory value was capped; `evidence/diff.patch` is still complete, or is explicitly marked incomplete. |
+
+The measurement layer also refuses to answer when it cannot measure:
+`GitEvidenceCollectionFailed` is a distinct outcome from "nothing changed", and
+a run whose evidence could not be collected lands `FAILED` with diagnostics
+rather than being reported as a clean tree.
 
 ---
 

@@ -155,7 +155,15 @@ ExecutionSpec:
     max_budget_usd: float | None = None
 
 ConstraintsSpec:
-    allow_network / allow_push / allow_merge / allow_commit / allow_subagents: bool = False
+    allow_network: bool = False      # a REAL policy flag; changes the prompt
+    allow_push / allow_merge / allow_commit / allow_subagents: bool = False
+        # ALWAYS FALSE. Validators REFUSE `true` at the model, request and
+        # config layers — these are not caller options. The operations they
+        # name are prohibited by code-level invariants no flag can influence
+        # (runner.CORE_DENIED_GIT_OPERATIONS, _assert_invocation_sane). The
+        # fields are kept rather than deleted because TaskRequest/Config are
+        # extra="forbid", so removing them would break every stored envelope
+        # and shipped config that mentions them.
 ```
 
 `TaskRequest` has **no** `task_id`, `run_id`, `session_id`, `worktree`,
@@ -241,6 +249,10 @@ ValidationResult:
     duration_ms: int
     stdout_tail: str = ""
     stderr_tail: str = ""
+    stdout_bytes: int = 0; stderr_bytes: int = 0        # what the child wrote
+    stdout_truncated: bool = False; stderr_truncated: bool = False
+    # A timed-out command keeps whatever it had already produced: the tails are
+    # fed by dedicated reader tasks the caller owns, not by communicate().
 
 RunMetadata:
     run_id: str; run_index: int (>=1); task_id: str
@@ -248,16 +260,26 @@ RunMetadata:
     worktree_path: str | None
     started_at: datetime; finished_at: datetime | None; duration_ms: int | None
     exit_code: int | None; timed_out: bool; killed_with_sigkill: bool
-    argv_redacted: list[str]; stdout_bytes: int; stderr_bytes: int
+    argv_redacted: list[str]
+    stdout_bytes: int; stderr_bytes: int      # what the child WROTE, not the
+                                              # size of the retained excerpt
+    stdout_truncated: bool = False            # excerpt is short of the stream
+    stderr_truncated: bool = False
 
 DispatcherObservations:
     task_id, run_id, session_id, model, base_commit: str
     duration_ms: int; exit_code: int | None; timed_out: bool
-    changed_paths: list[str]; diff_stat: str; diff_bytes: int
+    changed_paths: list[str]; diff_stat: str
+    diff_bytes: int                  # retained in memory (capped)
+    diff_total_bytes: int = 0        # as git produced it; > diff_bytes means
+                                     # the in-memory value was capped
     scope_valid: bool; out_of_scope_paths: list[str]; forbidden_paths_touched: list[str]
     diff_check_passed: bool
     worker_result_parsed: bool; worker_result_error: str | None
-    primary_worktree_clean: bool | None
+    primary_worktree_clean: bool | None    # literal: no uncommitted changes NOW
+    primary_tree_unchanged: bool | None    # the non-interference VERDICT
+                                           # (post fingerprint == pre); None
+                                           # means not compared for that run
 
 RunRecord:
     metadata: RunMetadata
@@ -294,8 +316,12 @@ Subclasses: `InvalidRepository`, `RepositoryNotAllowed`, `RepositoryBusy`
 `InvalidStateTransition`, `TaskNotFound`, `StateCorruption`,
 `ClaudeBinaryNotFound`, `ClaudeExecutionFailed`,
 `ClaudeStructuredOutputInvalid`, `ClaudeTimedOut`, `ResumeLimitReached`,
-`PolicyViolation`, `ValidationFailed`, `RecursionDetected`,
-`ConfigurationError`, `InternalDispatcherError`.
+`PolicyViolation`, `ValidationFailed`, `GitEvidenceCollectionFailed`,
+`RecursionDetected`, `ConfigurationError`, `InternalDispatcherError`.
+
+`GitEvidenceCollectionFailed` means an authoritative git command failed, timed
+out, produced unusable output, or could not be run. Sol must read it as
+*evidence unavailable — do not infer a clean tree*, never as "no changes".
 
 `ERROR_CODES: frozenset[str]` must stay in sync — a test checks it. Add a new
 error → add it to `ERROR_CODES`.
@@ -428,10 +454,29 @@ On-disk layout is §27, exactly:
 ```
 state/tasks/<task-id>/
   envelope.json  state.json  metadata.json
-  runs/001/{worker-result.json,dispatcher-result.json,stdout.json,stderr.log,validation.json}
+  runs/001/{worker-result.json,dispatcher-result.json,stdout.json,stdout.raw,
+            stderr.log,validation.json,claim-verification.json}
   reviews/fable-001.json
-  evidence/{diff.patch,diff-stat.txt,changed-paths.json}
+  evidence/{diff.patch,diff-stat.txt,diff-check.txt,status.txt,
+            changed-paths.json,
+            pre-validation-changed-paths.json,pre-validation-status.txt,
+            pre-validation-diff-stat.txt,evidence-phases.json,
+            primary-tree-before.txt,primary-tree-after.txt,
+            primary-tree-invariant.json,primary-tree-status.txt}
 ```
+
+`stdout.json` is the *retained* stream (head+tail, in-band marker when
+truncated); `stdout.raw` is every byte. The `pre-validation-*` files are
+evidence phase A (the worktree as the worker left it), written before any
+validation command runs; the unprefixed files are the final state on which the
+scope decision is taken. `evidence-phases.json` attributes changed paths to the
+worker or to the dispatcher's own validation. Files under `evidence/` are
+latest-run-wins; per-run history lives in `runs/NNN/`.
+
+`TaskStore` resolves every path it derives and refuses anything landing outside
+`state/tasks/`, independently of whatever validation the caller performed
+(P0-1). This includes task directories, run directories, review files and
+evidence files that have since been replaced by a symlink.
 
 Directories `0700`, files `0600`. Unparseable JSON, a missing
 `schema_version`, or a `schema_version` mismatch → `StateCorruption`. Never
@@ -450,8 +495,11 @@ after restart; corrupt JSON → `StateCorruption`; unversioned state.json →
 ## 4. Wave 2 — `locks.py`
 
 ```python
+def lock_identity_for(repository_root: Path) -> Path
+    # the git top level, or the resolved path for a non-git directory
+
 def lock_name_for(repository_root: Path) -> str
-    # sha256(str(repository_root.resolve()).encode()).hexdigest() + ".lock"
+    # sha256(str(lock_identity_for(root)).encode()).hexdigest() + ".lock"
 
 class RepositoryLock:
     def __init__(self, repository_root: Path, locks_dir: Path) -> None
@@ -468,17 +516,22 @@ repository raises `RepositoryBusy` immediately with
 `details={"repository": str(root), "lock_path": str(lock_path)}` rather than
 stalling until Codex's MCP tool timeout fires.
 
-Lock identity derives from the **canonical** path, so `/a/b`, `/a/b/`, and a
-symlink to `/a/b` all contend for the same lock. Write the holder's pid and
-task id into the lock file for debuggability (truncate first). Release is
-idempotent and must run in a `finally`. Lock files are never deleted on release
-— unlinking races with another acquirer.
+Lock identity derives from the **git top level**, so `/a/b`, `/a/b/`, a symlink
+to `/a/b`, and `/a/b/src` all contend for the same lock. Deriving it from the
+caller's spelling let one working tree hold two different locks, which is not
+mutual exclusion at all (P0-2). `RepositoryLock` resolves identity once at
+construction, so the lock file cannot move under a held lock. Write the
+holder's pid and task id into the lock file for debuggability (truncate
+first). Release is idempotent and must run in a `finally`. Lock files are never
+deleted on release — unlinking races with another acquirer.
 
-Fable review does **not** take this lock (read-only, §25).
+Fable review **does** take this lock (P0/P1-4), exclusively, for the whole
+snapshot. See `docs/SECURITY.md` §1.6 for the operational consequence.
 
 Required tests: two locks on the same repo — second raises `RepositoryBusy`;
-different repos do not contend; path spellings/symlinks map to one lock;
-release then re-acquire works; context manager releases on exception.
+different repos do not contend; path spellings/symlinks/subdirectories map to
+one lock; release then re-acquire works; context manager releases on exception;
+resume-while-review and review-while-worker are both refused.
 
 ---
 
@@ -503,14 +556,48 @@ class ScopeCheck:
     forbidden: list[str]
 
 def is_git_repository(path: Path) -> bool
+def git_top_level(path: Path) -> Path              # raises InvalidRepository
+def git_top_level_or_none(path: Path) -> Path | None
 def resolve_base_commit(repo: Path, base_ref: str) -> str
 def create_worktree_name(task_id: str) -> str
 def worktree_path_for(repo: Path, worktree_name: str) -> Path | None
 def collect_diff_evidence(worktree: Path, base_commit: str, *,
                           max_diff_bytes: int = 2_000_000) -> DiffEvidence
+def write_full_diff(worktree: Path, base_commit: str, dest: Path) -> int
 def check_scope(changed_paths: list[str], scope: ScopeSpec) -> ScopeCheck
-def primary_tree_status(repo: Path) -> str
+def primary_tree_status(repo: Path) -> str         # raises, never returns ""
 ```
+
+**Every authoritative command fails closed** with
+`GitEvidenceCollectionFailed` on a non-permitted exit code, a timeout, an
+`OSError`, or a missing `git` binary. Three failure signatures changed from
+the original contract and callers must not treat the old benign defaults as
+still reachable:
+
+| Function | Was | Is |
+|---|---|---|
+| `worktree_path_for` | `None` if git failed **or** no worktree | `None` only when git answered and found nothing; raises if git could not be consulted |
+| `primary_tree_status` | `""` (reads as "clean") if git failed | raises `GitEvidenceCollectionFailed` |
+| `collect_diff_evidence` | silently degraded on any failed sub-command | raises `GitEvidenceCollectionFailed` |
+
+`git_top_level` asks git itself (`rev-parse --show-toplevel`, argv, `cwd=path`,
+never a shell) and canonicalises the answer; it is the source of repository
+identity for `security.validate_repository_root` and `locks.lock_identity_for`.
+`git_top_level_or_none` is the variant for callers with a legitimate non-git
+fallback (the lock primitive only).
+
+Every command in this module runs with `GIT_DIR`, `GIT_WORK_TREE`,
+`GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`,
+`GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_CEILING_DIRECTORIES` and
+`GIT_NAMESPACE` stripped, plus `GIT_TERMINAL_PROMPT=0` and
+`GIT_OPTIONAL_LOCKS=0` — an inherited environment must not be able to make
+`--show-toplevel` answer about a different repository, and a read-only command
+should neither prompt nor take the index lock.
+
+`write_full_diff` streams the untruncated patch straight from git's stdout into
+a `0600` file (temp file + `fsync` + `os.replace`; no partial file on failure)
+and returns the byte count, so the dispatcher never materialises an unbounded
+string to write `evidence/diff.patch`.
 
 - `resolve_base_commit` → `git rev-parse --verify <base_ref>^{commit}`, returns
   the full 40-char SHA. Unknown ref → `InvalidRepository`.
@@ -525,9 +612,13 @@ def primary_tree_status(repo: Path) -> str
   Include untracked files in `changed_paths`
   (`git ls-files --others --exclude-standard`) — a worker that adds an
   unauthorised new file must not slip past the scope check. Truncate
-  `diff_text` at `max_diff_bytes` and set `truncated=True`; the full diff still
-  goes to `evidence/diff.patch` (§7.3: store the diff in state rather than
-  passing a huge argument on a command line).
+  `diff_text` at `max_diff_bytes`, set `truncated=True`, and record the
+  untruncated size in `diff_total_bytes`; the full diff goes to
+  `evidence/diff.patch` via `write_full_diff` (§7.3: store the diff in state
+  rather than passing a huge argument on a command line). If the full patch
+  cannot be written, the truncated text is stored **with** an explicit
+  incompleteness marker naming both byte counts — never an unmarked short
+  patch — and `changed-paths.json` records `diff_patch_complete: false`.
 - `check_scope`: match with `fnmatch`-style globbing where `**` crosses
   directory separators and `*` does not. `forbidden_paths` wins over
   `allowed_paths`. **An empty `allowed_paths` means unrestricted**; a non-empty
@@ -546,6 +637,7 @@ cases; diff evidence against a real temp repo; truncation.
 ## 6. Wave 2 — `security.py`
 
 ```python
+def validate_task_id(value: str) -> str
 def validate_repository_root(raw_root: str, config: Config) -> Path
 def assert_no_recursion(config: Config, env: Mapping[str, str] | None = None) -> None
 def assert_dispatch_depth(depth: int, config: Config) -> None
@@ -557,19 +649,40 @@ SECRET_ENV_MARKERS: tuple[str, ...]
 WORKER_ENV_MARKER = "SOL_WORKER"
 ```
 
-`validate_repository_root` (§24), in order:
+`validate_task_id` (P0-1) is the **single authoritative** task-id validator:
+canonical lowercase hyphenated UUID only (regex plus a `uuid.UUID` round-trip
+requiring byte-identical canonical rendering). It refuses non-strings,
+over-long input, null bytes, `.`, `..`, `/`-ish and `\`-ish fragments, absolute
+paths, whitespace-padded ids, arbitrary text, and non-canonical UUID spellings
+(braced, URN, uppercase). It **deliberately does not normalise** — no
+stripping, no case-folding, no unwrapping — because "normalise, then use as a
+path component" is the defect pattern. Raises `InvalidTaskEnvelope`, which
+`_guarded` already serialises. Call it at the top of `_resume`, `_review` and
+`_get_task`, before the id reaches `TaskStore`, `sessions`, or anything that
+derives a path. It is the *outer* boundary only: `TaskStore` independently
+re-verifies containment, so neither layer depends on the other.
+
+`validate_repository_root` (§24, P0-2), in order:
 
 1. Reject empty, relative, or null-byte-bearing input → `InvalidRepository`.
 2. `path = Path(raw_root).resolve()` (resolves symlinks and `..`).
 3. Not exists / not a directory → `InvalidRepository`.
-4. Not inside **any** configured root → `RepositoryNotAllowed`. Compare with
-   resolved-ancestry (`path == root or root in path.parents`), **never** string
-   `startswith` — `/srv/app-evil` must not pass for root `/srv/app`.
-5. Not a git repository → `InvalidRepository` (worktree mode is the only mode).
-6. Return the resolved `Path`. This value becomes `canonical_root`.
+4. Ask git for the top level (`git_top_level(path)`); not inside a work tree,
+   or git unusable → `InvalidRepository`.
+5. `path != canonical_root` → `InvalidRepository`. A **subdirectory of an
+   allowed repository is not an allowed repository**: accepting it would give
+   one repository two identities (two lock names, two evidence roots).
+6. `canonical_root` not **exactly equal** to one of the resolved
+   `allowed_repository_roots` → `RepositoryNotAllowed`. Not a descendant of
+   one, not a string prefix match — equal. `/srv/app-evil` must not pass for
+   root `/srv/app`, and neither must `/srv/app/src`.
+7. Return `canonical_root`. This value becomes `canonical_root` everywhere:
+   lock identity, worktree lookup, evidence root, the worker's `cwd`. The
+   caller's spelling is never reused after this point.
 
-Because step 2 resolves before step 4, a symlink inside an allowed root that
-points outside it is rejected. Test that explicitly.
+Because step 2 resolves before steps 5–6, a symlink inside an allowed root that
+points outside it is rejected, and a symlink *to* an allowed repository
+canonicalises to it and is accepted. Test both explicitly.
 
 `assert_no_recursion` (§22 layer 4): if `env.get("SOL_WORKER") == "1"` raise
 `RecursionDetected`, unless `env.get("SOL_DISPATCHER_TEST_OVERRIDE") == "1"`.
@@ -593,11 +706,27 @@ handles its own auth; the dispatcher never reads, logs, or copies a token.
 
 `redact(text)` masks `KEY=value` / `"key": "value"` pairs whose key matches
 `SECRET_ENV_MARKERS`, replacing the value with `***REDACTED***`. Apply it to
-anything before it reaches a log or `argv_redacted`.
+anything before it reaches a log or `argv_redacted`. Its cost is **linear** in
+`len(text)` and must stay that way: callers stream whole worker stderr through
+it, and the original unanchored `KEY=value` pattern backtracked quadratically
+over a long `=`-free token — enough to outlive a worker's own timeout on a few
+megabytes of output.
 
-Required tests (§31): valid repo; outside allowlist; symlink escape;
-nonexistent; non-git; `..` traversal; `SOL_WORKER=1` rejection + override;
-depth > max; worker env sets the three markers and strips secrets.
+`validation.validation_environment()` (in `validation.py`, sharing
+`SECRET_ENV_MARKERS` with this module) applies the same stripping policy to the
+dispatcher's own validation subprocesses, and additionally drops the worker
+markers. `env=None` in `run_validation_command` / `run_validations` **means**
+"build a sanitized environment" — never "inherit". Do not pass `os.environ`
+explicitly at a call site; that reintroduces P1-6.
+
+Required tests (§31): valid repo; outside allowlist; symlink escape; symlink
+*to* an allowed repo; subdirectory of an allowed repo refused; parent in the
+allowlist does not authorise the repo; prefix lookalike refused; nonexistent;
+non-git; `..` traversal; a hostile-task-id matrix against `validate_task_id`
+and against `TaskStore` directly; `SOL_WORKER=1` rejection + override;
+depth > max; worker env sets the three markers and strips secrets; validation
+env strips secrets and does *not* set the worker markers; redaction semantics
+plus a bounded-time assertion on a multi-megabyte input.
 
 ---
 
@@ -621,16 +750,49 @@ class WorkerInvocation:
     max_budget_usd: float | None = None
     env: dict[str, str] = {}
     grace_seconds: float = 5.0
+    stdout_spool_path: Path | None = None   # set by the server to run_dir/stdout.raw
+    stderr_spool_path: Path | None = None   # set by the server to run_dir/stderr.log
 
 @dataclass
 class WorkerRun:
     argv: list[str]; exit_code: int | None; stdout: str; stderr: str
     duration_ms: int; timed_out: bool = False
     killed_with_sigkill: bool = False; start_failed: bool = False
+    stdout_total_bytes: int = 0; stderr_total_bytes: int = 0
+    stdout_truncated: bool = False; stderr_truncated: bool = False
+    structured_stdout: str | None = None
+    @property
+    def stdout_for_parsing(self) -> str     # PARSE THIS, not .stdout
+
+CORE_DENIED_GIT_OPERATIONS: tuple[str, ...]   # push/merge/rebase/commit/
+                                              # reset/clean/worktree
+ALWAYS_DISALLOWED_TOOLS: tuple[str, ...]      # mcp__*, Agent, Task,
+                                              # Bash(claude:*), Bash(codex:*)
+                                              # + CORE_DENIED_GIT_OPERATIONS
 
 def build_argv(spec: WorkerInvocation) -> list[str]
 async def run_worker(spec: WorkerInvocation) -> WorkerRun
 ```
+
+Output retention (P1-8): `run_worker` keeps the first **and** last
+`MAX_CAPTURED_BYTES` of each stream. A stream up to `2 × cap` is reconstructed
+exactly; beyond that, `stdout`/`stderr` carry `head + "[dispatcher] N bytes
+omitted … This excerpt is NOT the complete stream." + tail`, and the flags and
+byte counters say so. When a spool path is supplied every byte is written to
+that `0600` file (stderr redacted line-by-line on the way); an unopenable spool
+raises `InternalDispatcherError` *before* the worker is launched. When stdout
+was truncated, the trailing structured document is recovered by a real
+`json.loads` over bounded trailing-line candidates — **never** a regex scrape —
+and exposed as `structured_stdout` / `stdout_for_parsing`. Call sites must
+parse `stdout_for_parsing`; it *is* `stdout` for any run inside the cap.
+
+Captures are owned by `run_worker`, not by the pump tasks, so a cancelled or
+timed-out drain keeps every byte already read instead of substituting `b""`.
+
+`ALWAYS_DISALLOWED_TOOLS` is appended by both invocation builders regardless of
+config, and `_assert_invocation_sane()` refuses to build argv for an invocation
+missing any member. Operator config may **add** deny rules; it can never remove
+one of these. See `docs/SECURITY.md` for what a deny pattern is and is not.
 
 ### `build_argv` — pure, so tests can assert on it exactly
 

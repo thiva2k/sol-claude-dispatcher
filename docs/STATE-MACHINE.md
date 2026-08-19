@@ -23,7 +23,7 @@ not a summary of it.
 | `TIMED_OUT` | The worker exceeded its dispatcher timeout and was terminated (SIGTERM → grace → SIGKILL). An off-ramp, not a verdict on the implementation (§20). |
 | `BLOCKED` | The worker itself reported `status: "blocked"` — it stopped and said it needed something rather than fabricating a result. |
 | `FAILED` | Non-zero exit, unparseable/schema-invalid structured output, or any other run that didn't produce a usable implementation. |
-| `POLICY_VIOLATION` | The dispatcher's own diff inspection found changes outside `scope.allowed_paths` or touching `scope.forbidden_paths`. Evidence is preserved; Sol decides what happens next. |
+| `POLICY_VIOLATION` | The dispatcher's own measurements found either (a) changes outside `scope.allowed_paths` or touching `scope.forbidden_paths`, or (b) a **primary working tree that does not match the baseline taken before the worker started**, or both. Evidence for both is preserved; Sol decides what happens next. |
 
 ---
 
@@ -106,18 +106,65 @@ means "the code is wrong":
   (`prompts/worker-policy.md`: "A blocked report is a good outcome. A
   fabricated success is not."). The worker stopped and said what it needed
   instead of guessing.
-- **`POLICY_VIOLATION`** means the dispatcher's own `git diff` inspection —
-  not the worker's claim — found changes outside the declared scope. The
-  changes are not reverted or hidden; they are reported so Sol can judge
-  whether the extra change was actually fine and widen scope, or reject it.
+- **`POLICY_VIOLATION`** means the dispatcher's own measurements — not the
+  worker's claim — found something the policy forbids. The changes are not
+  reverted or hidden; they are reported so Sol can judge whether the extra
+  change was actually fine and widen scope, or reject it. Two independent
+  checks land here, and they are combined rather than ranked when both fire:
+
+  1. **Scope.** `git diff`/`git status`/`git ls-files --others` on the
+     worktree, matched against `scope.allowed_paths` / `forbidden_paths`. The
+     verdict is taken on the worktree's **final** state — after the
+     dispatcher's own validation commands have run — because that is what is
+     actually on disk. `evidence/evidence-phases.json` attributes each path to
+     the worker or to validation, so a dispatcher-generated file is never
+     silently charged to Claude. `state_history` records
+     `reason="scope_violation"` for a scope-only violation.
+  2. **Primary-tree non-interference.** The primary working tree's fingerprint
+     (HEAD commit + `git status --porcelain`) must match the baseline captured
+     *before* the worker started. The invariant is `post == pre`, not "clean" —
+     a repository with uncommitted developer work is not a violation.
+     Divergence adds `policy_violations` entries prefixed
+     `primary_tree_head:`, `primary_tree_appeared:` or
+     `primary_tree_disappeared:`, and sets
+     `DispatcherObservations.primary_tree_unchanged = False`. A divergence can
+     **never** fall through to `AWAITING_SOL_REVIEW`.
+
+  This is *detection*, not containment: a worker that modifies a file and
+  restores it before exiting, or that touches a git-ignored file, is not
+  detected. `docs/SECURITY.md` §1.2 states the limitation in full and it must
+  not be softened here.
 - **`FAILED`** is the catch-all for a run that didn't produce anything
   usable (bad exit code, unparseable output, schema mismatch). It is a
   dispatcher-level fact about the run, not the dispatcher's opinion of the
-  work.
+  work. It is also where a run lands when the dispatcher **could not measure**
+  what happened: `GitEvidenceCollectionFailed` (a git command failed, timed
+  out, or `git` could not be run) lands `FAILED` with `last_error` populated,
+  because "we could not determine what changed" must never be rendered as "we
+  determined that nothing changed."
 
 All four route back into human/Sol judgement rather than the dispatcher
 silently retrying, silently discarding evidence, or silently deciding the
 task is done.
+
+### Which off-ramp wins
+
+When more than one condition holds for a single run, the landing state is
+decided in this order, and the order is deliberate:
+
+```text
+policy violation (scope ∪ primary-tree)   →  POLICY_VIOLATION
+timed out                                  →  TIMED_OUT
+structured output unusable                 →  FAILED
+non-zero exit code                         →  FAILED
+worker reported status: "blocked"          →  BLOCKED
+otherwise                                  →  IMPLEMENTED → AWAITING_SOL_REVIEW
+```
+
+A policy violation outranks everything below it because it is a statement
+about what the run *did to the repository*, which stays true regardless of
+whether the worker also timed out or exited non-zero. Scope and primary-tree
+violations do not compete: when both fire, both sets of markers are recorded.
 
 ---
 

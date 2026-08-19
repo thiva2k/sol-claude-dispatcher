@@ -29,14 +29,25 @@ default_model = "sonnet"
 [security]
 max_dispatch_depth = 1
 allow_network = false
+
+# The next four CANNOT be enabled. Setting any of them to true is REFUSED at
+# load time, not silently coerced: the operations they name are prohibited by
+# code-level invariants (runner.CORE_DENIED_GIT_OPERATIONS and the invocation
+# sanity check), which no configuration flag can influence. They are kept as
+# keys only so existing configs and stored envelopes still parse.
 allow_push = false
 allow_merge = false
 allow_commit = false
 allow_subagents = false
 
 # REQUIRED. Repositories the dispatcher will accept work for, as absolute
-# paths. Each must exist and be a directory. "/" is rejected outright — do
-# not seed broad filesystem access. Keep this list as narrow as possible.
+# paths. Each must exist, be a directory, and be a repository's OWN git top
+# level — listing a parent directory does NOT authorise the repositories
+# inside it, and dispatching against a subdirectory of an allowed repository
+# is refused (use [scope].allowed_paths in the task to narrow the work).
+# A linked git worktree is its own top level and needs its own entry.
+# "/" is rejected outright — do not seed broad filesystem access. Keep this
+# list as narrow as possible.
 allowed_repository_roots = [
     "/CONFIGURE/ME",
 ]
@@ -76,8 +87,17 @@ worker_tools = [
 # Fable is read-only. No Edit, no Write, no Bash.
 reviewer_tools = ["Read", "Glob", "Grep"]
 
-# Deny patterns applied on top of the tool list. Prompts are not sandboxing;
-# these are the enforcement.
+# Deny patterns applied on top of the tool list. This list is ADDITIVE ONLY:
+# runner.ALWAYS_DISALLOWED_TOOLS (mcp__*, Agent, Task, Bash(claude:*),
+# Bash(codex:*)) and runner.CORE_DENIED_GIT_OPERATIONS (the seven git
+# operations below) are appended unconditionally, so deleting an entry here
+# removes nothing — emptying this list entirely changes no prohibition. Add
+# your own patterns; you cannot subtract these.
+#
+# Honesty (docs/SECURITY.md): a deny pattern is a prefix match on Bash command
+# TEXT performed by the Claude CLI's permission engine. It is not an OS
+# boundary and does not resolve the executable. What actually detects a
+# prohibited mutation is the post-run evidence.
 disallowed_tools = [
     "mcp__*",
     "Bash(git push:*)",

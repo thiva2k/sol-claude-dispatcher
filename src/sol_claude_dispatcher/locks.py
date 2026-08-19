@@ -26,8 +26,15 @@ Contract (authoritative, see ``docs/INTERFACES.md``)::
         def __enter__(self) -> "RepositoryLock"
         def __exit__(self, *exc) -> None
 
-Fable review does not take this lock: it is read-only and runs only against
-stable post-worker state.
+Fable review **takes this lock too** (P0/P1-4). It is read-only, but "read-only"
+is a statement about the reviewer, not about the repository: a concurrent
+``resume_claude_task`` mutates the very worktree the reviewer is reading, and
+the resulting verdict describes a state that never existed as a whole. The lock
+is held for the whole snapshot — evidence read, prompt build, reviewer process,
+run recording — and released in a ``finally``. Operational consequence: a long
+review blocks dispatch and resume on that repository for its duration, and a
+review requested while a worker is running is refused immediately with
+``RepositoryBusy``. That refusal is retryable, not a review failure.
 """
 
 from __future__ import annotations
