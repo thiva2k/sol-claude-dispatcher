@@ -107,10 +107,19 @@ async def test_review_never_approves(
     assert all(h["to"] != "review_complete" for h in record.state_history)
 
 
-async def test_review_takes_no_repository_lock(
+async def test_review_is_refused_while_the_repository_lock_is_held(
     dispatcher, request_payload, fake_env, monkeypatch
 ):
-    """§25: review is read-only, so a busy repository must not block it."""
+    """P0/P1-4: a review of a repository being mutated is a review of nothing.
+
+    This replaces ``test_review_takes_no_repository_lock``, which asserted the
+    pre-fix behaviour. Read-only is not the same as consistent: while a worker
+    (or a second review) holds the repository, Fable would be reading a moving
+    target, so it now refuses immediately with ``RepositoryBusy`` rather than
+    reviewing mixed state. The assertion is inverted deliberately, and the
+    coverage is not reduced — the lock interaction is still exercised, plus the
+    three concurrency cases in ``test_lifecycle_invariants.py``.
+    """
     from sol_claude_dispatcher.locks import RepositoryLock
 
     dispatched = await _dispatched(dispatcher, request_payload, monkeypatch)
@@ -119,7 +128,16 @@ async def test_review_takes_no_repository_lock(
     with RepositoryLock(root, dispatcher.config.locks_path):
         result = await dispatcher.review_task_with_fable(dispatched["task_id"])
 
-    assert result["status"] == TaskState.FABLE_REVIEWED.value
+    assert result["error"] == "RepositoryBusy"
+    assert result["retryable"] is True
+    # Nothing was recorded against the task: no review, no state change.
+    record = dispatcher.store.load(dispatched["task_id"])
+    assert record.state is TaskState.AWAITING_SOL_REVIEW
+    assert record.fable_review_count == 0
+
+    # And the refusal did not wedge the repository: the very next review works.
+    after = await dispatcher.review_task_with_fable(dispatched["task_id"])
+    assert after["status"] == TaskState.FABLE_REVIEWED.value
 
 
 async def test_review_of_a_task_with_no_worktree_is_refused(

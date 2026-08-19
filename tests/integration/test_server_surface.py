@@ -87,12 +87,57 @@ async def test_tool_bodies_reach_the_dispatcher_through_the_server(
     """The MCP adapters are thin: calling through the server does real work."""
     server = build_server(integration_config_file)
 
-    payload = await server.call_tool("get_task", {"task_id": "no-such-task"})
+    payload = await server.call_tool(
+        "get_task", {"task_id": "11111111-2222-4333-8444-555555555555"}
+    )
 
     # An unknown task is reported as a concise structured refusal, not a raise.
     rendered = json.dumps(payload, default=str)
     assert "TaskNotFound" in rendered
     assert "Traceback" not in rendered
+
+
+@pytest.mark.parametrize(
+    "hostile_id",
+    [
+        "no-such-task",
+        "../../etc/passwd",
+        "..",
+        "/etc/passwd",
+        "foo/bar",
+        "foo\\bar",
+        "",
+        "   ",
+        "11111111-2222-4333-8444-555555555555\x00",
+        "11111111-2222-4333-8444-55555555555",
+    ],
+)
+@pytest.mark.parametrize(
+    "tool,extra",
+    [
+        ("get_task", {}),
+        ("resume_claude_task", {"instruction": "carry on"}),
+        ("review_task_with_fable", {}),
+    ],
+)
+async def test_a_malformed_task_id_is_refused_at_every_entry_point(
+    integration_config_file, hostile_id, tool, extra
+):
+    """Lane A R2: ``validate_task_id`` guards all three id-taking tools.
+
+    ``TaskStore`` already refuses to derive a path outside ``state/tasks/``, so
+    this is defence in depth — but the refusal must reach the caller as a
+    concise structured error at the boundary, never as a traceback and never
+    from somewhere deeper in the stack.
+    """
+    server = build_server(integration_config_file)
+
+    payload = await server.call_tool(tool, {"task_id": hostile_id, **extra})
+
+    rendered = json.dumps(payload, default=str)
+    assert "InvalidTaskEnvelope" in rendered, rendered
+    assert "Traceback" not in rendered
+    assert "traceback" not in rendered.lower()
 
 
 # ---------------------------------------------------------------------------
