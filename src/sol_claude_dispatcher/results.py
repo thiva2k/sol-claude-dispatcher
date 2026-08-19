@@ -165,11 +165,13 @@ def build_dispatcher_observations(
     worker_result: WorkerResult | None,
     worker_result_error: str | None = None,
     primary_worktree_clean: bool | None = None,
+    primary_tree_unchanged: bool | None = None,
 ) -> DispatcherObservations:
     """Assemble the dispatcher's *measured* evidence for one run (§16).
 
     Every field here comes from process control (``duration_ms``,
-    ``exit_code``, ``timed_out``), git inspection (``diff_evidence``) or scope
+    ``exit_code``, ``timed_out``), git inspection (``diff_evidence``,
+    ``primary_worktree_clean``, ``primary_tree_unchanged``) or scope
     checking (``scope_check``) — never from parsed worker output.
     ``worker_result`` is consulted only to record whether parsing succeeded
     (``worker_result_parsed``); none of its fields are copied onto the
@@ -190,6 +192,9 @@ def build_dispatcher_observations(
         changed_paths=list(diff_evidence.changed_paths),
         diff_stat=diff_evidence.diff_stat,
         diff_bytes=diff_bytes,
+        # The untruncated size, so a reader can tell a genuinely small diff
+        # from one the in-memory cap clipped (Lane A R3 / Lane C C-R2).
+        diff_total_bytes=diff_evidence.diff_total_bytes,
         scope_valid=scope_check.valid,
         out_of_scope_paths=list(scope_check.out_of_scope),
         forbidden_paths_touched=list(scope_check.forbidden),
@@ -197,4 +202,5 @@ def build_dispatcher_observations(
         worker_result_parsed=worker_result is not None,
         worker_result_error=worker_result_error,
         primary_worktree_clean=primary_worktree_clean,
+        primary_tree_unchanged=primary_tree_unchanged,
     )

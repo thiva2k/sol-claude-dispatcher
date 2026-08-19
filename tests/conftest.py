@@ -65,8 +65,14 @@ def valid_request_dict(git_repo: Path) -> dict:
 
 
 @pytest.fixture
-def config_text(tmp_path: Path) -> str:
-    """A valid config whose allowlist points at ``tmp_path``."""
+def config_text(tmp_path: Path, git_repo: Path) -> str:
+    """A valid config whose allowlist names the ``git_repo`` fixture exactly.
+
+    It must be the repository's own git top level, never a parent directory
+    (P0-2): ``validate_repository_root`` requires exact equality, so
+    allowlisting ``tmp_path`` would refuse ``tmp_path/repo`` — and the obvious
+    "fix" for that refusal is the one P0-2 exists to forbid.
+    """
     return f"""
 [dispatcher]
 state_dir = "./state"
@@ -85,7 +91,7 @@ default_model = "sonnet"
 
 [security]
 max_dispatch_depth = 1
-allowed_repository_roots = ["{tmp_path}"]
+allowed_repository_roots = ["{git_repo}"]
 
 [validation]
 run_dispatcher_validation = true

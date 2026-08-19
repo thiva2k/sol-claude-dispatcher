@@ -1259,6 +1259,11 @@ class Dispatcher:
                 worker_run.stderr_total_bytes,
                 len(worker_run.stderr.encode("utf-8", errors="replace")),
             ),
+            # Lane C C-R1: without these a reader cannot tell from the run
+            # record that ``stdout.json`` is an excerpt — they would have to
+            # compare its size against ``stdout_bytes`` or open ``stdout.raw``.
+            stdout_truncated=worker_run.stdout_truncated,
+            stderr_truncated=worker_run.stderr_truncated,
         )
 
     async def _finalise_worker_run(
@@ -1402,6 +1407,9 @@ class Dispatcher:
             # by ``primary_tree_divergence`` below — an already-dirty tree is
             # not a violation.
             primary_worktree_clean=(primary_tree_after.porcelain_status.strip() == ""),
+            # The invariant verdict itself, typed rather than only inferable
+            # from the ``primary_tree_*`` prefixes in ``policy_violations``.
+            primary_tree_unchanged=primary_tree_divergence is None,
         )
 
         metadata = self._run_metadata(

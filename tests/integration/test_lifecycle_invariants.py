@@ -263,6 +263,16 @@ async def test_an_initially_clean_primary_tree_stays_clean(
     assert invariant["after"]["porcelain_status"] == ""
     assert invariant["before"]["head_commit"] == invariant["after"]["head_commit"]
 
+    run = dispatcher.store.latest_run(result["task_id"])
+    assert run is not None and run.dispatcher_observations is not None
+    assert run.dispatcher_observations.primary_tree_unchanged is True
+    # The untruncated diff size is recorded alongside the retained one (C-R2),
+    # so a reader can tell a small diff from a capped one.
+    assert run.dispatcher_observations.diff_total_bytes >= (
+        run.dispatcher_observations.diff_bytes
+    )
+    assert run.dispatcher_observations.diff_total_bytes > 0
+
 
 async def test_an_initially_dirty_primary_tree_is_accepted_when_unchanged(
     dispatcher, request_payload, fake_env, monkeypatch, seeded_repo
@@ -323,6 +333,13 @@ async def test_a_worker_that_touches_the_primary_tree_is_a_policy_violation(
     record = dispatcher.store.load(result["task_id"])
     assert record.state is TaskState.POLICY_VIOLATION
     assert expected_marker in record.policy_violations
+
+    # The verdict is a typed observation too (C-R3), not only a string prefix
+    # in policy_violations. primary_worktree_clean stays a literal measurement
+    # of the tree's current dirtiness and is a different question.
+    run = dispatcher.store.latest_run(result["task_id"])
+    assert run is not None and run.dispatcher_observations is not None
+    assert run.dispatcher_observations.primary_tree_unchanged is False
 
     # Both halves of the evidence survive, which is what makes the verdict
     # checkable by a human rather than merely asserted.
@@ -525,6 +542,9 @@ async def test_a_very_large_worker_run_still_yields_a_parsed_result(
     assert run is not None
     # The recorded size is what the worker wrote, not what was retained.
     assert run.metadata.stdout_bytes > 3 * 1024 * 1024
+    # ...and the record says so, so a reader of state.json never mistakes the
+    # excerpt in stdout.json for the whole stream (C-R1).
+    assert run.metadata.stdout_truncated is True
 
 
 async def test_the_complete_worker_stream_reaches_the_run_directory(

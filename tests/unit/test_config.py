@@ -76,11 +76,13 @@ class TestExampleConfig:
 
 
 class TestLoadingValidConfig:
-    def test_loads_and_exposes_sections(self, config_file, tmp_path):
+    def test_loads_and_exposes_sections(self, config_file, git_repo):
         config = load_config(config_file)
         assert isinstance(config, Config)
         assert config.source_path == str(config_file.resolve())
-        assert config.security.allowed_repository_roots == [str(tmp_path.resolve())]
+        # The shared fixture allowlists the repository's own git top level, not
+        # its parent — exact-equality allowlisting (P0-2) accepts nothing else.
+        assert config.security.allowed_repository_roots == [str(git_repo.resolve())]
 
     def test_optional_sections_get_safe_defaults(self, config_file):
         config = load_config(config_file)

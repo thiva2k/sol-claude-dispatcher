@@ -297,6 +297,38 @@ def test_build_dispatcher_observations_shape():
     assert obs.worker_result_parsed is True
     assert obs.worker_result_error is None
     assert obs.primary_worktree_clean is True
+    assert obs.primary_tree_unchanged is None
+
+
+def test_observations_distinguish_the_retained_diff_from_the_whole_one():
+    """C-R2: ``diff_bytes`` is what we held, ``diff_total_bytes`` is what exists.
+
+    Without the second number a capped diff and a genuinely small one are
+    indistinguishable in the record, and a reader would under-read the change.
+    """
+    diff_evidence = _diff_evidence(
+        diff_text="x" * 64,
+        truncated=True,
+        diff_total_bytes=2_000_000,
+    )
+    obs = build_dispatcher_observations(
+        task_id="task-3",
+        run_id="run-3",
+        session_id="session-3",
+        model="sonnet",
+        base_commit="c" * 40,
+        duration_ms=10,
+        exit_code=0,
+        timed_out=False,
+        diff_evidence=diff_evidence,
+        scope_check=ScopeCheck(valid=True, out_of_scope=[], forbidden=[]),
+        worker_result=None,
+        primary_tree_unchanged=True,
+    )
+
+    assert obs.diff_bytes == 64
+    assert obs.diff_total_bytes == 2_000_000
+    assert obs.primary_tree_unchanged is True
 
 
 def test_build_dispatcher_observations_worker_result_none_marks_unparsed():

@@ -794,8 +794,18 @@ class RunMetadata(StrictModel):
     timed_out: bool = False
     killed_with_sigkill: bool = False
     argv_redacted: list[str] = Field(default_factory=list)
+    #: Bytes the child actually wrote, not the size of the retained excerpt
+    #: (P1-8). When the corresponding ``*_truncated`` flag is set, the run
+    #: directory's ``stdout.json`` holds head+tail with an in-band marker and
+    #: ``stdout.raw`` holds the complete stream.
     stdout_bytes: int = Field(default=0, ge=0)
     stderr_bytes: int = Field(default=0, ge=0)
+    #: Whether the retained in-memory excerpt is short of the full stream.
+    #: Defaults to ``False`` so a record persisted before this field existed
+    #: still loads (it could not have been truncated: the retention policy that
+    #: makes truncation possible landed with the flag).
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 class DispatcherObservations(StrictModel):
@@ -819,7 +829,14 @@ class DispatcherObservations(StrictModel):
 
     changed_paths: list[str] = Field(default_factory=list)
     diff_stat: str = Field(default="", max_length=_MAX_TEXT)
+    #: Size of the diff the dispatcher held in memory, capped at
+    #: ``[validation].max_diff_bytes``.
     diff_bytes: int = Field(default=0, ge=0)
+    #: Size of the *whole* diff as git produced it. Greater than
+    #: ``diff_bytes`` means the in-memory value was capped; ``evidence/diff.patch``
+    #: is still the complete patch (or is explicitly marked incomplete).
+    #: Without this a reader cannot tell a small diff from a truncated one.
+    diff_total_bytes: int = Field(default=0, ge=0)
 
     scope_valid: bool = True
     out_of_scope_paths: list[str] = Field(default_factory=list)
@@ -829,7 +846,17 @@ class DispatcherObservations(StrictModel):
     worker_result_parsed: bool = False
     worker_result_error: str | None = Field(default=None, max_length=_MAX_TEXT)
 
+    #: Literal measurement: the primary tree has no uncommitted changes *now*.
+    #: Not the non-interference verdict — an already-dirty tree is not a
+    #: violation.
     primary_worktree_clean: bool | None = None
+    #: The non-interference verdict (P1-5): the primary tree's fingerprint
+    #: (HEAD commit + ``git status --porcelain``) is byte-identical to the
+    #: baseline taken before the worker started. ``None`` means the comparison
+    #: was not performed for this run — including every run recorded before
+    #: this field existed. **Detection, not containment**: see
+    #: ``docs/SECURITY.md``.
+    primary_tree_unchanged: bool | None = None
 
 
 class RunRecord(StrictModel):
