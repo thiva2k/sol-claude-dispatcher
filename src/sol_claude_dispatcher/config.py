@@ -17,7 +17,14 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+)
 
 from .errors import ConfigurationError
 
@@ -83,6 +90,17 @@ class RoutingSettings(_StrictSection):
 
 
 class SecuritySettings(_StrictSection):
+    """Security policy.
+
+    ``allow_push`` / ``allow_merge`` / ``allow_commit`` / ``allow_subagents``
+    are **not** switches (finding P1-9). Those operations are denied by
+    code-level invariants in ``runner.ALWAYS_DISALLOWED_TOOLS`` /
+    ``runner.CORE_DENIED_GIT_OPERATIONS`` that this file cannot reach; the keys
+    survive only so an operator's existing config still parses, and setting one
+    to ``true`` is refused rather than silently ignored. ``allow_network``
+    remains a genuine (POLICY-level, prompt-carried) flag.
+    """
+
     max_dispatch_depth: int = Field(default=1, ge=0, le=1)
     allow_network: bool = False
     allow_push: bool = False
@@ -90,6 +108,17 @@ class SecuritySettings(_StrictSection):
     allow_commit: bool = False
     allow_subagents: bool = False
     allowed_repository_roots: list[str] = Field(min_length=1)
+
+    @field_validator("allow_push", "allow_merge", "allow_commit", "allow_subagents")
+    @classmethod
+    def _prohibited_in_v1(cls, v: bool, info: ValidationInfo) -> bool:
+        if v:
+            raise ValueError(
+                f"security.{info.field_name} cannot be enabled: the operation it "
+                "names is denied by a non-configurable code-level invariant, not "
+                "by this key. Remove the key rather than setting it to true"
+            )
+        return v
 
     @field_validator("allowed_repository_roots")
     @classmethod
@@ -161,6 +190,11 @@ class ClaudeSettings(_StrictSection):
         default_factory=lambda: ["Read", "Glob", "Grep"]
     )
     #: Deny patterns applied on top of the tool list (§11, §22 layer 3).
+    #: Operator-editable, and **additive only**: the runner unions this list
+    #: with the non-configurable ``runner.ALWAYS_DISALLOWED_TOOLS`` (which now
+    #: includes the prohibited git operations, P1-9), so emptying this key
+    #: cannot lift a single core denial. The entries below are kept as visible
+    #: documentation of the core set, not as its only enforcement.
     disallowed_tools: list[str] = Field(
         default_factory=lambda: [
             "mcp__*",
