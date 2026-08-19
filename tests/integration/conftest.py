@@ -74,12 +74,24 @@ def seeded_repo(git_repo: Path) -> Path:
 
 
 @pytest.fixture
-def integration_config_file(tmp_path: Path) -> Path:
-    """A config whose allowlist is ``tmp_path`` and whose worker is the shim.
+def integration_config_file(tmp_path: Path, git_repo: Path) -> Path:
+    """A config allowlisting the test repository's exact git top level.
 
     ``project_root`` resolves to ``tmp_path`` (the config file's own directory),
     so ``state_dir`` lands in the temporary tree while the prompt/schema paths
     are absolute references back into the real project.
+
+    The allowlist names ``tmp_path/repo`` — the ``git_repo`` fixture's exact git
+    top level — and **not** ``tmp_path``. Under P0-2, allowlisting a parent
+    directory no longer authorises the repositories inside it: every entry in
+    ``allowed_repository_roots`` must be a repository's own top level. Widening
+    this back to ``tmp_path`` would only pass by re-opening the descendant hole
+    that finding closed.
+
+    The dependency on ``git_repo`` is load-bearing twice over: it fixes the
+    fixture ordering (``config.security.allowed_repository_roots`` entries must
+    exist on disk when the config is loaded) and it makes the allowlisted path
+    the same object the tests dispatch against.
     """
     path = tmp_path / "dispatcher.toml"
     path.write_text(
@@ -101,7 +113,7 @@ default_model = "sonnet"
 
 [security]
 max_dispatch_depth = 1
-allowed_repository_roots = ["{tmp_path}"]
+allowed_repository_roots = ["{git_repo}"]
 
 [validation]
 run_dispatcher_validation = true
