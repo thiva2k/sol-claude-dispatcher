@@ -23,7 +23,7 @@ the two share a column.
 
 | Protection | Enforcement | Why it's in that column |
 |---|---|---|
-| Isolated git worktree per task | **HARD** | `--worktree <name>` creates a separate working directory; a worker's file writes land there, not in the primary tree. The dispatcher independently verifies this afterwards (see the primary-tree row) — it does not merely trust that the flag worked. |
+| Isolated git worktree per task | **HARD** *(that the worktree exists and is separate)* / **POLICY** *(that the worker stays in it)* | `--worktree <name>` genuinely creates a separate working directory and the worker's `cwd` is that directory, so its ordinary edits land there and the dispatcher's diff is taken against it. That much is real and non-negotiable. It is **not** a filesystem barrier: a worker holding a `Bash` tool can name an absolute path outside the worktree, and nothing here refuses the write. The dispatcher's answer to that is *detection* after the fact (see the primary-tree row), never containment. Do not read "isolated worktree" as "the primary tree is protected". |
 | MCP stripped from workers | **HARD** | Three independent mechanisms stacked: `--strict-mcp-config`, `--mcp-config` pointed at `config/empty-mcp.json` (`{"mcpServers": {}}`), and `mcp__*` in `ALWAYS_DISALLOWED_TOOLS` (`runner.py`) — non-configurable, appended regardless of what `config/dispatcher.toml` says. A worker has no MCP server to call even if every other layer failed. |
 | Omitted tools | **HARD** | `config.claude.worker_tools` is an allow-list, not a deny-list: `Agent`/`Task`/`Subagent` are simply never in it, and `runner._assert_invocation_sane()` raises `InternalDispatcherError` if a caller ever tries to grant one (§22 layer 2). A tool that was never granted cannot be invoked regardless of what the prompt says. |
 | `SOL_WORKER` refuse-init | **HARD** | `security.assert_no_recursion()` raises `RecursionDetected` whenever `SOL_WORKER=1` is present in the environment, called at server startup and at the top of every dispatch/resume tool. This is a process-environment check, not a request the worker could decline. |
@@ -86,10 +86,15 @@ The same text is embedded in every `evidence/primary-tree-invariant.json` the
 dispatcher writes, so the limitation travels with the evidence rather than
 living only here.
 
-What it *does* catch, because the fingerprint is HEAD **and** porcelain status
-together: a modification, a deletion, an untracked addition, a staged change,
-a checkout, and a commit. `status` alone cannot see a commit; `HEAD` alone
-cannot see a working-tree edit.
+What it *does* catch — and "catch" here means *notice afterwards*, never
+*stop* — because the fingerprint is HEAD **and** porcelain status together: a
+modification, a deletion, an untracked addition, a staged change, a checkout,
+and a commit, each of them still present in the tree when the run ends.
+`status` alone cannot see a commit; `HEAD` alone cannot see a working-tree
+edit. None of this narrows the limitation above: an interference that has been
+undone by the time evidence is collected leaves no trace for either half of the
+fingerprint, and a git-ignored path is outside what `git status --porcelain`
+reports at all.
 
 Divergence is reported as `policy_violations` entries prefixed
 `primary_tree_head:`, `primary_tree_appeared:` and

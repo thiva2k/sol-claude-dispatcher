@@ -176,7 +176,9 @@ isolation. The difference is documented honestly, protection-by-protection,
 in `docs/SECURITY.md` — this project does not pretend a prompt is a
 sandbox.
 
-**Hard:** isolated git worktree; MCP stripped from workers
+**Hard:** an isolated git worktree really is created and really is a separate
+directory (though nothing *stops* a worker naming an absolute path outside it —
+see Policy); MCP stripped from workers
 (`--strict-mcp-config` + empty `mcp-config` + `mcp__*` denied,
 non-configurably); subagent tools never granted; `SOL_WORKER=1` refuse-init;
 dispatch-depth cap; resume cap; repository identity pinned to the **exact git
