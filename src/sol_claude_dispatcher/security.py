@@ -4,16 +4,25 @@ Fail closed, always. A path that cannot be proven safe is rejected.
 
 Contract (authoritative, see ``docs/INTERFACES.md``)::
 
+    def validate_task_id(value: str) -> str
     def validate_repository_root(raw_root: str, config: Config) -> Path
     def assert_no_recursion(config: Config, env: Mapping[str, str] | None = None) -> None
     def assert_dispatch_depth(depth: int, config: Config) -> None
     def worker_environment(base_env, *, task_id, dispatch_depth) -> dict[str, str]
     def redact(text: str) -> str
 
+``validate_task_id`` is the single authoritative task-id validator: canonical
+lowercase UUID form only, so a caller-supplied id can never become a path
+component of the dispatcher's choosing. It is the *outer* boundary;
+:class:`~sol_claude_dispatcher.state.TaskStore` independently re-verifies
+containment of every path it derives, so neither layer depends on the other
+having been called.
+
 ``validate_repository_root`` rejects: nonexistent paths, non-directories,
-non-git directories, paths outside every configured root, path traversal, and
-symlink escapes (checked *after* ``Path.resolve()``, comparing resolved
-ancestry rather than string prefixes).
+non-git directories, any path that is not itself the git top level, paths that
+are not *exactly* a configured allowed root, path traversal, and symlink
+escapes (checked *after* ``Path.resolve()`` and after git has named the top
+level, comparing canonical paths rather than string prefixes or ancestry).
 
 ``worker_environment`` builds the child environment (§22 layer 4 and layer 7):
 it sets ``SOL_WORKER=1``, ``SOL_DISPATCH_DEPTH``, ``SOL_TASK_ID``, and strips
@@ -25,14 +34,21 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
 from .config import Config
-from .errors import InvalidRepository, RecursionDetected, RepositoryNotAllowed
-from .git import is_git_repository
+from .errors import (
+    InvalidRepository,
+    InvalidTaskEnvelope,
+    RecursionDetected,
+    RepositoryNotAllowed,
+)
+from .git import git_top_level
 
 __all__ = [
+    "validate_task_id",
     "validate_repository_root",
     "assert_no_recursion",
     "assert_dispatch_depth",
@@ -65,21 +81,111 @@ WORKER_ENV_MARKER = "SOL_WORKER"
 #: that itself happens to carry ``SOL_WORKER=1`` in ancestry.
 _TEST_OVERRIDE_MARKER = "SOL_DISPATCHER_TEST_OVERRIDE"
 
+#: The one shape a dispatcher task id may have: canonical, lowercase,
+#: hyphenated UUID (what :func:`sol_claude_dispatcher.models.new_task_id`
+#: produces). Anything else — a path fragment, a traversal sequence, an
+#: uppercase or braced UUID spelling, a URN — is refused rather than
+#: normalised, because "normalise then use as a path component" is exactly the
+#: pattern that produces directory escapes.
+_TASK_ID_RE = re.compile(
+    r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z"
+)
+
+#: Upper bound on the raw string we are willing to even inspect, so a
+#: pathological input cannot turn validation into work.
+_MAX_TASK_ID_LEN = 64
+
+
+def validate_task_id(value: str) -> str:
+    """Return ``value`` if it is a canonical dispatcher task id, else refuse.
+
+    This is the single authoritative task-id validator (P0-1). Every MCP entry
+    point that accepts a caller-supplied ``task_id`` — ``get_task``,
+    ``resume_claude_task``, ``review_task_with_fable`` — must pass it through
+    here *before* the id reaches any component that derives a filesystem path
+    from it.
+
+    Fail closed, and deliberately without normalisation: no stripping, no
+    case-folding, no brace/URN unwrapping. A caller that sends anything other
+    than the exact id the dispatcher issued gets
+    :class:`~sol_claude_dispatcher.errors.InvalidTaskEnvelope`, not a repaired
+    id. Rejected shapes include ``..``, ``../escape``, ``/absolute``,
+    ``foo/bar``, ``foo\\bar``, ``.``, ``""``, whitespace-padded ids, embedded
+    null bytes, arbitrary text, and malformed or non-canonical UUIDs.
+
+    This is the outer boundary only. ``TaskStore`` re-verifies containment of
+    every path it derives, so a call site that forgets this function still
+    cannot escape the task-state root.
+    """
+    if not isinstance(value, str):
+        raise InvalidTaskEnvelope(
+            "task_id must be a string.",
+            details={"type": type(value).__name__},
+        )
+    if len(value) > _MAX_TASK_ID_LEN:
+        raise InvalidTaskEnvelope(
+            "task_id is too long to be a dispatcher task id.",
+            details={"length": len(value)},
+        )
+    if "\x00" in value:
+        raise InvalidTaskEnvelope(
+            "task_id contains a null byte.",
+            details={"task_id": repr(value)},
+        )
+    if not _TASK_ID_RE.match(value):
+        raise InvalidTaskEnvelope(
+            "task_id is not a canonical dispatcher task id.",
+            details={"task_id": repr(value)},
+            remediation=(
+                "Use the task_id returned by dispatch_claude_task verbatim; the "
+                "dispatcher issues canonical lowercase UUIDs and accepts no "
+                "other spelling."
+            ),
+        )
+    # Belt and braces: the regex already pins the shape, but round-tripping
+    # through uuid.UUID proves it is a real UUID and that the canonical
+    # rendering is byte-identical to what was supplied.
+    try:
+        parsed = uuid.UUID(value)
+    except ValueError as exc:  # pragma: no cover - unreachable given the regex
+        raise InvalidTaskEnvelope(
+            "task_id is not a valid UUID.", details={"task_id": repr(value)}
+        ) from exc
+    if str(parsed) != value:  # pragma: no cover - unreachable given the regex
+        raise InvalidTaskEnvelope(
+            "task_id is not in canonical UUID form.",
+            details={"task_id": repr(value)},
+        )
+    return value
+
 
 def validate_repository_root(raw_root: str, config: Config) -> Path:
-    """Canonicalise and allowlist-check a repository root (§24).
+    """Establish canonical repository identity and allowlist-check it (§24, P0-2).
 
     Order (fail closed at the first violation):
 
     1. reject empty / relative / null-byte-bearing input;
     2. resolve symlinks and ``..`` (``Path.resolve()``);
     3. reject nonexistent paths and non-directories;
-    4. reject paths outside every configured allowlist root, comparing
-       *resolved* ancestry rather than string prefixes — a symlink inside an
-       allowed root that points outside it was already resolved away in step
-       2, so it is rejected here, not silently accepted;
-    5. reject non-git directories (worktree mode requires git);
-    6. return the resolved path. This becomes ``canonical_root``.
+    4. ask *git* for the repository's top level (``git rev-parse
+       --show-toplevel``, argv, never a shell) and canonicalise the answer;
+       a path that is not inside a work tree is rejected here;
+    5. reject any request whose resolved path is not itself that top level —
+       a subdirectory of an allowed repository is **not** an allowed
+       repository, because accepting it would give the same repository two
+       identities (two lock names, two evidence roots);
+    6. require the canonical top level to be **exactly** equal to one of the
+       configured allowed roots. Not a descendant of one, not a string prefix
+       match — equal;
+    7. return the canonical top level. This becomes ``canonical_root``, and is
+       the only spelling that may be used for locking, worktree derivation and
+       evidence collection.
+
+    The historical check (``path == root or root in path.parents``) accepted
+    ``/repo/src`` for an allowlist of ``/repo``. That broke canonical identity:
+    the same repository reached through two spellings produced two different
+    lock files and two different evidence roots, so the "one mutating worker
+    per repository" invariant did not hold.
     """
     if not raw_root or not raw_root.strip():
         raise InvalidRepository(
@@ -106,25 +212,38 @@ def validate_repository_root(raw_root: str, config: Config) -> Path:
             "Repository root is not a directory.", details={"root": str(path)}
         )
 
+    # git names the repository, not the caller. Raises InvalidRepository when
+    # the path is not inside a work tree or git could not be consulted.
+    canonical_root = git_top_level(path)
+
+    if path != canonical_root:
+        raise InvalidRepository(
+            "Repository root must be the git top-level directory, not a "
+            "subdirectory of one.",
+            details={"root": str(path), "git_top_level": str(canonical_root)},
+            remediation=(
+                "Dispatch against the repository root itself "
+                f"({canonical_root}); scope a task to a subdirectory with "
+                "[scope].allowed_paths instead."
+            ),
+        )
+
     allowed_roots = [Path(r).resolve() for r in config.security.allowed_repository_roots]
-    if not any(path == root or root in path.parents for root in allowed_roots):
+    if canonical_root not in allowed_roots:
         raise RepositoryNotAllowed(
-            "Repository is outside the configured allowlist.",
+            "Repository is not an allowed repository root.",
             details={
-                "root": str(path),
+                "root": str(canonical_root),
                 "allowed_roots": [str(r) for r in allowed_roots],
             },
-            remediation="Add the path to [security].allowed_repository_roots.",
+            remediation=(
+                "Add the repository's exact git top-level path to "
+                "[security].allowed_repository_roots. Descendants of an allowed "
+                "root are not accepted; each repository must be listed."
+            ),
         )
 
-    if not is_git_repository(path):
-        raise InvalidRepository(
-            "Repository root is not a git repository; worktree mode requires "
-            "a git repository.",
-            details={"root": str(path)},
-        )
-
-    return path
+    return canonical_root
 
 
 def assert_no_recursion(

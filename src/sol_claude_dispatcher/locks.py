@@ -1,10 +1,15 @@
 """Repository locking (brief §25). — Wave 2.
 
 V1 permits exactly one mutating worker per repository. The lock identity is
-derived from the *canonical* repository path, so two different spellings of the
-same directory contend for the same lock::
+derived from the *canonical git top level*, so every spelling of the same
+repository — a trailing slash, a symlink alias, or a subdirectory of the work
+tree — contends for the same lock::
 
-    state/locks/<sha256(canonical_repository_path)>.lock
+    state/locks/<sha256(canonical_git_top_level)>.lock
+
+Deriving identity from the caller's spelling would have let ``/repo`` and
+``/repo/src`` hold two different locks on one repository, which is not
+mutual exclusion at all (P0-2).
 
 Uses ``fcntl.flock`` with ``LOCK_EX | LOCK_NB``. Non-blocking by default: a
 busy repository raises :class:`~sol_claude_dispatcher.errors.RepositoryBusy`
@@ -36,33 +41,61 @@ from pathlib import Path
 from types import TracebackType
 
 from .errors import RepositoryBusy
+from .git import git_top_level_or_none
 
-__all__ = ["RepositoryLock", "lock_name_for"]
+__all__ = ["RepositoryLock", "lock_name_for", "lock_identity_for"]
+
+
+def lock_identity_for(repository_root: Path) -> Path:
+    """Canonical identity of the repository ``repository_root`` belongs to.
+
+    The git top level when there is one, otherwise the resolved path. Two
+    spellings of the same repository — including a subdirectory of its work
+    tree — always produce the same identity, which is what makes "one mutating
+    worker per repository" actually hold.
+
+    A non-git directory legitimately has no top level (the lock primitive is
+    useful on its own and its unit tests exercise plain directories), so that
+    case falls back to the resolved path rather than refusing. Security
+    decisions never come through here: ``security.validate_repository_root``
+    has already refused anything that is not an allowed git top level before a
+    lock is ever constructed in production.
+    """
+    resolved = Path(repository_root).resolve()
+    top_level = git_top_level_or_none(resolved)
+    return top_level if top_level is not None else resolved
 
 
 def lock_name_for(repository_root: Path) -> str:
-    """Return ``<sha256-of-canonical-path>.lock``.
+    """Return ``<sha256-of-canonical-repository-identity>.lock``.
 
-    The path is resolved first, so ``/a/b``, ``/a/b/`` and a symlink pointing
-    at ``/a/b`` all produce the same lock name.
+    Identity comes from :func:`lock_identity_for`, so ``/a/b``, ``/a/b/``, a
+    symlink pointing at ``/a/b`` and ``/a/b/src`` (when ``/a/b`` is the git top
+    level) all produce the same lock name.
     """
-    canonical = str(Path(repository_root).resolve())
-    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return _digest_name(lock_identity_for(repository_root))
+
+
+def _digest_name(identity: Path) -> str:
+    digest = hashlib.sha256(str(identity).encode("utf-8")).hexdigest()
     return f"{digest}.lock"
 
 
 class RepositoryLock:
-    """Exclusive, path-derived, advisory filesystem lock for one repository."""
+    """Exclusive, identity-derived, advisory filesystem lock for one repository."""
 
     def __init__(self, repository_root: Path, locks_dir: Path) -> None:
-        self._repository_root = Path(repository_root).resolve()
+        # Identity is resolved once, at construction: the lock file must not
+        # change under a long-lived lock because the filesystem changed shape.
+        self._repository_root = lock_identity_for(repository_root)
+        self._lock_name = _digest_name(self._repository_root)
         self._locks_dir = Path(locks_dir)
         self._locks_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._fd: int | None = None
 
     @property
     def lock_path(self) -> Path:
-        return self._locks_dir / lock_name_for(self._repository_root)
+        return self._locks_dir / self._lock_name
 
     def acquire(self, *, blocking: bool = False, timeout: float = 0.0) -> None:
         """Acquire the exclusive lock.

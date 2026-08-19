@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,15 @@ def test_lock_name_same_for_symlink_alias(tmp_path: Path) -> None:
     alias = tmp_path / "alias"
     alias.symlink_to(real, target_is_directory=True)
     assert locks.lock_name_for(real) == locks.lock_name_for(alias)
+
+
+def test_lock_name_is_derived_from_the_git_top_level(tmp_path: Path) -> None:
+    """P0-2: a subdirectory of a repository must not get its own lock."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "src").mkdir()
+    assert locks.lock_name_for(repo / "src") == locks.lock_name_for(repo)
 
 
 def test_lock_name_differs_for_different_repos(tmp_path: Path) -> None:

@@ -11,9 +11,11 @@ from sol_claude_dispatcher import security
 from sol_claude_dispatcher.config import load_config_from_mapping
 from sol_claude_dispatcher.errors import (
     InvalidRepository,
+    InvalidTaskEnvelope,
     RecursionDetected,
     RepositoryNotAllowed,
 )
+from sol_claude_dispatcher.models import new_task_id
 
 
 def _make_config(tmp_path: Path, allowed_roots: list[Path], **security_overrides):
@@ -122,6 +124,56 @@ def test_null_byte_in_root_is_rejected(tmp_path: Path) -> None:
     config = _make_config(tmp_path, [tmp_path])
     with pytest.raises(InvalidRepository):
         security.validate_repository_root(f"{tmp_path}/foo\x00bar", config)
+
+
+def test_subdirectory_of_an_allowed_repository_is_rejected(git_repo: Path) -> None:
+    """P0-2: repository identity is the git top level, not "somewhere inside it".
+
+    The previous rule (``path == root or root in path.parents``) accepted a
+    subdirectory, which gave one repository two identities — two lock names and
+    two evidence roots.
+    """
+    sub = git_repo / "src"
+    sub.mkdir()
+    config = _make_config(git_repo.parent, [git_repo])
+    with pytest.raises((InvalidRepository, RepositoryNotAllowed)):
+        security.validate_repository_root(str(sub), config)
+
+
+def test_allowlisting_a_parent_directory_does_not_allow_the_repository(
+    git_repo: Path,
+) -> None:
+    """Allowlist matching is exact equality, not ancestry."""
+    config = _make_config(git_repo.parent, [git_repo.parent])
+    with pytest.raises((InvalidRepository, RepositoryNotAllowed)):
+        security.validate_repository_root(str(git_repo), config)
+
+
+def test_accepted_root_is_the_canonical_git_top_level(git_repo: Path) -> None:
+    """Every downstream decision uses git's answer, not the caller's spelling."""
+    config = _make_config(git_repo.parent, [git_repo])
+    result = security.validate_repository_root(f"{git_repo}/", config)
+    assert result == git_repo.resolve()
+
+
+# ---------------------------------------------------------------------------
+# validate_task_id
+# ---------------------------------------------------------------------------
+
+
+def test_validate_task_id_accepts_a_dispatcher_issued_id() -> None:
+    task_id = new_task_id()
+    assert security.validate_task_id(task_id) == task_id
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    ["../escape", "../../escape", "/foo", "foo/bar", "foo\\bar", ".", "..", "",
+     "   ", "\x00", "not-a-uuid", "5F9C1F2E-0D3A-4B6F-8A1C-2B3D4E5F6A7B"],
+)
+def test_validate_task_id_refuses_hostile_input(hostile: str) -> None:
+    with pytest.raises(InvalidTaskEnvelope):
+        security.validate_task_id(hostile)
 
 
 # ---------------------------------------------------------------------------

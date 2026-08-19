@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -72,6 +73,38 @@ _TRANSITION_UPDATABLE_FIELDS = frozenset(
         "fable_review_count",
     }
 )
+
+
+# A task id is only ever used here as a single path component. This is the
+# structural gate that makes that safe *without* depending on the MCP layer
+# having called security.validate_task_id first (P0-1, defense in depth):
+# one component, no separators, no traversal, no leading dot, no control
+# characters, bounded length. The authoritative caller-facing rule is stricter
+# still (canonical UUID only) and lives in security.validate_task_id; this one
+# is deliberately permissive enough to keep the store usable with the
+# dispatcher's own internal identifiers while still being impossible to escape
+# with.
+_SAFE_ID_COMPONENT_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+
+def _reject_unsafe_component(value: object, *, what: str) -> str:
+    """Refuse anything that is not a single, traversal-free path component."""
+    if not isinstance(value, str):
+        raise InvalidTaskEnvelope(
+            f"{what} must be a string.", details={"type": type(value).__name__}
+        )
+    if "\x00" in value:
+        raise InvalidTaskEnvelope(
+            f"{what} contains a null byte.", details={what: repr(value)}
+        )
+    if value != value.strip():
+        raise InvalidTaskEnvelope(
+            f"{what} has leading or trailing whitespace.", details={what: repr(value)}
+        )
+    if not _SAFE_ID_COMPONENT_RE.match(value):
+        raise InvalidTaskEnvelope(
+            f"{what} is not a safe path component.", details={what: repr(value)}
+        )
+    return value
 
 
 def _mkdir(path: Path) -> None:
@@ -212,14 +245,53 @@ class TaskStore:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         _mkdir(self.root)
+        # Canonical form of the state root, captured once. Every path this
+        # store derives is checked against it, so a symlink planted *inside*
+        # state/tasks/ cannot redirect a read or a write outside the root.
+        self._canonical_root = self.root.resolve()
 
     # -- paths --------------------------------------------------------
 
+    def _contained(self, path: Path, *, task_id: str) -> Path:
+        """Return ``path`` only if it resolves inside the task-state root.
+
+        The last line of defence for P0-1: containment is re-derived here for
+        every path, so the store is safe even when a caller skipped
+        ``security.validate_task_id``, and even when part of the tree has been
+        replaced by a symlink since the directory was created. Checked before
+        any read or write touches the filesystem.
+        """
+        resolved = path.resolve()
+        root = self._canonical_root
+        if resolved != root and root not in resolved.parents:
+            raise InvalidTaskEnvelope(
+                "Refusing to touch a path outside the task-state root.",
+                details={
+                    "task_id": repr(task_id),
+                    "resolved_path": str(resolved),
+                    "state_root": str(root),
+                },
+            )
+        return path
+
     def task_dir(self, task_id: str) -> Path:
-        return self.root / task_id
+        """``state/tasks/<task_id>``, proven to stay inside the state root."""
+        safe_id = _reject_unsafe_component(task_id, what="task_id")
+        return self._contained(self.root / safe_id, task_id=safe_id)
 
     def run_dir(self, task_id: str, run_index: int) -> Path:
-        return self.task_dir(task_id) / "runs" / f"{run_index:03d}"
+        if not isinstance(run_index, int) or isinstance(run_index, bool):
+            raise InvalidTaskEnvelope(
+                "run_index must be an integer.",
+                details={"task_id": repr(task_id), "type": type(run_index).__name__},
+            )
+        if run_index < 0:
+            raise InvalidTaskEnvelope(
+                "run_index must not be negative.",
+                details={"task_id": repr(task_id), "run_index": run_index},
+            )
+        path = self.task_dir(task_id) / "runs" / f"{run_index:03d}"
+        return self._contained(path, task_id=task_id)
 
     def _envelope_path(self, task_id: str) -> Path:
         return self.task_dir(task_id) / "envelope.json"
@@ -242,14 +314,25 @@ class TaskStore:
         return self._envelope_path(task_id).exists()
 
     def list_tasks(self) -> list[str]:
-        """All task ids with a persisted envelope, reconstructed from disk."""
+        """All task ids with a persisted envelope, reconstructed from disk.
+
+        Entries whose name is not a safe path component, or whose directory
+        resolves outside the state root (a planted symlink), are skipped rather
+        than returned — this method's output is fed straight back into
+        ``load()``.
+        """
         if not self.root.exists():
             return []
-        return sorted(
-            entry.name
-            for entry in self.root.iterdir()
-            if entry.is_dir() and (entry / "envelope.json").exists()
-        )
+        found: list[str] = []
+        for entry in self.root.iterdir():
+            if not _SAFE_ID_COMPONENT_RE.match(entry.name):
+                continue
+            resolved = entry.resolve()
+            if self._canonical_root not in resolved.parents:
+                continue
+            if entry.is_dir() and (entry / "envelope.json").exists():
+                found.append(entry.name)
+        return sorted(found)
 
     def load_all(self) -> list[TaskRecord]:
         """Reconstruct every task's record from disk (restart recovery, §27)."""
@@ -404,6 +487,9 @@ class TaskStore:
             result_path = entry / "dispatcher-result.json"
             if not result_path.exists():
                 continue
+            # A planted symlink under runs/ must not turn a state read into a
+            # read of an arbitrary file elsewhere on the host.
+            self._contained(result_path, task_id=task_id)
             data = _read_json_plain(
                 result_path,
                 task_id=task_id,
@@ -436,9 +522,10 @@ class TaskStore:
         _mkdir(reviews_dir)
 
         payload = json.loads(review.model_dump_json())
-        atomic_write_json(
-            reviews_dir / f"fable-{review_number:03d}.json", payload, mode=_FILE_MODE
+        review_path = self._contained(
+            reviews_dir / f"fable-{review_number:03d}.json", task_id=task_id
         )
+        atomic_write_json(review_path, payload, mode=_FILE_MODE)
 
         record.fable_review_count = review_number
         self.save(record)
@@ -450,6 +537,7 @@ class TaskStore:
             return []
         reviews: list[FableReview] = []
         for entry in sorted(reviews_dir.glob("fable-*.json")):
+            self._contained(entry, task_id=task_id)
             data = _read_json_plain(entry, task_id=task_id, what=f"reviews/{entry.name}")
             # FableReview is not itself versioned; its container (state.json /
             # dispatcher-result.json) carries schema_version. We still require
@@ -469,9 +557,16 @@ class TaskStore:
         if "/" in name or "\\" in name or ".." in name or name in {"", ".", ".."}:
             raise InvalidTaskEnvelope(
                 "Invalid evidence file name.",
-                details={"task_id": task_id, "name": name},
+                details={"task_id": repr(task_id), "name": repr(name)},
             )
-        return self._evidence_dir(task_id) / name
+        # The checks above are kept verbatim (never weaken an existing check);
+        # the allowlist below additionally refuses control characters, absolute
+        # spellings, leading dots and unbounded names, and the containment
+        # check refuses a symlinked evidence file pointing out of the tree.
+        safe_name = _reject_unsafe_component(name, what="evidence name")
+        return self._contained(
+            self._evidence_dir(task_id) / safe_name, task_id=task_id
+        )
 
     def write_evidence(self, task_id: str, name: str, content: str) -> Path:
         """Write ``evidence/<name>``; ``name`` is validated (no ``/``, no ``..``)."""

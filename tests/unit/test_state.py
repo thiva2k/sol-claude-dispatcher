@@ -237,6 +237,31 @@ class TestTaskStoreInit:
         assert root.is_dir()
 
 
+class TestTaskIdContainment:
+    """P0-1: the store is safe on its own, without the MCP-layer validator.
+
+    The exhaustive adversarial matrix lives in ``test_boundary_adversarial.py``;
+    these pin the behaviour where ``TaskStore``'s own tests live.
+    """
+
+    def test_task_dir_refuses_a_traversing_id(self, store: TaskStore):
+        with pytest.raises(InvalidTaskEnvelope):
+            store.task_dir("../escape")
+
+    def test_task_dir_refuses_an_absolute_id(self, store: TaskStore):
+        with pytest.raises(InvalidTaskEnvelope):
+            store.task_dir("/etc")
+
+    def test_task_dir_refuses_a_nested_id(self, store: TaskStore):
+        with pytest.raises(InvalidTaskEnvelope):
+            store.task_dir("foo/bar")
+
+    def test_a_safe_non_uuid_id_is_still_usable(self, store: TaskStore):
+        """Unknown-but-safe ids must still report "not found", not "invalid"."""
+        with pytest.raises(TaskNotFound):
+            store.load("does-not-exist")
+
+
 # ---------------------------------------------------------------------------
 # create / load_envelope / load / exists
 # ---------------------------------------------------------------------------
@@ -679,6 +704,16 @@ class TestEvidence:
         store, env, record = created
         with pytest.raises(InvalidTaskEnvelope):
             store.write_evidence(env.task_id, "../escape.txt", "x")
+
+    def test_evidence_name_rejects_an_absolute_path(self, created):
+        store, env, record = created
+        with pytest.raises(InvalidTaskEnvelope):
+            store.write_evidence(env.task_id, "/etc/passwd", "x")
+
+    def test_evidence_name_rejects_a_control_character(self, created):
+        store, env, record = created
+        with pytest.raises(InvalidTaskEnvelope):
+            store.write_evidence(env.task_id, "diff\x00.patch", "x")
 
     def test_evidence_names_from_layout(self, created):
         store, env, record = created
