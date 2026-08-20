@@ -84,6 +84,7 @@ __all__ = [
     "FableReview",
     "ValidationResult",
     "SkillPolicyRecord",
+    "ProjectGuidanceRecord",
     "RunMetadata",
     "DispatcherObservations",
     "RunRecord",
@@ -802,6 +803,37 @@ class SkillPolicyRecord(StrictModel):
     approx_tokens: int = Field(default=0, ge=0)
 
 
+class ProjectGuidanceRecord(StrictModel):
+    """The curated project-guidance context a run was dispatched under (§16).
+
+    Project guidance is execution context in exactly the way skill policy is,
+    so it is persisted as evidence at dispatch and re-verified on resume.
+    ``fingerprint`` follows ``approved-guidance.json``'s
+    ``resume_fingerprint.spec`` verbatim: it covers each emitted entry's
+    instruction-source hashes plus both of its projection-artifact hashes, in
+    emission order, combined with the graph-refresh variant and the task
+    envelope identity. A resume that recomputes a different value must fail
+    closed rather than silently adopt a re-approved projection or a changed
+    CLAUDE.md.
+
+    ``logical_ids`` is the selected set, so resume re-verifies exactly the
+    scopes the dispatch ran under — it does not re-select from allowed_paths,
+    because a changed selection is a different question from changed guidance.
+    """
+
+    mode: Literal["projected", "disabled"] = "projected"
+    manifest_schema_version: NonEmptyStr
+    approval_version: NonEmptyStr
+    audience: NonEmptyStr
+    repository_id: NonEmptyStr
+    logical_ids: list[str] = Field(default_factory=list, max_length=_MAX_LIST)
+    graph_variant: NonEmptyStr
+    task_envelope_id: NonEmptyStr
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    projected_bytes: int = Field(default=0, ge=0)
+    approx_tokens: int = Field(default=0, ge=0)
+
+
 class RunMetadata(StrictModel):
     """Identity and process facts for one subprocess run.
 
@@ -841,6 +873,11 @@ class RunMetadata(StrictModel):
     #: (Gate 4.5 §15). ``None`` means no skill guidance was projected — which
     #: is also what every run recorded before skill projection existed says.
     skill_policy_fingerprint: str | None = None
+    #: Fingerprint of the curated project-guidance context this run was invoked
+    #: under (Gate 4.5 addendum §16). ``None`` means no project guidance was
+    #: projected — which is also what every run recorded before the guidance
+    #: engine existed says.
+    project_guidance_fingerprint: str | None = None
 
 
 class DispatcherObservations(StrictModel):
@@ -931,3 +968,7 @@ class TaskRecord(StrictModel):
     #: verify it and fail closed on drift. ``None`` means the task was
     #: dispatched with no projected skill guidance.
     skill_policy: SkillPolicyRecord | None = None
+    #: Curated project-guidance context captured at dispatch (addendum §16).
+    #: Resume must verify it and fail closed on drift. ``None`` means the task
+    #: was dispatched with no projected project guidance.
+    project_guidance: ProjectGuidanceRecord | None = None

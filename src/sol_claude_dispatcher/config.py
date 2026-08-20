@@ -39,6 +39,8 @@ __all__ = [
     "LoggingSettings",
     "Config",
     "MAX_PROJECTED_BYTES_CEILING",
+    "MAX_GUIDANCE_BYTES_CEILING",
+    "ProjectGuidanceSettings",
     "load_config",
     "load_config_from_mapping",
     "DEFAULT_CONFIG_FILENAME",
@@ -299,6 +301,71 @@ class SkillsSettings(_StrictSection):
         return v
 
 
+#: Absolute ceiling on projected project guidance. The measured worst
+#: legitimate cross-scope shape (curated root + the two largest approved
+#: subproject projections + the graph-refresh clause) is ~41 KB; 60,000 bytes
+#: leaves headroom for a future approved subproject without ever letting a
+#: quarter of a megabyte of project prose reach a worker.
+MAX_GUIDANCE_BYTES_CEILING = 120_000
+
+
+class ProjectGuidanceSettings(_StrictSection):
+    """Curated project-guidance projection policy (GATE 4.5 addendum §9).
+
+    The same two non-switches as ``[skills]``. ``mode`` accepts only
+    ``"projected"``: native ``CLAUDE.md``/``AGENTS.md`` auto-loading is not an
+    option a config file can turn on (addendum §3, §14 — the worker runs under
+    ``--safe-mode`` precisely so it is off). ``fail_on_drift`` accepts only
+    ``true``: a changed instruction source means the curated projection derived
+    from it is no longer what was reviewed, and addendum §9 requires reapproval
+    rather than a silent rebuild.
+
+    ``enabled`` defaults to ``False``. A dispatcher that was never configured
+    for guidance projection projects nothing — the safe direction.
+    """
+
+    enabled: bool = False
+    mode: str = "projected"
+    fail_on_drift: bool = True
+    max_projected_bytes: int = Field(
+        default=60_000, ge=1, le=MAX_GUIDANCE_BYTES_CEILING
+    )
+    #: The reviewed, source-controlled approval manifest. Never auto-rewritten.
+    manifest_path: str = "./config/approved-guidance.json"
+
+    @field_validator("mode")
+    @classmethod
+    def _projection_only(cls, v: str) -> str:
+        if v != "projected":
+            raise ValueError(
+                "project_guidance.mode must be 'projected'. Native CLAUDE.md / "
+                "AGENTS.md loading is not offered: the root documents mix safe "
+                "engineering context with production operator procedures and "
+                "credential locations, and approving a repository does not "
+                "approve everything its instruction files instruct"
+            )
+        return v
+
+    @field_validator("fail_on_drift")
+    @classmethod
+    def _drift_always_fails_closed(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError(
+                "project_guidance.fail_on_drift cannot be disabled: a changed "
+                "CLAUDE.md/AGENTS.md hash means the curated projection derived "
+                "from it is no longer what was reviewed, and the Gate 4.5 "
+                "addendum §9 requires reapproval rather than a silent rebuild"
+            )
+        return v
+
+    @field_validator("manifest_path")
+    @classmethod
+    def _manifest_path_is_set(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("project_guidance.manifest_path must not be empty")
+        return v
+
+
 class LoggingSettings(_StrictSection):
     """§28: logs go to stderr or files, never stdout (stdout is MCP transport)."""
 
@@ -326,6 +393,9 @@ class Config(BaseModel):
     validation: ValidationSettings = Field(default_factory=ValidationSettings)
     claude: ClaudeSettings = Field(default_factory=ClaudeSettings)
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
+    project_guidance: ProjectGuidanceSettings = Field(
+        default_factory=ProjectGuidanceSettings
+    )
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     #: Absolute path of the file this config was loaded from (``None`` when
@@ -382,6 +452,11 @@ class Config(BaseModel):
     def approved_skills_file(self) -> Path:
         """The approved-skill manifest (§9). Read-only, source-controlled."""
         return self._resolve(self.skills.manifest_path)
+
+    @property
+    def approved_guidance_file(self) -> Path:
+        """The project-guidance manifest (addendum §9). Read-only, reviewed."""
+        return self._resolve(self.project_guidance.manifest_path)
 
     def model_for(self, alias: str) -> str:
         """Map ``sonnet`` / ``opus`` / ``fable`` to the configured identifier."""

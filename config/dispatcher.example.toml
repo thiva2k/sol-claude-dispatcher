@@ -154,6 +154,34 @@ max_projected_bytes = 120000
 # drift is a human/Sol reapproval decision.
 manifest_path = "./config/approved-skills.json"
 
+# Curated project-guidance projection (GATE 4.5 addendum). The worker runs
+# under --safe-mode, so native CLAUDE.md / AGENTS.md auto-loading is OFF.
+# Instead the dispatcher emits reviewed, hash-pinned curated projections
+# selected by repository-relative allowed_paths.
+[project_guidance]
+enabled = false
+
+# Only "projected" exists. Native CLAUDE.md loading is refused at load time:
+# the root documents mix safe engineering context with production operator
+# procedures and credential locations, and approving a repository does not
+# approve everything its instruction files instruct.
+mode = "projected"
+
+# Cannot be disabled. A changed instruction-source hash means the curated
+# projection derived from it is no longer what was reviewed, so projection
+# refuses and Sol reapproves rather than the dispatcher silently rebuilding.
+fail_on_drift = true
+
+# Fail-closed cap on the total projected guidance payload. The measured worst
+# legitimate cross-scope shape (curated root + the two largest approved
+# subproject projections + the graph-refresh clause) is ~41 KB.
+max_projected_bytes = 60000
+
+# The reviewed, source-controlled approval manifest. Never auto-rewritten:
+# drift is a human/Sol reapproval decision. Nothing projects while its
+# approval.state is not "APPROVED".
+manifest_path = "./config/approved-guidance.json"
+
 [logging]
 # Logs go to stderr or a file — NEVER stdout, which belongs to the MCP
 # stdio transport.

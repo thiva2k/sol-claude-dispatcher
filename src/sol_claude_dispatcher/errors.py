@@ -40,6 +40,15 @@ __all__ = [
     "PolicyViolation",
     "SkillPolicyViolation",
     "ApprovedSkillChanged",
+    "ProjectGuidanceNotApproved",
+    "ProjectGuidanceScopeError",
+    "ProjectGuidancePolicyViolation",
+    "ProjectGuidanceRepositoryMismatch",
+    "ProjectGuidanceSourceChanged",
+    "ProjectGuidanceProjectionChanged",
+    "ProjectGuidanceDrift",
+    "ProjectGuidanceResumeDrift",
+    "UnapprovedProjectGuidanceFile",
     "ValidationFailed",
     "WorktreeCreationFailed",
     "GitEvidenceCollectionFailed",
@@ -258,6 +267,106 @@ class ApprovedSkillChanged(DispatcherError):
     code = "ApprovedSkillChanged"
 
 
+# --------------------------------------------------------------------------
+# Project-guidance projection (Gate 4.5 addendum §1-§20, rulings §1-§7)
+# --------------------------------------------------------------------------
+
+
+class ProjectGuidanceNotApproved(PolicyViolation):
+    """A scope with no approved curated projection was selected.
+
+    Raised when the manifest itself is not approved, when a selected scope is
+    ``CLASSIFIED_NOT_APPROVED`` (its CLAUDE.md/AGENTS.md exist but were never
+    reviewed), or when Fable review is requested for a scope that has no
+    approved review projection.
+
+    Rulings §7 is explicit that there is **no root-only fallback**: root
+    guidance does not carry a subproject's domain invariants, so dispatching
+    without them would silently authorise work against guidance nobody reviewed
+    for that subproject.
+    """
+
+    code = "ProjectGuidanceNotApproved"
+
+
+class ProjectGuidanceScopeError(PolicyViolation):
+    """An ``allowed_paths`` entry is outside the pinned repository, or too broad.
+
+    Covers a path that escapes the toplevel after normalisation, a path under a
+    denied prefix (``.claude/worktrees/``, ``Taskforce_AI_Website/``) or denied
+    absolute tree (``/home/dev/worktrees/``), and an envelope intersecting more
+    subprojects than ``scope_map.max_subscopes`` permits.
+    """
+
+    code = "ProjectGuidanceScopeError"
+
+
+class ProjectGuidancePolicyViolation(PolicyViolation):
+    """A projection artifact was refused on content or size grounds.
+
+    ``details["reason"]`` distinguishes
+    ``sensitive_content_in_source_derived_artifact`` (the strict classifier
+    matched a ``SOURCE_DERIVED`` artifact — fix the content, never the pattern
+    set) from ``size_cap_exceeded``.
+    """
+
+    code = "ProjectGuidancePolicyViolation"
+
+
+class ProjectGuidanceRepositoryMismatch(DispatcherError):
+    """The dispatch repository is not the one the guidance was approved against.
+
+    All four of toplevel, git dir, origin url and root commit must match the
+    manifest pin. ``root_commit`` is what makes this resistant to a path swap:
+    a nested repository sitting inside the working tree has its own root commit
+    and cannot satisfy the parent's (rulings §4).
+    """
+
+    code = "ProjectGuidanceRepositoryMismatch"
+
+
+class ProjectGuidanceSourceChanged(DispatcherError):
+    """A pinned CLAUDE.md/AGENTS.md no longer matches its approved hash.
+
+    The dispatcher never recalculates and accepts the new hash: reapproval is a
+    human/Sol decision recorded in ``config/approved-guidance.json``.
+    """
+
+    code = "ProjectGuidanceSourceChanged"
+
+
+class ProjectGuidanceProjectionChanged(DispatcherError):
+    """A curated projection artifact no longer matches its approved hash."""
+
+    code = "ProjectGuidanceProjectionChanged"
+
+
+class ProjectGuidanceDrift(DispatcherError):
+    """An instruction pair approved as byte-identical aliases has diverged.
+
+    Addendum §7 prefers fail-closed for V1: do not silently pick one half of a
+    generated-mirror pair once the halves disagree.
+    """
+
+    code = "ProjectGuidanceDrift"
+
+
+class ProjectGuidanceResumeDrift(DispatcherError):
+    """The project-guidance context changed between dispatch and resume (§16)."""
+
+    code = "ProjectGuidanceResumeDrift"
+
+
+class UnapprovedProjectGuidanceFile(DispatcherError):
+    """The DEFAULT-DENY verification scan found an unreviewed instruction file.
+
+    Discovery is verification only — it never selects a guidance source
+    (rulings §3). A new nested ``CLAUDE.md`` defaults to DENY/UNREVIEWED.
+    """
+
+    code = "UnapprovedProjectGuidanceFile"
+
+
 class ValidationFailed(DispatcherError):
     """A trusted dispatcher validation command failed (§17)."""
 
@@ -308,6 +417,15 @@ ERROR_CODES: frozenset[str] = frozenset(
         "PolicyViolation",
         "SkillPolicyViolation",
         "ApprovedSkillChanged",
+        "ProjectGuidanceNotApproved",
+        "ProjectGuidanceScopeError",
+        "ProjectGuidancePolicyViolation",
+        "ProjectGuidanceRepositoryMismatch",
+        "ProjectGuidanceSourceChanged",
+        "ProjectGuidanceProjectionChanged",
+        "ProjectGuidanceDrift",
+        "ProjectGuidanceResumeDrift",
+        "UnapprovedProjectGuidanceFile",
         "ValidationFailed",
         "WorktreeCreationFailed",
         "GitEvidenceCollectionFailed",
