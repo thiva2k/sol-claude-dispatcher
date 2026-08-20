@@ -141,20 +141,31 @@ come from the stored `TaskRecord` — never from the caller:
 assert_no_recursion
   → security.validate_task_id                      (canonical UUID or refuse)
   → store.load                                    (authoritative state)
-  → sessions.assert_resume_allowed                 (cap check, §22 layer 6)
-  → store.transition → RESUME_REQUESTED
   → sessions.resume_plan                           (session/model/worktree
-                                                      pinned from state)
+                                                      pinned from state; calls
+                                                      assert_resume_allowed —
+                                                      cap check, §22 layer 6)
+  → store.transition → RESUME_REQUESTED            (nothing has moved until here)
   → store.transition → RUNNING
   → runner.run_worker                              (--resume, no --worktree)
   → [same evidence/validation/observation pipeline as dispatch]
   → resume_count += 1
 ```
 
-If the resume cap is exhausted, the tool returns
+The plan is built *before* the first transition, so a refusal leaves the task
+exactly where it was. If the resume cap is exhausted, the tool returns
 `{"status": "requires_orchestrator_decision", "reason": "resume_limit_reached"}`
 — a *successful* MCP response describing a refusal, not a protocol error. Sol
-decides what happens next; the dispatcher does not guess.
+decides what happens next; the dispatcher does not guess. If the stored session
+id, model or worktree is missing, the tool refuses with `StateCorruption`
+rather than starting a fresh conversation.
+
+Every off-ramp can be resumed — `TIMED_OUT`, `BLOCKED`, `POLICY_VIOLATION`
+**and `FAILED`**. A run that lands `FAILED` (unparseable output, non-zero exit,
+evidence that could not be collected) still holds its session id, model and
+worktree, so a corrective resume is exactly what it is there for. The legality
+of the edge lives in `ALLOWED_TRANSITIONS`; whether the resume can actually be
+carried out lives in `sessions.resume_plan`. See `docs/STATE-MACHINE.md` §3.
 
 ### `review_task_with_fable` (§7.3)
 

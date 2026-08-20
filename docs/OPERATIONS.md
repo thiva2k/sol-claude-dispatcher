@@ -172,6 +172,17 @@ is the same `DispatcherError.to_payload()` shape that was returned to Sol —
 task's own state file is enough to understand why it stopped, without
 needing to correlate against a separate log.
 
+A task sitting in `FAILED` is not finished with. `FAILED` is an off-ramp, not
+a terminal state (`TERMINAL_STATES` holds only `REVIEW_COMPLETE`), and a run
+that lands there normally still has its `session_id`, `selected_model` and
+`worktree_path` on `state.json`. Check those three fields first: if they are
+present, `resume_claude_task` will continue the same conversation in the same
+worktree, which is the usual remedy for a run that emitted unparseable output
+or exited non-zero. If any of them is empty — the worker never got far enough,
+or the state file was damaged — the resume is refused with `StateCorruption`
+naming the missing fields, and the task genuinely cannot be continued; open a
+new task instead.
+
 ---
 
 ## 4. Log locations
@@ -218,7 +229,7 @@ returned as `{"error": <code>, "message": ..., "retryable": bool,
 | `InvalidTaskEnvelope` | no | Caller input or a persisted envelope failed model validation | Fix the request; extra/unknown fields are rejected, not ignored |
 | `InvalidStateTransition` | no | Requested a transition `ALLOWED_TRANSITIONS` does not permit | Check `docs/STATE-MACHINE.md`; the task is not where you think it is |
 | `TaskNotFound` | no | No persisted task for that `task_id` | Check the id; `get_task` against a wrong id fails the same way |
-| `StateCorruption` | no | `state.json`/`envelope.json` is unparseable or missing `schema_version` | Never auto-repaired. Inspect the file by hand; if truly corrupt, the task is unrecoverable — do not delete it before you've captured whatever evidence exists |
+| `StateCorruption` | no | `state.json`/`envelope.json` is unparseable or missing `schema_version`, **or** a resume was asked for a task whose stored `session_id` / `selected_model` / `worktree_path` is missing (`details.missing` names them) | Never auto-repaired. Inspect the file by hand; if truly corrupt, the task is unrecoverable — do not delete it before you've captured whatever evidence exists. A resume refused this way changed nothing: the task is still in the state it was in |
 | `ClaudeBinaryNotFound` | no | Configured `claude` binary is absent or not executable | Fix `[claude].binary` or install the CLI; `doctor.sh` catches this ahead of time |
 | `ClaudeExecutionFailed` | no | Claude could not be started, or exited in a way the runner treats as a hard failure | Check `stderr.log` for the run |
 | `ClaudeStructuredOutputInvalid` | no | stdout wasn't JSON, or didn't match the worker/reviewer schema | Read `runs/<n>/stdout.json`; `worker_result_error` on the dispatcher observation names the specific reason (`not_json`, `no_structured_payload`, `schema_mismatch`) |

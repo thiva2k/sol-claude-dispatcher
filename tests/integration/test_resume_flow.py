@@ -9,9 +9,10 @@ passing silently.
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 
-from sol_claude_dispatcher.models import TaskState
+from sol_claude_dispatcher.models import TaskState, is_transition_allowed
 from sol_claude_dispatcher.server import Dispatcher
 
 
@@ -116,6 +117,145 @@ async def test_resume_after_timeout_reuses_preserved_session_and_worktree(
     assert result["status"] == TaskState.AWAITING_SOL_REVIEW.value
     assert result["session_id"] == timed_out["session_id"]
     assert worker_invocations()[-1]["resume_session_id"] == timed_out["session_id"]
+
+
+async def test_resume_after_malformed_worker_output_reuses_the_same_session(
+    dispatcher, request_payload, fake_env, monkeypatch, worker_invocations
+):
+    """§15/§26: unparseable output lands FAILED with the session still intact.
+
+    FAILED is an off-ramp, not a verdict on the work: the session id, the model
+    and the worktree all survive, so a corrective resume is exactly the
+    recoverable case the off-ramp exists for.
+    """
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "malformed-json")
+    failed = await dispatcher.dispatch_claude_task(request_payload)
+    assert failed["status"] == TaskState.FAILED.value
+    task_id = failed["task_id"]
+    broken = dispatcher.store.load(task_id)
+
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "resume")
+    result = await dispatcher.resume_claude_task(
+        task_id, "Your last reply was not valid JSON. Re-emit the structured result."
+    )
+
+    assert "error" not in result, result
+    assert result["status"] == TaskState.AWAITING_SOL_REVIEW.value
+    assert result["session_id"] == broken.session_id      # §7.2 same session
+    assert result["selected_model"] == broken.selected_model  # §18 same model
+    assert result["worktree"] == broken.worktree_path     # §18 same worktree
+    assert result["resume_count"] == 1
+
+    resume_call = worker_invocations()[-1]
+    assert resume_call["has_resume"] is True
+    assert resume_call["has_worktree"] is False
+    assert resume_call["resume_session_id"] == broken.session_id
+    assert resume_call["cwd"] == broken.worktree_path
+
+    record = dispatcher.store.load(task_id)
+    assert [h["to"] for h in record.state_history][-5:] == [
+        "failed",
+        "resume_requested",
+        "running",
+        "implemented",
+        "awaiting_sol_review",
+    ]
+
+
+async def test_resume_after_nonzero_worker_exit_recovers_the_task(
+    dispatcher, request_payload, fake_env, monkeypatch, worker_invocations
+):
+    """A non-zero exit is a fact about the run, not a dead end (§26)."""
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "failure")
+    failed = await dispatcher.dispatch_claude_task(request_payload)
+    assert failed["status"] == TaskState.FAILED.value
+    task_id = failed["task_id"]
+    broken = dispatcher.store.load(task_id)
+    assert broken.session_id and Path(broken.worktree_path).is_dir()
+
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "resume")
+    result = await dispatcher.resume_claude_task(
+        task_id, "The previous run exited non-zero. Continue from the same session."
+    )
+
+    assert "error" not in result, result
+    assert result["status"] == TaskState.AWAITING_SOL_REVIEW.value
+    assert result["session_id"] == broken.session_id
+    assert result["worktree"] == broken.worktree_path
+    assert worker_invocations()[-1]["resume_session_id"] == broken.session_id
+    assert dispatcher.store.load(task_id).resume_count == 1
+
+
+async def test_resume_from_failed_without_a_stored_worktree_is_refused(
+    dispatcher, request_payload, fake_env, monkeypatch, tmp_path
+):
+    """Legality is not feasibility: ``resume_plan`` still refuses damaged state.
+
+    The transition table permits FAILED -> RESUME_REQUESTED; it says nothing
+    about whether the state a resume must reuse actually exists. A worker that
+    never produced a worktree leaves nothing to resume into, and the refusal is
+    a structured error, not a traceback and certainly not a silent success.
+    """
+    # A file where the shim expects a directory: no worktree can be created.
+    not_a_dir = tmp_path / "worktree-root-is-a-file"
+    not_a_dir.write_text("not a directory\n")
+    monkeypatch.setenv("FAKE_CLAUDE_WORKTREE_ROOT", str(not_a_dir))
+
+    failed = await dispatcher.dispatch_claude_task(request_payload)
+    assert failed["error"] == "WorktreeCreationFailed"
+    task_id = failed["details"]["task_id"]
+    record = dispatcher.store.load(task_id)
+    assert record.state is TaskState.FAILED
+    assert not record.worktree_path
+
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "resume")
+    refused = await dispatcher.resume_claude_task(task_id, "Try that again.")
+
+    # The refusal comes from resume_plan's feasibility check, not from the
+    # transition table — the table itself permits this edge.
+    assert is_transition_allowed(TaskState.FAILED, TaskState.RESUME_REQUESTED)
+    assert refused["error"] == "StateCorruption"
+    assert refused["details"]["missing"] == ["worktree_path"]
+    assert "traceback" not in json.dumps(refused).lower()
+
+    # Nothing ran and nothing moved.
+    after = dispatcher.store.load(task_id)
+    assert after.state is TaskState.FAILED
+    assert after.resume_count == 0
+    assert after.run_count == record.run_count
+
+
+async def test_resume_cap_still_holds_from_failed(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    """§22 layer 6: the cap is consulted on the FAILED path too, in one place."""
+    request_payload["execution"]["max_resume_count"] = 1
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "failure")
+
+    failed = await dispatcher.dispatch_claude_task(request_payload)
+    assert failed["status"] == TaskState.FAILED.value
+    task_id = failed["task_id"]
+
+    # The worker fails again, so the task is still FAILED when the cap binds.
+    allowed = await dispatcher.resume_claude_task(task_id, "Try once more.")
+    assert allowed["status"] == TaskState.FAILED.value
+    assert allowed["resume_count"] == 1
+
+    refused = await dispatcher.resume_claude_task(task_id, "And again.")
+
+    assert refused == {
+        "status": "requires_orchestrator_decision",
+        "reason": "resume_limit_reached",
+        "task_id": task_id,
+        "resume_count": 1,
+        "max_resume_count": 1,
+        "remediation": refused["remediation"],
+    }
+    assert "error" not in refused
+    record = dispatcher.store.load(task_id)
+    assert record.state is TaskState.FAILED
+    assert record.resume_count == 1
+    assert record.run_count == 2
 
 
 async def test_resume_of_unknown_task_is_a_concise_error(dispatcher):

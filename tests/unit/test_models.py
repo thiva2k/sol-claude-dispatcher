@@ -402,6 +402,32 @@ class TestTransitionTable:
             assert not is_transition_allowed(off_ramp, TaskState.RUNNING)
             assert is_transition_allowed(off_ramp, TaskState.RESUME_REQUESTED)
 
+    def test_failed_is_not_a_dead_end(self):
+        """A FAILED run keeps its session id and worktree, so Sol may correct it.
+
+        Malformed structured output and a non-zero worker exit both land here
+        with everything a resume needs still on disk. Making FAILED terminal in
+        practice would strand exactly the recoverable cases; the resume still
+        goes through RESUME_REQUESTED so the cap is consulted in one place.
+        """
+        assert is_transition_allowed(TaskState.FAILED, TaskState.RESUME_REQUESTED)
+        assert is_transition_allowed(TaskState.FAILED, TaskState.AWAITING_SOL_REVIEW)
+        assert not is_transition_allowed(TaskState.FAILED, TaskState.RUNNING)
+        assert TaskState.FAILED not in TERMINAL_STATES
+
+    def test_all_four_off_ramps_offer_the_same_choices(self):
+        """TIMED_OUT / BLOCKED / FAILED / POLICY_VIOLATION are structurally equal."""
+        for off_ramp in (
+            TaskState.TIMED_OUT,
+            TaskState.BLOCKED,
+            TaskState.FAILED,
+            TaskState.POLICY_VIOLATION,
+        ):
+            targets = ALLOWED_TRANSITIONS[off_ramp]
+            assert TaskState.AWAITING_SOL_REVIEW in targets, off_ramp
+            assert TaskState.RESUME_REQUESTED in targets, off_ramp
+            assert TaskState.RUNNING not in targets, off_ramp
+
     def test_review_complete_is_terminal(self):
         assert ALLOWED_TRANSITIONS[TaskState.REVIEW_COMPLETE] == frozenset()
         assert TaskState.REVIEW_COMPLETE in TERMINAL_STATES

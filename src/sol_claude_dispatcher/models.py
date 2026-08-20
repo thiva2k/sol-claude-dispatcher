@@ -255,6 +255,14 @@ TERMINAL_STATES: frozenset[TaskState] = frozenset({TaskState.REVIEW_COMPLETE})
 #: resume, or park the task in review. They deliberately cannot jump straight
 #: back to RUNNING — a resume must pass through RESUME_REQUESTED so the resume
 #: cap is always consulted.
+#:
+#: That includes FAILED. A run lands FAILED with its session id and worktree
+#: still on disk (malformed structured output, a non-zero worker exit, evidence
+#: that could not be collected), which is precisely the recoverable case; making
+#: it terminal would strand it. FAILED does not list RUNNING for the same reason
+#: none of the others do. Legality is decided here; *feasibility* — is there
+#: still a session, a model and a worktree to reuse, and is the cap exhausted? —
+#: belongs to ``sessions.resume_plan``, which refuses both cases explicitly.
 ALLOWED_TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.CREATED: frozenset({TaskState.ROUTED, TaskState.FAILED}),
     TaskState.ROUTED: frozenset({TaskState.RUNNING, TaskState.FAILED}),
@@ -292,7 +300,9 @@ ALLOWED_TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.POLICY_VIOLATION: frozenset(
         {TaskState.AWAITING_SOL_REVIEW, TaskState.RESUME_REQUESTED, TaskState.FAILED}
     ),
-    TaskState.FAILED: frozenset({TaskState.AWAITING_SOL_REVIEW}),
+    TaskState.FAILED: frozenset(
+        {TaskState.AWAITING_SOL_REVIEW, TaskState.RESUME_REQUESTED}
+    ),
     TaskState.REVIEW_COMPLETE: frozenset(),
 }
 

@@ -416,6 +416,29 @@ class TestTransitionValid:
             result = store.transition(env.task_id, TaskState.RUNNING)
             assert result.state == TaskState.RUNNING
 
+    def test_failed_can_request_a_corrective_resume(
+        self, store: TaskStore, valid_request_dict
+    ):
+        """§26: FAILED is an off-ramp, not a dead end.
+
+        The session id and the worktree are still on disk when a run lands
+        FAILED, so Sol must be able to ask for a corrective resume — through
+        RESUME_REQUESTED, like every other off-ramp, so the cap is consulted.
+        """
+        env = _envelope(valid_request_dict)
+        store.create(env)
+        store.transition(env.task_id, TaskState.ROUTED)
+        store.transition(env.task_id, TaskState.RUNNING)
+        store.transition(env.task_id, TaskState.FAILED)
+
+        with pytest.raises(InvalidStateTransition):
+            store.transition(env.task_id, TaskState.RUNNING)
+
+        store.transition(env.task_id, TaskState.RESUME_REQUESTED, resume_count=1)
+        result = store.transition(env.task_id, TaskState.RUNNING)
+        assert result.state == TaskState.RUNNING
+        assert result.resume_count == 1
+
     def test_failed_can_reach_awaiting_sol_review(self, store: TaskStore, valid_request_dict):
         env = _envelope(valid_request_dict)
         store.create(env)

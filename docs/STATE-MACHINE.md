@@ -40,43 +40,43 @@ RESUME_REQUESTED    -> RUNNING, FAILED
 TIMED_OUT           -> AWAITING_SOL_REVIEW, RESUME_REQUESTED, FAILED
 BLOCKED             -> AWAITING_SOL_REVIEW, RESUME_REQUESTED, FAILED
 POLICY_VIOLATION    -> AWAITING_SOL_REVIEW, RESUME_REQUESTED, FAILED
-FAILED              -> AWAITING_SOL_REVIEW
+FAILED              -> AWAITING_SOL_REVIEW, RESUME_REQUESTED
 REVIEW_COMPLETE     -> (terminal — no outbound transitions)
 ```
 
-As a diagram, collapsing the four off-ramps of `RUNNING` into one shape
-since they all behave identically from here on:
+As a diagram. All four off-ramps of `RUNNING` are drawn as one shape because
+they offer Sol the same two choices — park the task in review, or ask for a
+corrective resume:
 
 ```text
-CREATED
-   │
-   ▼
-ROUTED
-   │
-   ▼
-RUNNING
-   │
-   ├──► IMPLEMENTED ──────────────────► AWAITING_SOL_REVIEW ─┐
-   │                                            ▲            │
-   ├──► TIMED_OUT ──────┐                       │            │
-   ├──► BLOCKED ─────────┼──► (Sol decides) ─────┘            │
-   ├──► POLICY_VIOLATION ┘         │                          │
-   │                               ▼                          │
-   └──► FAILED ─────────────► AWAITING_SOL_REVIEW              │
-                                                                │
-                       ┌─────────────────────────────────────┘
-                       ▼
-              AWAITING_SOL_REVIEW ──► FABLE_REVIEWED ──┐
-                       │                    │           │
-                       │                    ▼           │
-                       ├──────────► RESUME_REQUESTED ◄──┘
-                       │                    │
-                       │                    ▼
-                       │                 RUNNING  (loop back to the top)
-                       │
-                       ▼
-              REVIEW_COMPLETE  (terminal)
+CREATED ──► ROUTED ──► RUNNING
+                          │
+                          ├──► IMPLEMENTED ──► AWAITING_SOL_REVIEW
+                          │
+                          ├──► TIMED_OUT ────────┐
+                          ├──► BLOCKED ──────────┤   ┌──► AWAITING_SOL_REVIEW
+                          ├──► FAILED ───────────┼───┤
+                          └──► POLICY_VIOLATION ─┘   └──► RESUME_REQUESTED
+
+                                    (Sol's decision, not the dispatcher's;
+                                     TIMED_OUT / BLOCKED / POLICY_VIOLATION
+                                     may also be declared FAILED and left there)
+
+AWAITING_SOL_REVIEW ──► FABLE_REVIEWED ──┐
+         │                    │          │
+         │                    ▼          │
+         ├──────────► RESUME_REQUESTED ◄─┘
+         │                    │
+         │                    ▼
+         │                 RUNNING  (a fresh turn; loop back to the top)
+         ▼
+REVIEW_COMPLETE  (terminal)
 ```
+
+Every path back into a running worker — from an off-ramp, from
+`AWAITING_SOL_REVIEW`, or from `FABLE_REVIEWED` — goes through the one
+`RESUME_REQUESTED -> RUNNING` edge. `REVIEW_COMPLETE` is the only state with
+no way out.
 
 `TaskStore.transition()` mechanics: load the current `TaskRecord` → check
 `is_transition_allowed(current.state, target)`, raising
@@ -94,9 +94,9 @@ the new record. Every transition is therefore self-documenting in
 `TIMED_OUT`, `BLOCKED`, `FAILED`, and `POLICY_VIOLATION` all sit at the same
 structural position: they are things that can happen to a `RUNNING` worker
 other than a clean `IMPLEMENTED`, and they all funnel into the same next
-choice — `AWAITING_SOL_REVIEW`, `RESUME_REQUESTED`, or (for the first three)
-straight to `FAILED` if Sol decides the task is simply dead. None of them
-means "the code is wrong":
+choice — `AWAITING_SOL_REVIEW` or `RESUME_REQUESTED`, plus (for the three that
+are not already `FAILED`) straight to `FAILED` if Sol decides the task is
+simply dead. None of them means "the code is wrong":
 
 - **`TIMED_OUT`** is explicitly not a verdict on correctness (§20). The
   worker may have been seconds from finishing. Evidence — session ID,
@@ -142,6 +142,18 @@ means "the code is wrong":
   out, or `git` could not be run) lands `FAILED` with `last_error` populated,
   because "we could not determine what changed" must never be rendered as "we
   determined that nothing changed."
+
+  `FAILED` is **not terminal** — `TERMINAL_STATES` contains only
+  `REVIEW_COMPLETE`. A run that lands here still has its session id, its
+  selected model and its worktree on disk, which is exactly what a corrective
+  resume needs: "your last reply was not valid JSON, re-emit the structured
+  result" is a normal, recoverable instruction. So `FAILED` offers the same two
+  edges the other three off-ramps offer, and for the same reason. Whether a
+  resume is *possible* is a separate question from whether it is *legal*: the
+  table decides legality, and `sessions.resume_plan()` decides feasibility —
+  it refuses with `StateCorruption` when the session id, model or worktree is
+  missing, and with the `requires_orchestrator_decision` /
+  `resume_limit_reached` payload when the cap is exhausted.
 
 All four route back into human/Sol judgement rather than the dispatcher
 silently retrying, silently discarding evidence, or silently deciding the
@@ -192,6 +204,7 @@ Look again at the off-ramp rows in the table:
 TIMED_OUT           -> AWAITING_SOL_REVIEW, RESUME_REQUESTED, FAILED
 BLOCKED             -> AWAITING_SOL_REVIEW, RESUME_REQUESTED, FAILED
 POLICY_VIOLATION    -> AWAITING_SOL_REVIEW, RESUME_REQUESTED, FAILED
+FAILED              -> AWAITING_SOL_REVIEW, RESUME_REQUESTED
 ```
 
 None of them lists `RUNNING` as a direct target, and neither does
@@ -203,10 +216,17 @@ that leads there.
 This is deliberate, not an accident of table construction: `RESUME_REQUESTED`
 is the single place `sessions.assert_resume_allowed()` is consulted, which
 is the single place the resume cap (`max_resume_count`, default 4, §22
-layer 6) is enforced. If a timeout, a block, or a policy violation could
-transition directly back to `RUNNING`, the resume cap would need to be
-checked at three or four separate call sites instead of one, and a future
+layer 6) is enforced. If a timeout, a block, a failure or a policy violation
+could transition directly back to `RUNNING`, the resume cap would need to be
+checked at four or five separate call sites instead of one, and a future
 change that adds a fifth off-ramp would have to remember to add the check
 again. Funneling every resume through one edge means the cap is checked
 exactly once, in exactly one place (`state.py` calling into `sessions.py`),
 for every possible path into a second worker turn.
+
+The corollary matters as much as the rule: an off-ramp being *allowed* to
+reach `RESUME_REQUESTED` is not a promise that the resume will happen.
+`resume_claude_task` builds the plan **before** it moves the task, so a task
+whose stored session id, model or worktree is missing is refused with
+`StateCorruption` and stays exactly where it was — no state churn, no second
+run, no traceback.
