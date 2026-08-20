@@ -21,6 +21,16 @@ sonnet = "sonnet"
 opus = "opus"
 fable = "fable"
 
+# Spend cap note (there is deliberately no budget key here). A per-run dollar
+# cap comes from the task envelope's ``execution.max_budget_usd`` and defaults
+# to unset, in which case ``--max-budget-usd`` is not emitted at all and no
+# dispatcher-side cap applies. If a caller does set one, be aware the Fable
+# review reuses the same value: a one-word Fable turn was measured at $0.39
+# during commissioning (vs $0.11 for Sonnet — ~18.8k cache-creation tokens for
+# the system prompt alone), and a real review adds the reviewer policy, the
+# schema and file reads. A budget sized for a cheap worker turn (~$0.50 or
+# less) will kill the review mid-flight and look like a Fable failure.
+
 [routing]
 # Must be "sonnet" or "opus". Fable is a reviewer and can never be the
 # default implementation worker.

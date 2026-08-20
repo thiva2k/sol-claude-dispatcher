@@ -601,6 +601,19 @@ def build_fable_invocation(
         ),
         mcp_config_path=config.empty_mcp_file,
         permission_mode=config.claude.permission_mode,
+        # Reuses the envelope's budget verbatim — deliberately: the reviewer is
+        # a separate CLI invocation, so the cap applies per run, not shared.
+        # Calibration note, measured live during commissioning (LANE2-REPORT
+        # §"Budget calibration"): a *one-word* Fable turn cost $0.39 against
+        # $0.11 for Sonnet, because ~18.8k cache-creation input tokens are spent
+        # on the system prompt alone; a real review adds the reviewer policy,
+        # the review schema, and file reads on top. A caller that sizes
+        # ``execution.max_budget_usd`` for a cheap worker turn (~$0.50 or less)
+        # will therefore have the review killed mid-flight, and it will read as
+        # a Fable failure rather than a budget failure. Default is ``None`` — no
+        # ``--max-budget-usd`` is emitted and nothing is capped — so this is a
+        # caller-side hazard, not a dispatcher default. Do not "fix" it by
+        # inventing a second budget field.
         max_budget_usd=envelope.execution.max_budget_usd,
         env=worker_environment(
             base_env if base_env is not None else os.environ,
