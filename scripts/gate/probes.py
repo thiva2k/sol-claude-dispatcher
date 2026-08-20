@@ -21,6 +21,10 @@ class Probe:
     #: Which throwaway repo to launch in: the main fixture, or the separate
     #: CLAUDE.md-free repo used to isolate the AGENTS.md question.
     repo: str = "main"
+    #: Which arms this probe belongs to. The sentinel probes run everywhere so
+    #: the arms stay comparable; the projection probe has no planted sentinel to
+    #: positively control and would be meaningless in the baseline arm.
+    arms: tuple[str, ...] = ("positive", "safe", "dispatcher")
 
 
 PROBES: tuple[Probe, ...] = (
@@ -111,6 +115,24 @@ PROBES: tuple[Probe, ...] = (
             "Isolating control. Runs in a throwaway repo that contains AGENTS.md "
             "and no CLAUDE.md anywhere, so a UNKNOWN here means AGENTS.md is not "
             "auto-loaded at all rather than merely losing to CLAUDE.md."
+        ),
+    ),
+    Probe(
+        ident="P8_projected",
+        cwd_rel=".",
+        arms=("safe", "dispatcher"),
+        prompt=(
+            "Using only the project context you already have — do not read, "
+            "search or open any file — state the curated root reference value "
+            "for this repository, or UNKNOWN if you were not given it."
+        ),
+        intent=(
+            "The positive half of §18 B and skills-brief §17 item 2: does the "
+            "dispatcher's own curated projection actually reach the worker and "
+            "get used? Under the plain safe-mode arm nothing supplies it, so "
+            "UNKNOWN is correct there; under the real dispatcher argv the "
+            "curated value must come back. No planted sentinel is involved, so "
+            "this probe has no positive-control arm."
         ),
     ),
 )

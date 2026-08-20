@@ -81,7 +81,11 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    selected = [BY_ID[p] for p in args.probes.split(",") if p] if args.probes else list(PROBES)
+    selected = (
+        [BY_ID[p] for p in args.probes.split(",") if p]
+        if args.probes
+        else [p for p in PROBES if "positive" in p.arms]
+    )
 
     root = Path(tempfile.mkdtemp(prefix="sol-gate-poscontrol-"))
     ledger = CostLedger()

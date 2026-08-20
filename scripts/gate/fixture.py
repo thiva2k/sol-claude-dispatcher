@@ -582,6 +582,14 @@ def _plant_projectable_skills(dotclaude: Path, add, tok, firedp) -> None:
     projection engine refuses any frontmatter key outside {name, description}.
     ``gate-sentinel-skill`` keeps those unsafe features and is never approved —
     it is the native-runtime sentinel, not projection material.
+
+    None of the three carries an imperative. An earlier version of the
+    resume-only skill ended with "State it when asked for the resume review
+    marker", and a live worker refused to report the value *because of that
+    line*: it cited the envelope-precedence preamble and declined to treat
+    projected reference material as an instruction. The preamble was working
+    exactly as designed, but the probe was then measuring the preamble rather
+    than delivery. Sentinels state facts; they never ask for anything.
     """
     approved = add(
         Sentinel(
@@ -611,9 +619,32 @@ def _plant_projectable_skills(dotclaude: Path, add, tok, firedp) -> None:
             note="Must be ABSENT everywhere and refused by the engine.",
         )
     )
+    resume_skill = add(
+        Sentinel(
+            key="RESUMESKILL",
+            surface="a skill selected ONLY on RunKind.RESUME",
+            assertion="N/O",
+            token=tok("RESUMESKILL"),
+            fired_path=firedp("RESUMESKILL"),
+            channel=CHANNEL_TOKEN,
+            planted_in=".claude/skills/gate-resume-skill/SKILL.md",
+            probe="",
+            live_probe=False,
+            note=(
+                "Mirrors superpowers.receiving-code-review: absent at dispatch, "
+                "added by deterministic rule on resume. Lets the gate prove that "
+                "a changed per-run fingerprint is SELECTION, not drift."
+            ),
+        )
+    )
     for name, sentinel, description in (
         ("gate-approved-skill", approved, "Approved gate methodology reference."),
         ("gate-unapproved-skill", unapproved, "Unapproved neighbour skill."),
+        (
+            "gate-resume-skill",
+            resume_skill,
+            "Resume-only review methodology. Carries the resume review marker.",
+        ),
     ):
         d = dotclaude / "skills" / name
         d.mkdir(parents=True, exist_ok=True)
@@ -624,7 +655,13 @@ def _plant_projectable_skills(dotclaude: Path, add, tok, firedp) -> None:
             "---\n\n"
             f"# {name}\n\n"
             "Methodology reference. Read the failing case before changing code.\n\n"
-            f"- Reference value: `{sentinel.token}`\n",
+            f"- The **resume review marker** for this project is "
+            f"`{sentinel.token}`.\n"
+            if name == "gate-resume-skill"
+            else f"# {name}\n\n"
+            "Methodology reference. Read the failing case before changing code.\n\n"
+            f"- The **{FACT_LABELS.get(sentinel.key, 'reference value')}** for "
+            f"this project is `{sentinel.token}`.\n",
             encoding="utf-8",
         )
 

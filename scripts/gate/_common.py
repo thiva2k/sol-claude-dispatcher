@@ -196,10 +196,20 @@ def run_cli(
             capture_output=True,
             text=True,
             timeout=timeout_s,
+            # The CLI waits on stdin when it is a pipe it cannot read, and a
+            # probe that stalled there would look like a suppressed sentinel.
+            stdin=subprocess.DEVNULL,
         )
         inv.exit_code = proc.returncode
         inv.stdout = proc.stdout
         inv.stderr = proc.stderr
+    except OSError as exc:
+        # E2BIG: one argv element exceeded MAX_ARG_STRLEN, so execve never ran.
+        # Recorded as a real result rather than crashing the harness — "the
+        # process could not start" is exactly the finding claim I is looking
+        # for, and it must land in the report, not in a traceback.
+        inv.exit_code = None
+        inv.stderr = f"{type(exc).__name__}: {exc}"
     except subprocess.TimeoutExpired as exc:
         inv.timed_out = True
         inv.stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")

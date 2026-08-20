@@ -42,7 +42,7 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
@@ -59,10 +59,12 @@ from _common import (  # noqa: E402
     stray_sentinel_scan,
     write_evidence,
 )
+import claims  # noqa: E402
 from probes import PROBES  # noqa: E402
 
 from sol_claude_dispatcher.config import load_config  # noqa: E402
 from sol_claude_dispatcher.errors import DispatcherError  # noqa: E402
+from sol_claude_dispatcher.errors import UnapprovedProjectGuidanceFile  # noqa: E402
 from sol_claude_dispatcher.models import TaskEnvelope, TaskRequest  # noqa: E402
 from sol_claude_dispatcher.project_guidance import (  # noqa: E402
     ProjectGuidanceEngine,
@@ -74,6 +76,9 @@ from sol_claude_dispatcher.runner import (  # noqa: E402
     build_worker_invocation,
 )
 from sol_claude_dispatcher.skills import SkillProjectionEngine  # noqa: E402
+from sol_claude_dispatcher.models import RunKind  # noqa: E402
+from sol_claude_dispatcher.runner import worker_policy_text  # noqa: E402
+from sol_claude_dispatcher.worker_context import WorkerContextComposer  # noqa: E402
 
 PROTECTED_ROOTS = (
     "/home/dev/full-voice-agent",
@@ -103,6 +108,11 @@ DEFAULT_ADMISSIBLE = (
 
 CLAUDE = shutil.which("claude") or "/home/dev/.local/bin/claude"
 
+#: Non-.git file count of /home/dev/full-voice-agent, measured read-only by
+#: counting. Only the NUMBER is borrowed: claim R times the DEFAULT-DENY scan
+#: against a synthetic tree of that size, never against the real repository.
+FVA_FILE_COUNT = 31_235
+
 
 class Gate:
     def __init__(self, keep: bool) -> None:
@@ -110,6 +120,11 @@ class Gate:
         self.root = Path(tempfile.mkdtemp(prefix="sol-gate-run-"))
         self.ledger = CostLedger()
         self.assertions: list[Assertion] = []
+        #: Things worth a human's eyes that are not a boolean. Reported, never
+        #: silently folded into a PASS.
+        self.observations: dict[str, str] = {}
+        self.size_facts: dict[str, Any] = {}
+        self.last_spec: Any = None
         self.fx = fixture_mod.build(self.root)
         subprocess.run(  # noqa: S603 - argv list, no shell
             ["git", "remote", "add", "origin", manifests_mod.FAKE_ORIGIN],
@@ -157,8 +172,62 @@ class Gate:
         eprint(f"  [{'PASS' if passed else 'FAIL'}] {ident}: {statement}")
         return a
 
+    def not_testable(
+        self, ident: str, surface: str, statement: str, reason: str
+    ) -> Assertion:
+        """Record a claim that could not be exercised. NEVER a pass.
+
+        A claim reported as NOT-TESTABLE is a gap the reader must weigh. It is
+        deliberately given its own status rather than being folded into either
+        column, because "we could not check" and "we checked and it was fine"
+        are different facts and only one of them is evidence.
+        """
+        a = Assertion(ident, surface, statement, False, "<none>", f"NOT-TESTABLE: {reason}")
+        self.assertions.append(a)
+        eprint(f"  [N/T ] {ident}: {statement} — {reason}")
+        return a
+
     def tok(self, key: str) -> str:
         return self.fx.sentinels[key].token
+
+    def _write_guidance_manifest(self, known_foreign: tuple[str, ...]) -> None:
+        manifests_mod.build_guidance_manifest(
+            repo=self.fx.repo,
+            out_path=self.fx.guidance_manifest_path,
+            artifact_dir=self.artifact_dir,
+            tokens=self.proj_tokens,
+            known_foreign=known_foreign,
+        )
+
+    # -- ARM 0: default-deny discovery ------------------------------------
+
+    def arm_default_deny(self) -> None:
+        """§18 D at its strongest: the repo is refused before a worker exists.
+
+        The fixture's second, deeply nested ``CLAUDE.md`` is in no manifest. The
+        DEFAULT-DENY scan must therefore refuse the whole repository rather than
+        dispatch a worker whose instruction surface nobody reviewed. Only after
+        that is proven is the file recorded as a known, never-projected foreign
+        file so the remaining arms can run.
+        """
+        eprint("[arm] default-deny discovery (no live cost)")
+        engine = ProjectGuidanceEngine.from_config(self.config)
+        try:
+            engine.assert_no_unapproved_files()
+            refused, detail = False, "scan passed — an unreviewed file went unnoticed"
+        except UnapprovedProjectGuidanceFile as exc:
+            refused = "SubAgent/deep/nested/CLAUDE.md" in str(exc.details)
+            detail = f"UnapprovedProjectGuidanceFile: {exc.details}"
+        ev = write_evidence(self.fx.evidence_dir, "engine.default-deny.txt", detail)
+        self.check(
+            "A18-D-scan", "unapproved nested CLAUDE.md",
+            "the DEFAULT-DENY scan REFUSES the whole repository because of the "
+            "unreviewed nested CLAUDE.md, before any worker is launched",
+            refused, ev, detail,
+        )
+        # Now declare it seen-and-never-projected so the rest of the gate runs.
+        self._write_guidance_manifest(("SubAgent/deep/nested/CLAUDE.md",))
+        self.config = load_config(self.fx.config_path)
 
     # -- ARM 1: engine ---------------------------------------------------
 
@@ -337,8 +406,8 @@ class Gate:
 
     # -- argv invariants (§14) -------------------------------------------
 
-    def worker_argv(self, prompt: str, cwd: Path) -> tuple[list[str], Any]:
-        """Build a worker invocation through the REAL builder. Never by hand."""
+    def envelope(self, allowed_paths: Sequence[str] = ("SubAgent/**",)) -> TaskEnvelope:
+        """A real envelope for the throwaway repo, built the only supported way."""
         request = TaskRequest.model_validate(
             {
                 "repository": {"root": str(self.fx.repo), "base_ref": "HEAD"},
@@ -348,22 +417,49 @@ class Gate:
                     "context": "Disposable Gate 4.5 adversarial fixture.",
                     "acceptance_criteria": ["The requested values are reported."],
                 },
-                "scope": {"allowed_paths": ["SubAgent/**"], "forbidden_paths": []},
+                "scope": {"allowed_paths": list(allowed_paths), "forbidden_paths": []},
                 "routing": {"model": "sonnet", "complexity": "low", "risk": "low"},
                 "execution": {"timeout_seconds": 600, "max_turns": 8},
             }
         )
-        envelope = TaskEnvelope.from_request(
+        return TaskEnvelope.from_request(
             request,
             canonical_root=str(self.fx.repo),
             base_commit=self.identity.root_commit,
+        )
+
+    def worker_argv(
+        self,
+        prompt: str,
+        cwd: Path,
+        *,
+        session_id: str | None = None,
+        resume_session_id: str | None = None,
+        run_kind: RunKind = RunKind.DISPATCH,
+    ) -> tuple[list[str], Any]:
+        """Build a worker invocation through the REAL builder. Never by hand."""
+        envelope = self.envelope()
+        # The §14 composition, through Lane F's real composer — the same calls
+        # server.py makes on the dispatch path. Not a reimplementation: if the
+        # composer stops composing, COMP-1/COMP-2 go red here.
+        composer = WorkerContextComposer(self.config)
+        composer.assert_repository_reviewed()
+        identity = composer.repository_identity(self.fx.repo)
+        context = composer.for_worker(
+            envelope,
+            run_kind=run_kind,
+            policy_text=worker_policy_text(self.config),
+            task_prompt=prompt,
+            identity=identity,
         )
         spec = build_worker_invocation(
             envelope,
             self.config,
             model="sonnet",
-            session_id=str(uuid.uuid4()),
+            session_id=session_id or str(uuid.uuid4()),
+            resume_session_id=resume_session_id,
             prompt=prompt,
+            append_system_prompt=context.append_system_prompt,
             cwd=cwd,
             # A CLI-created worktree would move the child's working directory
             # out from under the fixture's nested probe path. The builder's own
@@ -371,6 +467,7 @@ class Gate:
             # supported branch rather than a bypass.
             include_worktree=False,
         )
+        self.last_spec = spec
         return build_argv(spec), spec
 
     def arm_argv_invariants(self) -> None:
@@ -442,6 +539,8 @@ class Gate:
     def arm_live(self, arm: str, admissible: tuple[str, ...]) -> None:
         eprint(f"[arm] live/{arm}")
         for probe in PROBES:
+            if arm not in probe.arms:
+                continue
             base = (
                 self.fx.agents_only_repo if probe.repo == "agents_only" else self.fx.repo
             )
@@ -493,6 +592,21 @@ class Gate:
                 and not parsed.get("is_error", True)
                 and (turns > 0 or explicit)
             )
+            # A 429 usage limit poisons a whole run: the CLI returns a
+            # well-formed envelope carrying an API error and zero tokens. Every
+            # sentinel then looks suppressed for a reason that has nothing to do
+            # with safe mode. That is the archetypal vacuous pass, so it is
+            # reported as NOT-TESTABLE and the arm must be re-run.
+            api_error = parsed.get("api_error_status")
+            if not ran and api_error:
+                self.not_testable(
+                    f"{arm}/{probe.ident}", "probe liveness",
+                    "the probe engaged the CLI",
+                    f"HTTP {api_error} from the API ({inv.result_text[:120]!r}) — "
+                    f"no model turn happened, so nothing about suppression can be "
+                    f"concluded from this probe. Re-run the arm.",
+                )
+                continue
             self.check(
                 f"{arm}/{probe.ident}/RAN", "probe liveness",
                 "the probe actually engaged the CLI, so its silence is "
@@ -501,6 +615,29 @@ class Gate:
                 f"exit={inv.exit_code} is_error={parsed.get('is_error')} "
                 f"num_turns={turns} result={inv.result_text[:160]!r}",
             )
+
+            if probe.ident == "P8_projected":
+                # §18 B / skills §17.2, the POSITIVE half: the dispatcher's own
+                # curated projection must reach the worker and be usable. The
+                # safe arm is the matched control — nothing supplies the value
+                # there, so its absence is what makes the dispatcher arm's
+                # presence attributable to the projection rather than to the
+                # repository.
+                seen = self.proj_tokens["PROJROOT"] in haystack
+                want = arm == "dispatcher"
+                self.check(
+                    f"{arm}/LIVE-B", "curated root guidance, live",
+                    (
+                        "the worker REPORTS the curated root reference value "
+                        f"{self.proj_tokens['PROJROOT']}"
+                        if want
+                        else "the worker does NOT have the curated root value "
+                        "(nothing projects it in this arm)"
+                    ),
+                    seen is want, ev,
+                    f"token_seen={seen} result={inv.result_text[:200]!r}",
+                )
+                continue
 
             for sent in self.fx.sentinels.values():
                 if sent.probe != probe.ident or not sent.live_probe:
@@ -538,18 +675,26 @@ class Gate:
     def render(self, stray: list[str], arms: list[str]) -> str:
         out: list[str] = []
         a = out.append
-        scored = [
-            x for x in self.assertions if not x.detail.startswith("INADMISSIBLE")
+        excluded_rows = [
+            x for x in self.assertions if x.detail.startswith("INADMISSIBLE")
         ]
-        excluded = len(self.assertions) - len(scored)
+        nt_rows = [x for x in self.assertions if x.detail.startswith("NOT-TESTABLE")]
+        scored = [
+            x
+            for x in self.assertions
+            if x not in excluded_rows and x not in nt_rows
+        ]
+        excluded = len(excluded_rows)
+        not_testable = len(nt_rows)
         passed = [x for x in scored if x.passed]
         failed = [x for x in scored if not x.passed]
         a("# GATE 4.5 — DISPOSABLE LIVE ADVERSARIAL GATE RESULT (Lane G)\n")
         a(f"- Run nonce: `{self.fx.nonce}`")
         a(f"- Arms run: {', '.join(arms)}")
         a(
-            f"- Assertions: **{len(passed)} PASS / {len(failed)} FAIL**, "
-            f"plus {excluded} EXCLUDED as inadmissible (no firing baseline)"
+            f"- Assertions: **{len(passed)} PASS / {len(failed)} FAIL / "
+            f"{not_testable} NOT-TESTABLE**, plus {excluded} EXCLUDED as "
+            f"inadmissible (no demonstrated firing baseline)"
         )
         a(f"- Live cost: **${self.ledger.total_usd:.6f}** over "
           f"{len(self.ledger.invocations)} invocations")
@@ -562,6 +707,8 @@ class Gate:
             # neither a pass nor a failure — it is evidence we do not have.
             if x.detail.startswith("INADMISSIBLE"):
                 verdict = "N/A — EXCLUDED"
+            elif x.detail.startswith("NOT-TESTABLE"):
+                verdict = "**NOT-TESTABLE**"
             else:
                 verdict = f"**{'PASS' if x.passed else 'FAIL'}**"
             a(
@@ -569,6 +716,21 @@ class Gate:
                 f"`{Path(x.evidence).name}` | {x.detail} |"
             )
         a("")
+        if self.size_facts:
+            a("## Measured sizes and timings\n")
+            a("| fact | value |")
+            a("|---|---|")
+            for k, v in self.size_facts.items():
+                a(f"| `{k}` | {v} |")
+            a("")
+        if self.observations:
+            a("## Observations (reported, not asserted)\n")
+            for k, v in self.observations.items():
+                a(f"**{k}**\n")
+                a("```")
+                a(str(v).strip()[:3000])
+                a("```")
+                a("")
         a("## Cost\n")
         a(self.ledger.table())
         a("")
@@ -611,14 +773,33 @@ def main() -> int:
 
     gate = Gate(keep=args.keep)
     eprint(f"[fixture] {gate.fx.repo} nonce={gate.fx.nonce}")
+    # Always first: it proves §18 D and then makes the rest of the run possible.
+    gate.arm_default_deny()
     if "engine" in arms:
         gate.arm_engine()
     if "argv" in arms:
         gate.arm_argv_invariants()
+    if "claims" in arms or "claims-live" in arms:
+        live = "claims-live" in arms
+        claims.claim_S_doctor(gate, "before")
+        claims.claim_C_production_manifests(gate)
+        claims.claim_P_operator_text(gate)
+        claims.claim_provenance_separation(gate)
+        claims.claims_FNO_resume(gate, live=live)
+        claims.claim_R_scan_cost(gate, target_files=FVA_FILE_COUNT)
+        claims.claim_M_fable(gate, live=live)
+        if live:
+            claims.claims_KL_preamble(gate)
     if "safe" in arms:
         gate.arm_live("safe", DEFAULT_ADMISSIBLE)
     if "dispatcher" in arms:
         gate.arm_live("dispatcher", DEFAULT_ADMISSIBLE)
+    if "claims-live" in arms:
+        # Last: it permanently pads the fixture's artifacts to production size,
+        # which would make every later probe needlessly expensive.
+        claims.claim_I_size(gate)
+    if "claims" in arms or "claims-live" in arms:
+        claims.claim_S_doctor(gate, "after")
 
     stray = stray_sentinel_scan(gate.fx.nonce, PROTECTED_ROOTS)
     Path(args.out).write_text(gate.render(stray, arms), encoding="utf-8")
