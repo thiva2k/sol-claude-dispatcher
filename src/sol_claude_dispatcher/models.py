@@ -83,6 +83,7 @@ __all__ = [
     "FableCategory",
     "FableReview",
     "ValidationResult",
+    "SkillPolicyRecord",
     "RunMetadata",
     "DispatcherObservations",
     "RunRecord",
@@ -781,6 +782,26 @@ class ValidationResult(StrictModel):
     stderr_truncated: bool = False
 
 
+class SkillPolicyRecord(StrictModel):
+    """The approved-skill policy a run was dispatched under (Gate 4.5 §15).
+
+    Skill policy is part of execution context, so it is persisted as evidence
+    at dispatch and re-verified on resume. ``fingerprint`` is a SHA-256 over
+    the manifest identity plus every selected skill's resolved path and pinned
+    hashes (see ``skills.SkillProjection.fingerprint``); a resume that
+    recomputes a different value must fail closed rather than silently pick up
+    a new skill, a new plugin version, or changed contents.
+    """
+
+    mode: Literal["projected"] = "projected"
+    manifest_schema_version: NonEmptyStr
+    manifest_version: NonEmptyStr
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    skill_ids: list[str] = Field(default_factory=list, max_length=_MAX_LIST)
+    projected_bytes: int = Field(default=0, ge=0)
+    approx_tokens: int = Field(default=0, ge=0)
+
+
 class RunMetadata(StrictModel):
     """Identity and process facts for one subprocess run.
 
@@ -816,6 +837,10 @@ class RunMetadata(StrictModel):
     #: makes truncation possible landed with the flag).
     stdout_truncated: bool = False
     stderr_truncated: bool = False
+    #: Fingerprint of the approved-skill policy this run was invoked under
+    #: (Gate 4.5 §15). ``None`` means no skill guidance was projected — which
+    #: is also what every run recorded before skill projection existed says.
+    skill_policy_fingerprint: str | None = None
 
 
 class DispatcherObservations(StrictModel):
@@ -902,3 +927,7 @@ class TaskRecord(StrictModel):
     last_error: dict[str, Any] | None = None
     policy_violations: list[str] = Field(default_factory=list)
     fable_review_count: int = Field(default=0, ge=0)
+    #: Approved-skill policy captured at dispatch (Gate 4.5 §15). Resume must
+    #: verify it and fail closed on drift. ``None`` means the task was
+    #: dispatched with no projected skill guidance.
+    skill_policy: SkillPolicyRecord | None = None

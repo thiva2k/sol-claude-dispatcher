@@ -1,0 +1,551 @@
+{
+  "schema_version": "1.0",
+  "manifest_version": "2026-08-20.1",
+  "generated_at": "2026-08-20",
+  "approved_by": "gate-4.5-skill-candidate-revalidation",
+  "approval_note": "Revalidated against full current file content and recomputed SHA-256 on 2026-08-20 (SKILLS-MANIFEST-PROPOSAL.md). Sol naming a candidate is not approval (GATE4.5-DECISION §4). Never auto-rewrite this file: drift is a human/Sol reapproval decision (§10). The projection engine reads it and refuses; it never writes it.",
+  "projection_mode": "inert_text",
+  "native_skill_runtime": false,
+  "max_projected_bytes": 120000,
+  "fail_on_drift": true,
+  "drift_error": "ApprovedSkillChanged",
+  "policy_error": "SkillPolicyViolation",
+
+  "required_deny_patterns": [
+    "Bash(git bisect:*)",
+    "Bash(gh:*)"
+  ],
+
+  "envelope_precedence_preamble_required": true,
+
+  "plugins": {
+    "superpowers@claude-plugins-official": {
+      "plugin_name": "superpowers",
+      "marketplace": "claude-plugins-official",
+      "marketplace_repo": "anthropics/claude-plugins-official",
+      "plugin_version": "6.3.0",
+      "plugin_version_source": "plugin.json+installed_plugins.json",
+      "plugin_install_id": "6.3.0",
+      "install_path": "/home/dev/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0",
+      "git_commit_sha": null,
+      "trusted_scope": "listed_skills_only",
+      "untrusted": [
+        "plugin_directory",
+        "sibling_skills",
+        "plugin_runtime",
+        "plugin_hooks",
+        "plugin_subagents",
+        "plugin_mcp_servers",
+        "any_other_version"
+      ]
+    },
+    "agent-skills@addy-agent-skills": {
+      "plugin_name": "agent-skills",
+      "marketplace": "addy-agent-skills",
+      "marketplace_repo": "addyosmani/agent-skills",
+      "plugin_version": null,
+      "plugin_version_source": "absent",
+      "plugin_version_note": "GATE4.5 §9 GAP, recorded rather than papered over: no version string exists for this plugin in plugin.json, installed_plugins.json or marketplace.json, and no gitCommitSha is recorded on this host. Identity is pinned on install_path + plugin_install_id (a truncated git SHA used as the install directory name) + per-file SHA-256. The §10 drift auditor cannot print an approved-version/current-version comparison for this plugin; it compares path and hash only. The cache also holds unreviewed 0.6.6, 0.6.7 and f03b4a84b08b installs (0.6.7 is NEWER than the pinned install) — never glob this directory.",
+      "plugin_install_id": "70b7506ce90e",
+      "install_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e",
+      "git_commit_sha": null,
+      "trusted_scope": "listed_skills_only",
+      "untrusted": [
+        "plugin_directory",
+        "sibling_skills",
+        "plugin_runtime",
+        "plugin_hooks",
+        "plugin_subagents",
+        "plugin_mcp_servers",
+        "any_other_version"
+      ]
+    }
+  },
+
+  "core_always_on": [
+    "agent-skills.incremental-implementation",
+    "agent-skills.debugging-and-error-recovery",
+    "superpowers.test-driven-development",
+    "superpowers.verification-before-completion"
+  ],
+
+  "selection": {
+    "inputs": ["task.kind", "routing.complexity", "routing.risk", "run_kind"],
+    "combine": "set_union_with_dedup",
+    "by_task_kind": {
+      "implementation": [],
+      "bugfix": [],
+      "deep_debugging": [],
+      "tests": [],
+      "concurrency": [],
+      "docs": [],
+      "security_sensitive": ["agent-skills.security-and-hardening"],
+      "refactor": [
+        "agent-skills.code-simplification",
+        "agent-skills.code-review-and-quality"
+      ],
+      "large_refactor": [
+        "agent-skills.code-simplification",
+        "agent-skills.code-review-and-quality",
+        "agent-skills.planning-and-task-breakdown"
+      ],
+      "migration": [
+        "agent-skills.deprecation-and-migration",
+        "agent-skills.planning-and-task-breakdown"
+      ]
+    },
+    "by_complexity": {
+      "low": [],
+      "medium": [],
+      "high": ["agent-skills.planning-and-task-breakdown"]
+    },
+    "by_risk": {
+      "low": [],
+      "medium": [],
+      "high": ["agent-skills.code-review-and-quality"],
+      "critical": ["agent-skills.code-review-and-quality"]
+    },
+    "by_run_kind": {
+      "dispatch": [],
+      "resume": ["superpowers.receiving-code-review"],
+      "review": []
+    },
+    "omitted_deliberately": {
+      "concurrency": "No candidate addresses concurrency; the CORE debugging skill already carries race/state/timing triage. GATE4.5 §8: omit rather than guess.",
+      "docs": "agent-skills:documentation-and-adrs was not among the 15 revalidated candidates.",
+      "migration_spec_slot": "GATE4.5 §8 named spec-driven-development here; that candidate is REJECTED. No substitute invented.",
+      "api-and-interface-design": "No deterministic envelope fact identifies interface-design work.",
+      "frontend-ui-engineering": "No deterministic envelope fact identifies frontend work; deriving it from scope globs is inference.",
+      "observability-and-instrumentation": "No deterministic envelope fact identifies instrumentation work."
+    }
+  },
+
+  "approved_reviewer_skills": [],
+
+  "skills": [
+    {
+      "id": "agent-skills.incremental-implementation",
+      "display_name": "Incremental Implementation",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/incremental-implementation/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/incremental-implementation/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "960f2ed08ccdd51527c347d29d2d00c80edb9992e95d67030d8a289ba04eed4e",
+      "skill_md_bytes": 9249,
+      "supporting_files": [
+        {
+          "path": "${agent-skills.install_path}/references/definition-of-done.md",
+          "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/references/definition-of-done.md",
+          "sha256": "d1c75d2ae65d2c7a9cd01f93fa8de63e00e75f2fe5d08be224d576157054dcee",
+          "bytes": 3798,
+          "executable": false,
+          "project": true,
+          "shared_with": ["agent-skills.planning-and-task-breakdown"]
+        }
+      ],
+      "classification": "SAFE_WORKER_PROCEDURE",
+      "tier": "core",
+      "activation": "always_on",
+      "activation_profile": {},
+      "reviewer_eligible": false,
+      "caveats": [
+        "L41 instructs `Commit` and cross-references the §5-rejected `git-workflow-and-versioning`; L209/L241/L245 repeat commit expectations. Enforced away by CORE_DENIED_GIT_OPERATIONS; neutralised in prose by the envelope-precedence preamble (P3)."
+      ]
+    },
+    {
+      "id": "agent-skills.debugging-and-error-recovery",
+      "display_name": "Debugging and Error Recovery",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/debugging-and-error-recovery/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/debugging-and-error-recovery/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "927ad6917fa2891827351cfa3470cd715423faaa5c5f27fe74534d9324c35eea",
+      "skill_md_bytes": 10603,
+      "supporting_files": [],
+      "classification": "SAFE_WORKER_PROCEDURE",
+      "tier": "core",
+      "activation": "always_on",
+      "activation_profile": {},
+      "reviewer_eligible": false,
+      "requires_deny_patterns": ["Bash(git bisect:*)"],
+      "caveats": [
+        "P1: L102-108 instruct `git bisect start/bad/good/run`, which is not in CORE_DENIED_GIT_OPERATIONS and would otherwise execute, detaching HEAD and running arbitrary commands per bisection step. Projection is refused unless Bash(git bisect:*) is in the effective deny list."
+      ]
+    },
+    {
+      "id": "agent-skills.planning-and-task-breakdown",
+      "display_name": "Planning and Task Breakdown",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/planning-and-task-breakdown/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/planning-and-task-breakdown/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "d87ff6bb23aa791f78a504d784e903bb13602975923f884af5d13d5b66b1651a",
+      "skill_md_bytes": 7632,
+      "supporting_files": [
+        {
+          "path": "${agent-skills.install_path}/references/definition-of-done.md",
+          "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/references/definition-of-done.md",
+          "sha256": "d1c75d2ae65d2c7a9cd01f93fa8de63e00e75f2fe5d08be224d576157054dcee",
+          "bytes": 3798,
+          "executable": false,
+          "project": true,
+          "shared_with": ["agent-skills.incremental-implementation"]
+        }
+      ],
+      "classification": "SAFE_WORKER_PROCEDURE",
+      "tier": "contextual",
+      "activation": "contextual",
+      "activation_profile": {
+        "task_kinds": ["large_refactor", "migration"],
+        "complexity": ["high"]
+      },
+      "reviewer_eligible": false,
+      "caveats": [
+        "L33/L145-148 write tasks/plan.md and tasks/todo.md into the repository; the worker holds Write. Contextual activation limits this to tasks where it is warranted.",
+        "L148 references the /build slash command and L230 an interactive human approval gate; both are DATA under §6."
+      ]
+    },
+    {
+      "id": "superpowers.test-driven-development",
+      "display_name": "Test-Driven Development",
+      "source_type": "plugin",
+      "plugin": "superpowers@claude-plugins-official",
+      "plugin_version": "6.3.0",
+      "plugin_install_id": "6.3.0",
+      "canonical_path": "${superpowers.install_path}/skills/test-driven-development/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0/skills/test-driven-development/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "bf1b8216e523851a411e91d429a7c1c2a173e79d88957bc78e348218d50edd54",
+      "skill_md_bytes": 9015,
+      "supporting_files": [
+        {
+          "path": "${superpowers.install_path}/skills/test-driven-development/writing-good-tests.md",
+          "resolved_path": "/home/dev/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0/skills/test-driven-development/writing-good-tests.md",
+          "sha256": "51471c853306ff92ca8bb41dcaea05f31c0e46b03651f8f3c99754b7172f4ae1",
+          "bytes": 8268,
+          "executable": false,
+          "project": true
+        }
+      ],
+      "classification": "SAFE_WORKER_PROCEDURE",
+      "tier": "core",
+      "activation": "always_on",
+      "activation_profile": {},
+      "reviewer_eligible": false,
+      "caveats": [],
+      "selection_note": "Chosen over agent-skills:test-driven-development (sha256 6c60e193d77a6c52eb3d9a7ca774f1801b9f798ec34f075720e0425a8094f50e), re-verified 2026-08-20 as still carrying 'When to Use Subagents for Testing' (L329-341) plus Chrome DevTools MCP dependence (L22, L300). GATE4.5 §7: choose the safe skill, do not sanitize."
+    },
+    {
+      "id": "superpowers.verification-before-completion",
+      "display_name": "Verification Before Completion",
+      "source_type": "plugin",
+      "plugin": "superpowers@claude-plugins-official",
+      "plugin_version": "6.3.0",
+      "plugin_install_id": "6.3.0",
+      "canonical_path": "${superpowers.install_path}/skills/verification-before-completion/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0/skills/verification-before-completion/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "2befe7fc55bcadaa3d97dd9e8efeb633d2561c0ebe74c5a8b17c4d9e7e4520b3",
+      "skill_md_bytes": 3646,
+      "supporting_files": [],
+      "classification": "SAFE_WORKER_PROCEDURE",
+      "tier": "core",
+      "activation": "always_on",
+      "activation_profile": {},
+      "reviewer_eligible": false,
+      "caveats": [
+        "L47/L100-104/L114 discuss verifying delegated-agent reports. Advisory only; Agent and Task remain in ALWAYS_DISALLOWED_TOOLS."
+      ]
+    },
+    {
+      "id": "agent-skills.security-and-hardening",
+      "display_name": "Security and Hardening",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/security-and-hardening/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/security-and-hardening/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "8fed058a520281384ed1bbfddbfb3d2b12479459231c67ae0d1f0d765bb52f95",
+      "skill_md_bytes": 18878,
+      "supporting_files": [
+        {
+          "path": "${agent-skills.install_path}/references/security-checklist.md",
+          "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/references/security-checklist.md",
+          "sha256": "56ffac21ef2226d41a47753ff691633451e313b068ce6020e07a1c9617c421ab",
+          "bytes": 7318,
+          "executable": false,
+          "project": false,
+          "reason": "See-also tail; the SKILL.md carries its own complete checklist at L380-419. Contains npx invocations (L115). Dangle neutralised by the P3 preamble."
+        }
+      ],
+      "classification": "SAFE_REFERENCE",
+      "tier": "contextual",
+      "activation": "contextual",
+      "activation_profile": { "task_kinds": ["security_sensitive"] },
+      "reviewer_eligible": false,
+      "caveats": [
+        "L347 uses read-only `git diff --cached | grep` only; no git mutation anywhere."
+      ]
+    },
+    {
+      "id": "agent-skills.code-simplification",
+      "display_name": "Code Simplification",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/code-simplification/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/code-simplification/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "f0c5ed754057eb0c1e027e2587f59de816651feb5e837242296c43ea21cf621d",
+      "skill_md_bytes": 13545,
+      "supporting_files": [],
+      "classification": "SAFE_WORKER_PROCEDURE",
+      "tier": "contextual",
+      "activation": "contextual",
+      "activation_profile": { "task_kinds": ["refactor", "large_refactor"] },
+      "reviewer_eligible": false,
+      "caveats": [
+        "L165 'If tests pass -> commit' — denied by CORE_DENIED_GIT_OPERATIONS, covered in prose by P3.",
+        "L118 'Check git blame' is read-only.",
+        "L8 contains an outbound GitHub URL as attribution; the worker has no WebFetch/WebSearch."
+      ]
+    },
+    {
+      "id": "agent-skills.code-review-and-quality",
+      "display_name": "Code Review and Quality",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/code-review-and-quality/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/code-review-and-quality/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "6d7c7cb43e8eb6727ab72b3baa570d8e8c00f484392cfd07acf4550fed2b6838",
+      "skill_md_bytes": 18456,
+      "supporting_files": [
+        {
+          "path": "${agent-skills.install_path}/references/security-checklist.md",
+          "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/references/security-checklist.md",
+          "sha256": "56ffac21ef2226d41a47753ff691633451e313b068ce6020e07a1c9617c421ab",
+          "bytes": 7318,
+          "executable": false,
+          "project": false,
+          "reason": "See-also tail; not projected in V1."
+        },
+        {
+          "path": "${agent-skills.install_path}/references/performance-checklist.md",
+          "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/references/performance-checklist.md",
+          "sha256": "628539583b7f515f84d0b8e4f4210ccdc0449afd31901149a078209f0769e654",
+          "bytes": 7408,
+          "executable": false,
+          "project": false,
+          "reason": "See-also tail; contains npx lighthouse/webpack-bundle-analyzer/bundlesize invocations (L118-126). Not projected."
+        }
+      ],
+      "classification": "SAFE_REFERENCE",
+      "tier": "contextual",
+      "activation": "contextual",
+      "activation_profile": {
+        "task_kinds": ["refactor", "large_refactor"],
+        "risk": ["high", "critical"]
+      },
+      "reviewer_eligible": false,
+      "caveats": [
+        "L205-229 'Multi-Model Review Pattern' describes Model A/Model B review and an example reviewer prompt. No tool named, no spawn mechanism — not §5 orchestration, but Agent/Task remain denied.",
+        "MUST NOT be projected to Fable: a shared rubric destroys review independence by construction.",
+        "Dangling cross-reference to performance-optimization (L79), not a candidate."
+      ]
+    },
+    {
+      "id": "agent-skills.deprecation-and-migration",
+      "display_name": "Deprecation and Migration",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/deprecation-and-migration/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/deprecation-and-migration/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "bf2d9b4e3bc635b32e8de70b0ab41e4395d7b585e6474347c53ce89d45fbdb75",
+      "skill_md_bytes": 9000,
+      "supporting_files": [],
+      "classification": "SAFE_REFERENCE",
+      "tier": "contextual",
+      "activation": "contextual",
+      "activation_profile": { "task_kinds": ["migration"] },
+      "reviewer_eligible": false,
+      "caveats": []
+    },
+    {
+      "id": "superpowers.receiving-code-review",
+      "display_name": "Receiving Code Review",
+      "source_type": "plugin",
+      "plugin": "superpowers@claude-plugins-official",
+      "plugin_version": "6.3.0",
+      "plugin_install_id": "6.3.0",
+      "canonical_path": "${superpowers.install_path}/skills/receiving-code-review/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0/skills/receiving-code-review/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "091df1629510af1b92fc4abd6f96732ebedb4cb2c0f3457e8f2740b0504a2438",
+      "skill_md_bytes": 6203,
+      "supporting_files": [],
+      "classification": "SAFE_REFERENCE",
+      "tier": "contextual",
+      "activation": "contextual",
+      "activation_profile": { "run_kinds": ["resume"] },
+      "reviewer_eligible": false,
+      "requires_deny_patterns": ["Bash(gh:*)"],
+      "caveats": [
+        "P2: L205 instructs `gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies` — an authenticated POST mutating remote GitHub state with the user's credentials. Not covered by any git deny pattern. Projection is refused unless Bash(gh:*) is in the effective deny list."
+      ]
+    },
+    {
+      "id": "agent-skills.api-and-interface-design",
+      "display_name": "API and Interface Design",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/api-and-interface-design/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/api-and-interface-design/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "293db2903b41316a5109a1e0ce3e1740eeafae31735bc1f9143dafbfd1187363",
+      "skill_md_bytes": 10307,
+      "supporting_files": [],
+      "classification": "SAFE_REFERENCE",
+      "tier": "contextual",
+      "activation": "envelope_hint_only",
+      "activation_profile": {},
+      "reviewer_eligible": false,
+      "caveats": [
+        "No deterministic envelope fact selects this skill; approved but never auto-selected (§8 omit-rather-than-guess)."
+      ]
+    },
+    {
+      "id": "agent-skills.frontend-ui-engineering",
+      "display_name": "Frontend UI Engineering",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/frontend-ui-engineering/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/frontend-ui-engineering/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "9f9e5b3141c891d866c2a15a11ac3aba4e86ec6c530d054f0534503c2e720cb1",
+      "skill_md_bytes": 10639,
+      "supporting_files": [
+        {
+          "path": "${agent-skills.install_path}/references/accessibility-checklist.md",
+          "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/references/accessibility-checklist.md",
+          "sha256": "61c759d94d52296231f5f310b92b401f56c44e4430dc3cc95ebac5d7b1d5ffac",
+          "bytes": 5206,
+          "executable": false,
+          "project": false,
+          "reason": "See-also tail; contains npx axe-core / npx pa11y (L127-128). Not projected."
+        }
+      ],
+      "classification": "SAFE_REFERENCE",
+      "tier": "contextual",
+      "activation": "envelope_hint_only",
+      "activation_profile": {},
+      "reviewer_eligible": false,
+      "caveats": [
+        "No deterministic envelope fact selects this skill; deriving 'frontend' from scope globs would be inference."
+      ]
+    },
+    {
+      "id": "agent-skills.observability-and-instrumentation",
+      "display_name": "Observability and Instrumentation",
+      "source_type": "plugin",
+      "plugin": "agent-skills@addy-agent-skills",
+      "plugin_version": null,
+      "plugin_install_id": "70b7506ce90e",
+      "canonical_path": "${agent-skills.install_path}/skills/observability-and-instrumentation/SKILL.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/observability-and-instrumentation/SKILL.md",
+      "resolved_equals_canonical": true,
+      "skill_md_sha256": "40c59a0c3ba28f5697600add521e38f81f880f986317628cdc0df9bdb8acf126",
+      "skill_md_bytes": 11047,
+      "supporting_files": [
+        {
+          "path": "${agent-skills.install_path}/references/observability-checklist.md",
+          "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/references/observability-checklist.md",
+          "sha256": "28659e0a4b9625a434285fa9ede632802afa909f768d0f8d839dca227e53d8fe",
+          "bytes": 4931,
+          "executable": false,
+          "project": false,
+          "reason": "See-also tail; the SKILL.md carries its own verification list at L190-202. Not projected."
+        }
+      ],
+      "classification": "SAFE_REFERENCE",
+      "tier": "contextual",
+      "activation": "envelope_hint_only",
+      "activation_profile": {},
+      "reviewer_eligible": false,
+      "caveats": [
+        "L23 references the §5-rejected `shipping-and-launch` inside its 'NOT for:' scope-boundary block — a see-also, not a procedural step. Neutralised by P3.",
+        "L22 references performance-optimization, not a candidate."
+      ]
+    }
+  ],
+
+  "rejected": [
+    {
+      "id": "agent-skills.source-driven-development",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/source-driven-development/SKILL.md",
+      "skill_md_sha256": "b979e7531ea601ed14a090f32a5b135db517c48ab9821c5e8b09efd80f4ff4d8",
+      "skill_md_bytes": 8204,
+      "verdict": "REJECT",
+      "reason": "Mandates fetching official documentation as step 2 of a 4-step pipeline (L30, L63-65, L86-90, L174, L188). Worker tools contain no WebFetch/WebSearch and mcp__* is denied, so the step is unfulfillable by intended means and pressures the worker toward Bash(curl/npx) network egress, which no deny pattern blocks. §7 forbids removing the step because the step is the skill.",
+      "reapproval_condition": "Only if WebFetch is ever added to worker_tools under its own gate; re-review at that time."
+    },
+    {
+      "id": "agent-skills.spec-driven-development",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/spec-driven-development/SKILL.md",
+      "skill_md_sha256": "af5b873414a8b45b96b0d30d5297400f55eb3a56425161a088e470c14260a1e5",
+      "skill_md_bytes": 8527,
+      "verdict": "REJECT",
+      "reason": "Phase 4 (L169) has no content of its own; it delegates by filesystem path to skills/context-engineering/SKILL.md (§5 explicit reject list) and skills/test-driven-development/SKILL.md (the agent-skills TDD that §4 excluded for its spawn-subagent section). A worker holding Read/Glob is directed at rejected content by location. §7 forbids the surgery.",
+      "reapproval_condition": "Only if a future agent-skills revision removes the L169 pointers; re-review at the new hash."
+    },
+    {
+      "id": "agent-skills.test-driven-development",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/test-driven-development/SKILL.md",
+      "skill_md_sha256": "6c60e193d77a6c52eb3d9a7ca774f1801b9f798ec34f075720e0425a8094f50e",
+      "skill_md_bytes": 14976,
+      "verdict": "REJECT",
+      "reason": "L329-341 'When to Use Subagents for Testing' — 'spawn a subagent to write the reproduction test'. Plus Chrome DevTools MCP dependence (L22, L300) and a cross-reference to browser-testing-with-devtools (L327). superpowers.test-driven-development is used instead.",
+      "reapproval_condition": null
+    }
+  ],
+
+  "never_project": [
+    {
+      "path": "${agent-skills.install_path}/references/orchestration-patterns.md",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/references/orchestration-patterns.md",
+      "sha256": "61e543d86f19f86b83074f8c1c769455c7085a2c72dd47b1da21a8c63785be4a",
+      "bytes": 18201,
+      "executable": false,
+      "reason": "Sibling file in the same references/ directory the approved skills read from, referenced by no approved candidate. 24 hits on the subagent/spawn/dispatch/parallel-agent pattern set. Supporting files are enumerated per skill; the directory is never trusted."
+    },
+    {
+      "path": "${agent-skills.install_path}/skills/idea-refine/scripts/idea-refine.sh",
+      "resolved_path": "/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/skills/idea-refine/scripts/idea-refine.sh",
+      "sha256": "f02a52408a4218047c032d221483abfbb48d11f090bb4915965c7419bf2e0e47",
+      "bytes": null,
+      "executable": true,
+      "reason": "The only executable in either skills tree. Not in any candidate directory. Executables are never projected and are never executed."
+    }
+  ]
+}

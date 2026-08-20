@@ -35,8 +35,10 @@ __all__ = [
     "SecuritySettings",
     "ValidationSettings",
     "ClaudeSettings",
+    "SkillsSettings",
     "LoggingSettings",
     "Config",
+    "MAX_PROJECTED_BYTES_CEILING",
     "load_config",
     "load_config_from_mapping",
     "DEFAULT_CONFIG_FILENAME",
@@ -207,6 +209,15 @@ class ClaudeSettings(_StrictSection):
             "Bash(git worktree:*)",
             "Bash(claude:*)",
             "Bash(codex:*)",
+            # Gate 4.5 P1/P2. Mirrors of ``runner.CORE_DENIED_GIT_OPERATIONS``
+            # and ``runner.ALWAYS_DISALLOWED_TOOLS``, kept here as visible
+            # documentation *and* because ``skills.SkillProjectionEngine``
+            # refuses to project guidance that instructs an operation the
+            # effective deny list does not cover: ``git bisect`` (detaches HEAD,
+            # runs arbitrary commands per step) and ``gh`` (authenticated
+            # mutation of remote state with the operator's credentials).
+            "Bash(git bisect:*)",
+            "Bash(gh:*)",
         ]
     )
 
@@ -219,6 +230,72 @@ class ClaudeSettings(_StrictSection):
                 f"claude.permission_mode must be one of {sorted(allowed)}; "
                 f"'bypassPermissions' is deliberately not offered"
             )
+        return v
+
+
+#: Absolute ceiling on projected skill guidance, independent of what an
+#: operator writes in the config. The Gate 4.5 §18 measurement puts the
+#: deterministic worst-case profile at ~105 KB including co-projected support
+#: files; the recommended cap is 120,000 bytes. A config asking for more than
+#: this ceiling is refused rather than clamped: nothing this system does should
+#: put a quarter of a megabyte of imported prose in front of a worker.
+MAX_PROJECTED_BYTES_CEILING = 200_000
+
+
+class SkillsSettings(_StrictSection):
+    """Approved-skill projection policy (GATE 4.5 §9).
+
+    Three of these five keys look like switches and are not. ``mode`` accepts
+    only ``"projected"``: the native Claude Skill runtime is *not* an option a
+    config file can turn on (§3, §14 — "Skill" never enters ``worker_tools``,
+    and no plugin runtime reaches a worker). ``fail_on_drift`` accepts only
+    ``true``: §10 makes drift a fail-closed condition, so the key exists to
+    document the behaviour, not to disable it. ``max_projected_bytes`` is
+    bounded above by :data:`MAX_PROJECTED_BYTES_CEILING`.
+
+    ``enabled`` defaults to ``False``. A dispatcher that was never configured
+    for skill projection projects nothing — the safe direction.
+    """
+
+    enabled: bool = False
+    mode: str = "projected"
+    fail_on_drift: bool = True
+    max_projected_bytes: int = Field(
+        default=120_000, ge=1, le=MAX_PROJECTED_BYTES_CEILING
+    )
+    #: The source-controlled approval manifest (§9). Never auto-rewritten.
+    manifest_path: str = "./config/approved-skills.json"
+
+    @field_validator("mode")
+    @classmethod
+    def _projection_only(cls, v: str) -> str:
+        if v != "projected":
+            raise ValueError(
+                "skills.mode must be 'projected'. The native Claude Skill "
+                "runtime is not offered: GATE 4.5 chose controlled projection "
+                "precisely because approving a SKILL.md hash does not approve "
+                "the plugin runtime, hooks, subagents or MCP servers that ship "
+                "beside it"
+            )
+        return v
+
+    @field_validator("fail_on_drift")
+    @classmethod
+    def _drift_always_fails_closed(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError(
+                "skills.fail_on_drift cannot be disabled: a changed hash, a "
+                "missing file or a moved path means the approved text is no "
+                "longer what was reviewed, and GATE 4.5 §10 requires refusing "
+                "rather than silently accepting a new hash"
+            )
+        return v
+
+    @field_validator("manifest_path")
+    @classmethod
+    def _manifest_path_is_set(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("skills.manifest_path must not be empty")
         return v
 
 
@@ -248,6 +325,7 @@ class Config(BaseModel):
     security: SecuritySettings
     validation: ValidationSettings = Field(default_factory=ValidationSettings)
     claude: ClaudeSettings = Field(default_factory=ClaudeSettings)
+    skills: SkillsSettings = Field(default_factory=SkillsSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     #: Absolute path of the file this config was loaded from (``None`` when
@@ -299,6 +377,11 @@ class Config(BaseModel):
     @property
     def fable_schema_file(self) -> Path:
         return self._resolve(self.claude.fable_review_schema_path)
+
+    @property
+    def approved_skills_file(self) -> Path:
+        """The approved-skill manifest (§9). Read-only, source-controlled."""
+        return self._resolve(self.skills.manifest_path)
 
     def model_for(self, alias: str) -> str:
         """Map ``sonnet`` / ``opus`` / ``fable`` to the configured identifier."""

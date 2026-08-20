@@ -119,7 +119,40 @@ disallowed_tools = [
     "Bash(git worktree:*)",
     "Bash(claude:*)",
     "Bash(codex:*)",
+    # Gate 4.5 P1/P2. Also non-configurable in runner.py; mirrored here because
+    # the skill projection engine refuses to project guidance that instructs an
+    # operation the effective deny list does not cover.
+    "Bash(git bisect:*)",
+    "Bash(gh:*)",
 ]
+
+# Approved-skill projection (GATE 4.5). The dispatcher appends *inert text*
+# extracted from explicitly approved, hash-pinned skill files to the worker's
+# system prompt. It never loads the native Claude Skill runtime, never grants
+# the "Skill" tool, and never trusts a plugin, a directory, or a path family:
+# every projectable skill is an explicit entry in the manifest below.
+[skills]
+enabled = true
+
+# Only "projected" exists. "native" is refused at load time — approving a
+# SKILL.md hash does not approve the plugin runtime, hooks, subagents or MCP
+# servers that ship beside it.
+mode = "projected"
+
+# Cannot be disabled. A changed hash, a missing file or a moved path means the
+# approved text is no longer what was reviewed, so projection refuses rather
+# than silently accepting a new hash.
+fail_on_drift = true
+
+# Fail-closed cap on the total projected payload. The measured deterministic
+# worst case (large_refactor + critical risk + high complexity + resume, with
+# co-projected supporting files) is ~105 KB; anything above the cap refuses
+# rather than truncating reviewed guidance mid-sentence.
+max_projected_bytes = 120000
+
+# The reviewed, source-controlled approval manifest. Never auto-rewritten:
+# drift is a human/Sol reapproval decision.
+manifest_path = "./config/approved-skills.json"
 
 [logging]
 # Logs go to stderr or a file — NEVER stdout, which belongs to the MCP

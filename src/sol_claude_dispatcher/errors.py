@@ -38,6 +38,8 @@ __all__ = [
     "ClaudeTimedOut",
     "ResumeLimitReached",
     "PolicyViolation",
+    "SkillPolicyViolation",
+    "ApprovedSkillChanged",
     "ValidationFailed",
     "WorktreeCreationFailed",
     "GitEvidenceCollectionFailed",
@@ -227,6 +229,35 @@ class PolicyViolation(DispatcherError):
     code = "PolicyViolation"
 
 
+class SkillPolicyViolation(PolicyViolation):
+    """An unapproved or ineligible skill reached the projection engine.
+
+    Gate 4.5 §9/§11. Raised when a skill id is not an explicit manifest entry,
+    when its classification is not projectable (§7: MANUAL_ONLY /
+    UNSAFE_FOR_DISPATCHER / UNKNOWN never project), when a required deny
+    pattern is absent from the effective tool policy, when a skill file carries
+    a frontmatter mechanism or a dynamic-command construct, or when the
+    projected payload exceeds the configured byte cap (§18).
+
+    This is *policy*, not drift: nothing on disk changed, the request itself is
+    refused.
+    """
+
+    code = "SkillPolicyViolation"
+
+
+class ApprovedSkillChanged(DispatcherError):
+    """A pinned skill source no longer matches what was approved (§10, §15).
+
+    Hash mismatch, a missing file, a resolved path that moved, or a path that
+    no longer belongs to the expected pinned plugin install. The dispatcher
+    never recalculates and accepts a new hash: re-approval is a human/Sol
+    decision recorded in ``config/approved-skills.json``.
+    """
+
+    code = "ApprovedSkillChanged"
+
+
 class ValidationFailed(DispatcherError):
     """A trusted dispatcher validation command failed (§17)."""
 
@@ -275,6 +306,8 @@ ERROR_CODES: frozenset[str] = frozenset(
         "ClaudeTimedOut",
         "ResumeLimitReached",
         "PolicyViolation",
+        "SkillPolicyViolation",
+        "ApprovedSkillChanged",
         "ValidationFailed",
         "WorktreeCreationFailed",
         "GitEvidenceCollectionFailed",
