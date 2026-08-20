@@ -830,7 +830,13 @@ Rules:
 - `--append-system-prompt` takes the **policy text**, not a path. The caller
   reads `config.worker_policy_file` and passes the contents.
 - `--json-schema` takes the **minified schema string**
-  (`json.dumps(schema, separators=(",", ":"))`), not a path.
+  (`json.dumps(schema, separators=(",", ":"))`), not a path. It is produced by
+  `runner.schema_for_claude_cli()`, which drops **only** the canonical schema's
+  top-level `"$schema"` dialect declaration: Claude Code 2.1.237 rejects
+  `https://json-schema.org/draft/2020-12/schema` with *"no schema with key or
+  ref"*. The files in `schemas/` stay draft 2020-12; nothing else is stripped,
+  no nested `$schema` is touched, and the projection is removed once the CLI
+  accepts the declaration.
 - Never `--dangerously-skip-permissions`, never `--allow-dangerously-skip-permissions`.
 
 ### `run_worker` — process control

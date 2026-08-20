@@ -38,6 +38,7 @@ import json
 import os
 import signal
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
@@ -194,7 +195,7 @@ class WorkerInvocation:
     role: str                       # "implementer" | "reviewer"
     worktree_name: str | None = None       # None on resume and on review
     resume_session_id: str | None = None   # set only on resume
-    json_schema: str | None = None         # minified schema string
+    json_schema: str | None = None         # minified, CLI-projected schema string
     append_system_prompt: str | None = None
     tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
@@ -472,7 +473,35 @@ def _read_text_file(path: Path, *, what: str) -> str:
     return text
 
 
-def _minified_schema(path: Path, *, what: str) -> str:
+def schema_for_claude_cli(path: Path, *, what: str) -> str:
+    """Project a canonical schema file into the string handed to ``--json-schema``.
+
+    This is a **compatibility projection at the argv boundary**, not a schema
+    downgrade. Why it exists:
+
+    * Our canonical schemas in ``schemas/`` are, and remain, JSON Schema
+      **draft 2020-12**, declared with
+      ``"$schema": "https://json-schema.org/draft/2020-12/schema"``. They are
+      standards-correct and are never rewritten to another dialect.
+    * Claude Code 2.1.237 rejects that declaration on the ``--json-schema`` path
+      with ``no schema with key or ref
+      "https://json-schema.org/draft/2020-12/schema"`` — the CLI's validator has
+      no 2020-12 meta-schema registered. Observed live on every worker *and*
+      reviewer structured-output invocation during Gate 4.
+    * This is therefore a **consumer workaround for one CLI**, not an admission
+      that our schemas are invalid. Only the dialect *declaration* is dropped;
+      every constraint the schema expresses is passed through untouched, and the
+      remaining constructs are accepted by the CLI's effective validator.
+    * **Removal condition:** delete this projection (and go back to a plain
+      minify) once the installed Claude CLI accepts the 2020-12 dialect
+      declaration on ``--json-schema``.
+
+    Scope is deliberately narrow: the file on disk is never mutated, the
+    projected document is an independent in-memory copy, and **only the
+    top-level** ``$schema`` key is removed. There is no recursive walk — a
+    nested property literally named ``$schema`` is part of the contract we are
+    asking the model to satisfy and must survive.
+    """
     raw = _read_text_file(path, what=what)
     try:
         parsed = json.loads(raw)
@@ -481,7 +510,11 @@ def _minified_schema(path: Path, *, what: str) -> str:
             f"{what} file is not valid JSON.",
             details={"path": str(path), "error": str(exc)},
         ) from exc
-    return json.dumps(parsed, separators=(",", ":"))
+    projected = deepcopy(parsed)
+    if isinstance(projected, dict):
+        # Top level only. Never `for k in walk(...)`.
+        projected.pop("$schema", None)
+    return json.dumps(projected, separators=(",", ":"))
 
 
 def _deduped(*groups: object) -> list[str]:
@@ -532,7 +565,9 @@ def build_worker_invocation(
         role="implementer",
         worktree_name=envelope.worktree_name if include_worktree else None,
         resume_session_id=resume_session_id,
-        json_schema=_minified_schema(config.worker_schema_file, what="Worker result schema"),
+        json_schema=schema_for_claude_cli(
+            config.worker_schema_file, what="Worker result schema"
+        ),
         append_system_prompt=_read_text_file(
             config.worker_policy_file, what="Worker policy"
         ),
@@ -589,7 +624,9 @@ def build_fable_invocation(
         role="reviewer",
         worktree_name=None,
         resume_session_id=None,
-        json_schema=_minified_schema(config.fable_schema_file, what="Fable review schema"),
+        json_schema=schema_for_claude_cli(
+            config.fable_schema_file, what="Fable review schema"
+        ),
         append_system_prompt=_read_text_file(
             config.fable_policy_file, what="Fable reviewer policy"
         ),

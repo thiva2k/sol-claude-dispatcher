@@ -33,6 +33,7 @@ from sol_claude_dispatcher.runner import (
     build_worker_invocation,
     cli_failure,
     run_worker,
+    schema_for_claude_cli,
 )
 from sol_claude_dispatcher.security import assert_no_recursion
 
@@ -314,6 +315,188 @@ def test_fable_config_with_write_tools_is_refused(dispatcher_config, envelope, g
             envelope, dispatcher_config, session_id="s", prompt="p",
             cwd=git_repo, base_env=fake_env,
         )
+
+
+# ---------------------------------------------------------------------------
+# --json-schema compatibility projection (Gate 4 live defect, CLI 2.1.237)
+#
+# Claude Code 2.1.237 rejects the draft 2020-12 dialect declaration on
+# ``--json-schema`` ("no schema with key or ref
+# https://json-schema.org/draft/2020-12/schema"). The canonical schema files
+# stay 2020-12; only the argv value drops the top-level declaration. These tests
+# pin BOTH halves of that: the files must not drift, and the projection must not
+# grow into a general-purpose stripper.
+# ---------------------------------------------------------------------------
+
+CANONICAL_DIALECT = "https://json-schema.org/draft/2020-12/schema"
+WORKER_SCHEMA_FILE = PROJECT_ROOT / "schemas" / "worker-result.schema.json"
+FABLE_SCHEMA_FILE = PROJECT_ROOT / "schemas" / "fable-review.schema.json"
+
+
+def worker_cli_schema(config, envelope, cwd, env) -> dict:
+    argv = build_argv(
+        build_worker_invocation(
+            envelope, config, model="sonnet", session_id=str(uuid.uuid4()),
+            prompt="p", cwd=cwd, base_env=env,
+        )
+    )
+    return json.loads(flag_value(argv, "--json-schema"))
+
+
+def fable_cli_schema(config, envelope, cwd, env) -> dict:
+    argv = build_argv(
+        build_fable_invocation(
+            envelope, config, session_id=str(uuid.uuid4()),
+            prompt="p", cwd=cwd, base_env=env,
+        )
+    )
+    return json.loads(flag_value(argv, "--json-schema"))
+
+
+def test_canonical_worker_schema_stays_draft_2020_12_on_disk(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    """(1) The projection is a consumer workaround, not a schema downgrade."""
+    before = WORKER_SCHEMA_FILE.read_bytes()
+    assert json.loads(before)["$schema"] == CANONICAL_DIALECT
+    worker_cli_schema(dispatcher_config, envelope, git_repo, fake_env)
+    # Building the invocation must not rewrite the source file.
+    assert WORKER_SCHEMA_FILE.read_bytes() == before
+
+
+def test_canonical_fable_schema_stays_draft_2020_12_on_disk(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    """(2) Same for the reviewer schema."""
+    before = FABLE_SCHEMA_FILE.read_bytes()
+    assert json.loads(before)["$schema"] == CANONICAL_DIALECT
+    fable_cli_schema(dispatcher_config, envelope, git_repo, fake_env)
+    assert FABLE_SCHEMA_FILE.read_bytes() == before
+
+
+def test_worker_argv_schema_has_no_top_level_dialect(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    """(3) The exact thing the live CLI rejected must not reach argv."""
+    projected = worker_cli_schema(dispatcher_config, envelope, git_repo, fake_env)
+    assert "$schema" not in projected
+    assert CANONICAL_DIALECT not in json.dumps(projected)
+
+
+def test_fable_argv_schema_has_no_top_level_dialect(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    """(4) The reviewer invocation failed live too; it is projected as well."""
+    projected = fable_cli_schema(dispatcher_config, envelope, git_repo, fake_env)
+    assert "$schema" not in projected
+    assert CANONICAL_DIALECT not in json.dumps(projected)
+
+
+@pytest.mark.parametrize(
+    "which, schema_file",
+    [("worker", WORKER_SCHEMA_FILE), ("fable", FABLE_SCHEMA_FILE)],
+)
+def test_projection_removes_only_the_dialect_declaration(
+    which, schema_file, dispatcher_config, envelope, git_repo, fake_env
+):
+    """(5) Every other top-level field survives, byte-for-value."""
+    canonical = json.loads(schema_file.read_text())
+    projected = (
+        worker_cli_schema(dispatcher_config, envelope, git_repo, fake_env)
+        if which == "worker"
+        else fable_cli_schema(dispatcher_config, envelope, git_repo, fake_env)
+    )
+    for key in ("$id", "title", "type", "properties", "required", "additionalProperties"):
+        assert key in projected, key
+        assert projected[key] == canonical[key], key
+    # Nothing added, nothing else removed.
+    assert set(projected) == set(canonical) - {"$schema"}
+
+
+def test_projection_preserves_nested_schema_structures(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    """(6) Constraints are semantics, not metadata — none of them are touched."""
+    canonical = json.loads(WORKER_SCHEMA_FILE.read_text())
+    projected = worker_cli_schema(dispatcher_config, envelope, git_repo, fake_env)
+    assert projected["properties"] == canonical["properties"]
+    assert projected["required"] == canonical["required"]
+    status = projected["properties"]["status"]
+    assert status["enum"] == canonical["properties"]["status"]["enum"]
+    changes = projected["properties"]["changes"]
+    assert changes["items"] == canonical["properties"]["changes"]["items"]
+
+
+def test_projected_schema_is_valid_minified_json(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    """(7) Still a single valid JSON document, still minified."""
+    for builder in (worker_cli_schema, fable_cli_schema):
+        projected = builder(dispatcher_config, envelope, git_repo, fake_env)
+        assert isinstance(projected, dict)
+    for schema_file, what in (
+        (WORKER_SCHEMA_FILE, "Worker result schema"),
+        (FABLE_SCHEMA_FILE, "Fable review schema"),
+    ):
+        text = schema_for_claude_cli(schema_file, what=what)
+        assert text == json.dumps(json.loads(text), separators=(",", ":"))
+        assert len(text) < len(schema_file.read_text())
+
+
+async def test_fake_worker_lifecycle_still_green_with_projected_schema(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    """(8) End-to-end through the fake: the projected schema is what is passed,
+    and the run still completes and parses."""
+    run = await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+    assert run.exit_code == 0
+    assert json.loads(run.stdout)["structured_output"]["status"] == "completed"
+
+    log = read_fake_log(tmp_path / "fake-claude.log")
+    seen = json.loads(log[0]["json_schema"])
+    assert "$schema" not in seen
+    assert seen["properties"]["status"]["enum"]
+
+
+def test_projection_keeps_a_nested_property_named_schema(tmp_path: Path):
+    """A property literally named ``$schema`` is part of the contract we ask the
+    model to satisfy, not dialect metadata. Only the TOP-LEVEL key is removed —
+    a recursive strip would silently change what the worker must return."""
+    fixture = tmp_path / "nested-dollar-schema.schema.json"
+    fixture.write_text(
+        json.dumps(
+            {
+                "$schema": CANONICAL_DIALECT,
+                "$id": "https://example.invalid/nested.schema.json",
+                "title": "NestedDollarSchema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["$schema"],
+                "properties": {
+                    "$schema": {"type": "string", "description": "a real field"},
+                    "nested": {
+                        "type": "object",
+                        "properties": {"$schema": {"type": "string"}},
+                    },
+                },
+                "$defs": {"inner": {"$schema": CANONICAL_DIALECT, "type": "string"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    projected = json.loads(schema_for_claude_cli(fixture, what="Fixture schema"))
+
+    assert "$schema" not in projected                      # top level: gone
+    assert projected["properties"]["$schema"] == {          # nested: intact
+        "type": "string",
+        "description": "a real field",
+    }
+    assert projected["properties"]["nested"]["properties"]["$schema"] == {"type": "string"}
+    assert projected["$defs"]["inner"]["$schema"] == CANONICAL_DIALECT
+    assert projected["required"] == ["$schema"]
+    # And the fixture on disk is untouched.
+    assert json.loads(fixture.read_text())["$schema"] == CANONICAL_DIALECT
 
 
 # ---------------------------------------------------------------------------
