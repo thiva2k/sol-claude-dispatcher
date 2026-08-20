@@ -765,9 +765,10 @@ class WorkerRun:
     def stdout_for_parsing(self) -> str     # PARSE THIS, not .stdout
 
 CORE_DENIED_GIT_OPERATIONS: tuple[str, ...]   # push/merge/rebase/commit/
-                                              # reset/clean/worktree
+                                              # reset/clean/worktree/bisect
 ALWAYS_DISALLOWED_TOOLS: tuple[str, ...]      # mcp__*, Agent, Task,
-                                              # Bash(claude:*), Bash(codex:*)
+                                              # Bash(claude:*), Bash(codex:*),
+                                              # Bash(gh:*)
                                               # + CORE_DENIED_GIT_OPERATIONS
 
 def build_argv(spec: WorkerInvocation) -> list[str]
@@ -804,6 +805,7 @@ Emit in this order:
 --model <model>
 --output-format json
 --permission-mode <permission_mode>
+--safe-mode                             always, while CLI_CAPABILITIES["safe_mode"]
 --strict-mcp-config
 --mcp-config <mcp_config_path>          if set
 --disallowedTools <t1> <t2> ...         if any

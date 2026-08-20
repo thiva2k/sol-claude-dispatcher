@@ -84,6 +84,19 @@ visible in the recorded argv.
 `--permission-mode` accepts: `acceptEdits`, `auto`, `bypassPermissions`,
 `manual`, `dontAsk`, `plan`. `auto` (as the brief specifies) is valid.
 
+**Delta 3 — `--safe-mode` exists (2.1.237) and is now emitted.** The installed
+CLI is 2.1.237, three patch versions past the 2.1.234 this document and the
+`CLI_CAPABILITIES` docstring are otherwise pinned to (the drift note is
+deliberate; Gate 4.5 did not repin the rest of this document). Verified live in
+combination with the dispatcher's full argv (raw evidence:
+`SAFEMODE-COMBINED-PROBE.txt`). It starts the child with all customizations
+(`CLAUDE.md`, skills, plugins, hooks, MCP servers, custom commands/agents,
+output styles, workflows, custom themes, keybindings) disabled and sets
+`CLAUDE_CODE_SAFE_MODE=1`. Gated behind `CLI_CAPABILITIES["safe_mode"]`, and
+currently emitted unconditionally for worker, Fable, and resume invocations
+alike. Do **not** substitute `--bare`: its own help text states Skills still
+resolve via `/skill-name`, so it is never emitted by this dispatcher.
+
 ## Existing-system state (untouched, existence only)
 
 - `~/.codex/config.toml` exists (880 bytes, mode 0600). **Not read, not

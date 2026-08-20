@@ -24,6 +24,9 @@ Module map (see ``docs/INTERFACES.md`` for the full contract):
 ``sessions``     Session identity, resume rules and caps.
 ``results``      Parsing and validating structured worker/reviewer output.
 ``validation``   Independent re-execution of trusted validation commands.
+``skills``       Approved-skill projection: hash-pinned inert guidance,
+                 manifest-driven, never a skill runtime.
+``project_guidance``  (Gate 4.5, owed by a sibling lane — not yet landed.)
 ``server``       The stdio MCP server exposing exactly four tools.
 ===============  ==========================================================
 """
