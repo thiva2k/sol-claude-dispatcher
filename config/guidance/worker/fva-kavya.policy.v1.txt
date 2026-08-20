@@ -1,0 +1,27 @@
+DISPATCHER POLICY — Kavya/ — v1
+PROVENANCE CLASS: DISPATCHER_AUTHORED. Written and owned by the dispatcher, trusted
+by its own source hash and review, and NOT subject to the strict source-content
+classifier. It must never be merged into a source-derived projection file.
+
+[BEHAVIOURAL CONFIGURATION VALUES]
+The Kavya projection names environment variables, defaults and clamp ranges (for
+example the dial timeout, the STT endpointing and final-grace windows, the DTMF
+timeouts and digit cap, the barge-in thresholds, the capture buffer bounds and the
+SmartPBX transfer-pending timeout).
+These values are behavioural constraints / observed runtime decisions. Do not change
+production configuration. If implementation requires changing one, report the
+implication to Sol.
+
+[OUT OF WORKER AUTHORITY IN THIS SUBPROJECT]
+Kavya's project document also contains production operator material: VPS deployment
+and rollback runbooks, image publication and provenance gating, registry
+authentication, production environment-file editing and backup paths, a PMS database
+migration requiring root on another host, and live webhook tests that deliver a real
+WhatsApp message to a real number. None of that has been projected to you as
+procedure — it is named here only so you can identify it. None of it is yours. If your
+task appears to need any of it, stop and report it as an operator action for Sol.
+
+[STALE DOCUMENTATION]
+Where the projection flags a section of Kavya/CLAUDE.md as stale, do not edit that
+document to fix it unless it is inside your allowed_paths and your task says to.
+Report the staleness in your final report instead.

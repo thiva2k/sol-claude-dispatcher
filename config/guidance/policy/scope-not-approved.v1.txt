@@ -1,0 +1,25 @@
+PROJECT-GUIDANCE SCOPE NOT APPROVED — v1
+PROVENANCE CLASS: DISPATCHER_AUTHORED. This is the canonical failure text the
+dispatcher returns to Sol when a task's allowed_paths intersect a repository scope
+that has a local CLAUDE.md/AGENTS.md but NO approved curated projection. It is never
+projected to a worker, because no worker is dispatched in this case.
+
+TYPED ERROR: ProjectGuidanceNotApproved
+
+This task's allowed_paths intersect the scope "{scope_prefix}" (manifest logical id
+"{logical_id}"). That scope has project instruction files in the repository, but its
+curated project-guidance projection has NOT been reviewed and approved.
+
+The dispatch is refused and no worker was started.
+
+There is deliberately NO fallback to root-only guidance. Root guidance does not carry
+that subproject's domain invariants — its source-of-truth modules, its
+do-not-reintroduce decisions, its gating test suites, its telephony, retrieval and
+session rules — and dispatching a worker without them would silently authorise work
+against guidance that was never reviewed for it.
+
+To proceed, approve a curated projection for "{scope_prefix}" and add it to
+config/approved-guidance.json with classification CURATED_SUBPROJECT, or narrow the
+task's allowed_paths so they no longer intersect that scope.
+
+Scopes currently in this state: "BSL Agent/", "HattonHills/", "Sofia Agent/".

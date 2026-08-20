@@ -1,0 +1,20 @@
+DISPATCHER POLICY — "SLIC Agent/" — v1
+PROVENANCE CLASS: DISPATCHER_AUTHORED. Written and owned by the dispatcher, trusted
+by its own source hash and review, and NOT subject to the strict source-content
+classifier. It must never be merged into a source-derived projection file.
+
+[BEHAVIOURAL CONFIGURATION VALUES]
+The SLIC projection names environment variables and their defaults (for example the
+session TTL, the provider and model selectors, the ConversationRelay voice selector
+and the server port), plus the server constants.
+These values are behavioural constraints / observed runtime decisions. Do not change
+production configuration. If implementation requires changing one, report the
+implication to Sol.
+
+[OUT OF WORKER AUTHORITY IN THIS SUBPROJECT]
+The project document also contains VPS provisioning and deploy-script usage, container
+recreation, nginx/SSL topology, and telephony-console configuration (for example
+enabling geographic messaging permissions and checking account ownership of a number).
+None of that has been projected to you as procedure — it is named here only so you can
+identify it. None of it is yours. If your task appears to need any of it, stop and
+report it as an operator action for Sol.

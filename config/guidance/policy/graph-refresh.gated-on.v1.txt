@@ -1,0 +1,27 @@
+GRAPH-REFRESH CLAUSE — VARIANT GATED-ON — v1
+PROVENANCE CLASS: DISPATCHER_AUTHORED. Emitted ONLY when the task envelope's
+allowed_paths explicitly authorise "graphify-out/" — the graph outputs the refresh
+would change. Selection is a deterministic set-membership test; no model makes it.
+
+[GRAPH REFRESH IS AUTHORISED FOR THIS TASK]
+Your allowed_paths include "graphify-out/", so refreshing the knowledge graph after
+your code changes is in scope.
+
+Run exactly this, from the repository root, and nothing else:
+  graphify update .
+Add `--force` only when the node count legitimately drops.
+
+Constraints, all of which the project documents record as learned failures (see the
+root projection block [R5]):
+- NEVER delete "graphify-out/graph.json" to force a clean rebuild. It carries the
+  inferred semantic edge layer that an AST-only rebuild cannot recreate.
+- `update` can silently delete "graphify-out/graph.html" when the node count exceeds
+  the visualisation limit, printing only a skip notice. If that happens, report it —
+  do not attempt a full rebuild to fix it.
+- A full rebuild (`/graphify .`) re-runs a paid semantic pass. It is NOT authorised by
+  this task under any circumstances.
+- Additions to ".graphifyignore" do not retroactively remove existing nodes, even
+  with a force flag. Do not chase that with a rebuild.
+- The WSL/UNC update wrapper is not applicable on this checkout.
+- Report the node, edge and community counts before and after, as observed — do not
+  quote counts from any project document.

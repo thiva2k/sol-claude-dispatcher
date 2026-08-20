@@ -1,0 +1,58 @@
+FABLE REVIEW CONTEXT — full-voice-agent (ROOT) — SOURCE-DERIVED PROJECTION v1
+PROVENANCE CLASS: SOURCE_DERIVED — strict sensitive-content scanning applies to this
+file. Dispatcher-authored framing and scope policy for the review is in the companion
+file fva-root.review.policy.v1.txt, emitted immediately before this one.
+
+DERIVED FROM, AND ONLY FROM (repository /home/dev/full-voice-agent):
+  AGENTS.md        sha256 404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b   24735 bytes
+  CLAUDE.md        sha256 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d   28478 bytes
+  CONTRIBUTING.md  sha256 d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a   11240 bytes
+Root AGENTS.md and CLAUDE.md are two independent reviewed sources; this projection is
+derived from both. Per-block provenance is in the manifest entry "pg.fva.root.review"
+of config/approved-guidance.json.
+
+REPOSITORY SHAPE
+- Private monorepo of multilingual AI voice agents. Six agent subprojects at the
+  root: "BSL Agent/", "Flico Agent/", "HattonHills/", "Kavya/", "SLIC Agent/",
+  "Sofia Agent/". Shared tooling in "ops/", "n8n-workflows/", "graphify-out/",
+  "docs/".
+- "Taskforce_AI_Website/" is a separate nested git repository, not tracked here, and
+  out of scope. A diff touching it is out of scope by definition.
+- Per-agent "AGENTS.md" files are generated mirrors of that agent's "CLAUDE.md". A
+  hand-edited per-agent "AGENTS.md" is a defect. The root "CLAUDE.md"/"AGENTS.md"
+  pair is manually maintained and is currently not identical; that is the documented
+  arrangement, not a defect to report.
+
+RUNTIME AND DEPENDENCY CONSTRAINTS
+- Production containers run Python 3.11. Syntax or stdlib usage valid only on a newer
+  interpreter is a production break, not a style issue.
+- "requirements-prod.txt" is human-edited; "requirements-prod.lock.txt" is generated
+  and is what the image installs. A dependency change without a regenerated lock has
+  no effect on the image. A hand-edited lock is a defect.
+
+INVARIANTS THAT A CHANGE MUST NOT SILENTLY BREAK
+- ChromaDB knowledge bases delete before upserting inside initialize_kb(), keyed on
+  the source filename, to prevent stale chunks accumulating on KB updates.
+- Knowledge-base context is injected as a per-turn user-message prefix, not baked
+  into the system prompt.
+- Post-call processing is fire-and-forget and fully error-swallowing: a post-call or
+  webhook failure must never affect the live call or server stability.
+- n8n workflow definitions are not part of this repository's Python code. A fault
+  belonging to a workflow is not fixed by changing Python here.
+- Handover/WhatsApp number normalisation for Kavya lives in
+  "Kavya/handover.py::normalize_whatsapp" and emits bare digits with no JID suffix.
+- Flico's Asterisk/SIP pilot is additive and must not alter Twilio webhooks,
+  ConversationRelay, or Kavya.
+- Dormant language paths (Sinhala/Tamil/Arabic code that exists but is unrouted) are
+  retained deliberately. Removing them as "dead code" is a scope violation, not a
+  cleanup.
+
+ACCEPTANCE AND TESTING EXPECTATIONS
+- Tests live beside each agent under "<Agent>/tests/". A change to a behaviour with
+  an existing gating suite is expected to be covered by that suite.
+- Tests should assert at the external boundary (the telephony/webhook payload the
+  provider actually sends) rather than restating the implementation. A suite that
+  passes against a known-broken implementation because it hand-built inputs the
+  provider never sends is not evidence.
+- A test that fails against the pre-fix code is the point of a regression test.
+- CI pins Python 3.11 for verification; a local-only pass is not sufficient evidence.

@@ -1,0 +1,96 @@
+FABLE REVIEW CONTEXT — Kavya/ — SOURCE-DERIVED PROJECTION v1
+PROVENANCE CLASS: SOURCE_DERIVED — strict sensitive-content scanning applies to this
+file. Dispatcher-authored framing and scope policy for the review is in the companion
+file fva-kavya.review.policy.v1.txt, emitted immediately before this one.
+
+DERIVED FROM, AND ONLY FROM (repository /home/dev/full-voice-agent):
+  Kavya/CLAUDE.md  sha256 9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519   79628 bytes
+  Kavya/AGENTS.md  — ALIAS, byte-identical (same SHA-256). One logical source.
+Per-block provenance is in the manifest entry "pg.fva.kavya.review" of
+config/approved-guidance.json.
+
+WHAT KAVYA IS
+- Inbound Twilio voice agent for Hatton Hills — an INVENTED demonstration property.
+  Its rates, room descriptions and reservations number are fictional; that is
+  intentional and is not a factual error to report.
+- Exactly five room types: Forest Escape Suite, Eco Harmony Suite, Sunrise Vista
+  Premium Suite (2 guests each), Mount Luxe Chalet, Mount Monarch Chalet (5 each).
+- Single property. The agent must never ask which property or location is meant.
+- The line is English only; Sinhala/Arabic/Tamil code is retained and dormant.
+- The project document has a brand lineage (Treehouse, then Mosvold, then Hatton
+  Hills). Pre-v0.20 sections of it are stale and may contradict current behaviour;
+  its "System Prompt Structure" section still names the oldest brand.
+
+SOURCE-OF-TRUTH BOUNDARIES
+- server.py is the production server. media_stream_server.py is reference-only.
+- ezee_api.py is legacy and unimported; kpms_service.py is dead code.
+- Availability and booking go through async n8n polling, not a direct PMS call.
+
+INVARIANTS A CHANGE MUST NOT SILENTLY BREAK
+- Single-property resolution always returns "Hatton Hills" and never None; the
+  return type is narrowed to str. Reintroducing a None-returning resolver, or the
+  "if property_name else None" short-circuits around availability/booking,
+  re-introduces a fail-closed path that blocks every booking.
+- The property-of-row helper derives solely from the canonical room name and returns
+  "" for anything unrecognised. That "" is load-bearing: it filters retired room
+  types and the unmapped-room fallback out of availability. A fallback to the
+  resolver would launder any string into a match.
+- Post-call normalisation must not NULL the room preference when property is
+  unresolved.
+- STT endpointing is interim-driven: each interim OVERWRITES the pending transcript
+  and resets the silence timer. Relying on is_final is the original bug.
+- History trimming is format-aware in both Anthropic and OpenAI shapes and must drop
+  orphaned tool-result and tool-call messages together.
+- General information is answered from KB context with no tool call; tools are only
+  for date-specific booking operations.
+- The two service modes (Twilio, SmartPBX) are mutually exclusive apps from one
+  builder and must never coexist in one process.
+- SmartPBX: g711_ulaw at 8000 Hz only; hard cap of 4 concurrent calls; the status
+  endpoint requires the same token header as the media socket, with constant-time
+  comparison; /health stays unauthenticated. The outbound transport paces frames at
+  realtime, refuses the NEWEST frame on overflow, and is generation-fenced.
+- SmartPBX transfer is fail-closed: empty destination map disables transfer,
+  validation/auth failures never retry, only bounded network failures retry once, and
+  the WhatsApp fallback is never evidence of a successful live transfer.
+- The SmartPBX compose service deliberately uses an explicit environment allowlist and
+  no env_file, so Twilio account variables and the human-agent phone number cannot
+  reach it.
+- The Dockerfile has an explicit module COPY manifest and a build-time import guard; a
+  new module that is not added to the manifest is a defect.
+- Gemini's double-empty turn is a failover, gated on the first round with nothing
+  spoken and no tool executed, and converts tools to Anthropic shape. Ungating it
+  risks re-running a booking tool.
+
+TELEPHONY DECISIONS THAT ARE SETTLED
+- The failsafe notification fires from the dial-result handler at the moment the
+  transfer is judged failed, not only from inside the recovery session.
+- The "notified" flag is set optimistically before the POST and cleared if the POST
+  fails.
+- Reclassifying a too-fast "completed" answer as an intercept FAILS OPEN; the live
+  hang-up trigger is deliberately stricter and also requires that no ringing event
+  arrived.
+- The dial timeout is 25 seconds by settled decision. Raising it hands unanswered
+  transfers to voicemail, which is undetectable by timing, so the failsafe never
+  fires. Suggesting a higher value is a regression, not an improvement.
+- Answering Machine Detection is unavailable on the TwiML dial path.
+
+SPOKEN-NUMBER CAPTURE
+- Spoken capture is primary; keypad capture is fallback-only.
+- The deterministic parser chain in handover.py is the SINGLE normalisation source
+  for readback, booking phone and WhatsApp payload.
+- Every runner overrides the model's "spoken" argument with the raw utterance; a
+  runner that skips the override silently discards fragment combining.
+- Teardown must force a pending capture buffer into the full transcript.
+
+ACCEPTANCE AND TESTING
+- Gating suites: tests/test_handover*.py, tests/test_handoff_intercept.py,
+  tests/test_smartpbx_*.py, tests/test_dockerfile_manifest.py.
+- Assert at the Twilio/n8n boundary, not at the implementation. The original
+  intercept tests all passed against a completely broken detector because they
+  hand-built dial events with a key Twilio never sends.
+- Verified constant clamps: max tokens 300; history 60; tool rounds 5; STT
+  endpointing silence 1.0 in [0.2, 5.0]; STT final grace 0.5 in [0.05, 5.0]; DTMF
+  interdigit 6.0 in [1.0, 30.0]; DTMF overall 30.0 in [5.0, 120.0]; DTMF max digits
+  15 in [1, 40]; barge-in min chars 12 in [0, 200]; barge-in debounce 0.6 in
+  [0.0, 5.0]; capture buffer 600 in [60, 4000]; capture dictation ratio 0.3 in
+  [0.0, 1.0]; SmartPBX transfer-pending timeout 300 in [30, 1800].

@@ -1,0 +1,23 @@
+GRAPH-REFRESH CLAUSE — VARIANT GATED-OFF — v1
+PROVENANCE CLASS: DISPATCHER_AUTHORED. Selected deterministically by set membership
+on repository-relative allowed_paths against the literal prefix "graphify-out/". No
+model makes this selection. This is the DEFAULT variant.
+
+[GRAPH REFRESH IS OUT OF SCOPE FOR THIS TASK]
+The project documents instruct that the knowledge graph be refreshed after any code
+change. Your allowed_paths do NOT include "graphify-out/", so that refresh is OUT OF
+SCOPE for this task and you must not run it.
+
+Do NOT run any of: `graphify update .`, `graphify cluster-only .`, `/graphify .`,
+`python ops/graphify-update-wsl.py`, or any command that writes into "graphify-out/".
+They mutate files outside your scope, and the failure modes recorded in the root
+projection block [R5] are not recoverable from inside a code task.
+
+Instead, state in your final report, verbatim:
+  GRAPH_REFRESH_REQUIRED: <the files or directories you changed>
+Sol will schedule the refresh as a separate controlled maintenance task. Not running
+it is CORRECT behaviour here and is not an incomplete task.
+
+Read-only graph exploration is unaffected and remains encouraged: reading
+"graphify-out/GRAPH_REPORT.md" and running `graphify query`, `graphify path` and
+`graphify explain` write nothing and are in scope.

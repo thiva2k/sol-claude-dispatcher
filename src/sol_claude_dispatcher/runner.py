@@ -29,6 +29,17 @@ Verified CLI reality (see ``docs/DISCOVERY.md``) — Claude Code 2.1.234:
   re-enabled without touching call sites.
 * ``--append-system-prompt`` takes an inline **string**, not a path. The runner
   reads the policy file and passes its contents.
+
+Verified on Claude Code 2.1.237 (Gate 4.5, ``SAFEMODE-VERIFICATION.md``):
+
+* ``--safe-mode`` **exists and is accepted live**. It is emitted for every
+  worker and Fable invocation so a dispatched child inherits none of the
+  operator's customization surface (CLAUDE.md, skills, plugins, hooks, MCP,
+  custom commands/agents). It conflicts with nothing else the dispatcher emits;
+  permissions and built-in tools keep working, which is what the tool
+  allowlist and deny set depend on. Consequence to remember: automatic
+  CLAUDE.md loading is off, so any project instruction a worker needs must be
+  delivered through the dispatcher's own prompt, not discovered.
 """
 
 from __future__ import annotations
@@ -96,6 +107,11 @@ CLI_CAPABILITIES: dict[str, bool] = {
     "resume": True,
     "strict_mcp_config": True,
     "max_budget_usd": True,
+    # Verified present on the installed Claude Code 2.1.237 and accepted live
+    # (see ``SAFEMODE-VERIFICATION.md``). Gated like every other flag so a CLI
+    # release that renames or removes it is a one-line change here rather than
+    # a dispatch-time failure at every call site.
+    "safe_mode": True,
 }
 
 #: Built-in tools that would let a worker spawn a nested agent (§22 layer 2).
@@ -133,6 +149,15 @@ CORE_DENIED_GIT_OPERATIONS: tuple[str, ...] = (
     "Bash(git reset:*)",
     "Bash(git clean:*)",
     "Bash(git worktree:*)",
+    # Gate 4.5 hole P1. ``git bisect start`` detaches HEAD and checks out
+    # arbitrary historical commits; ``git bisect run <cmd>`` then executes an
+    # arbitrary command at every bisection step. Neither is reached by any of
+    # the seven prefixes above, and ``Bash`` is in ``worker_tools`` — so a
+    # worker told to bisect (widely-published debugging advice does exactly
+    # that) would do it. That breaks the primary-tree invariant and corrupts
+    # the post-run git evidence, which is diffed against the recorded base
+    # commit and would be comparing against a different checkout entirely.
+    "Bash(git bisect:*)",
 )
 
 #: Deny patterns the runner appends unconditionally, whatever the config says.
@@ -141,12 +166,23 @@ CORE_DENIED_GIT_OPERATIONS: tuple[str, ...] = (
 #: the subagent path (§22 layer 2); the ``claude``/``codex`` bash patterns close
 #: the child-orchestrator path (§22 layer 3); the git entries are the
 #: V1-prohibited repository mutations (P1-9).
+#:
+#: ``Bash(gh:*)`` is Gate 4.5 hole P2. Every other entry here bounds what the
+#: worker can do to the *local* tree or to this machine's process table; ``gh``
+#: is the one common tool that reaches past both. ``gh api <endpoint> -X POST``
+#: performs an authenticated mutation of remote GitHub state using the
+#: operator's stored credentials — opening or commenting on pull requests,
+#: editing issues, dispatching workflows. It leaves no trace in the worktree, so
+#: neither the primary-tree check nor the git evidence would ever show it, and
+#: the dispatcher has no way to undo it. Published review workflows instruct
+#: exactly this call shape, so "no worker would do that" is not a defence.
 ALWAYS_DISALLOWED_TOOLS: tuple[str, ...] = (
     "mcp__*",
     "Agent",
     "Task",
     "Bash(claude:*)",
     "Bash(codex:*)",
+    "Bash(gh:*)",
 ) + CORE_DENIED_GIT_OPERATIONS
 
 #: Flags this dispatcher will never emit, at any call site, for any reason.
@@ -334,8 +370,38 @@ def build_argv(spec: WorkerInvocation) -> list[str]:
         "json",
         "--permission-mode",
         spec.permission_mode,
-        "--strict-mcp-config",
     ]
+
+    # Capability-gated, currently ON (Claude Code 2.1.237). Emitted for BOTH
+    # roles — worker and Fable — and on resume as well as on a fresh session,
+    # because a resumed turn that silently regained the customization surface
+    # would be a different execution context than the one recorded (§15).
+    #
+    # Verbatim from the installed help: "Start with all customizations
+    # (CLAUDE.md, skills, plugins, hooks, MCP servers, custom commands and
+    # agents, output styles, workflows, custom themes, keybindings, and more)
+    # disabled... Auth, model selection, built-in tools, and permissions work
+    # normally. Sets CLAUDE_CODE_SAFE_MODE=1."
+    #
+    # Why the dispatcher wants it: authority here is granted explicitly or not
+    # at all. Without this flag every dispatched worker inherits the operator's
+    # whole personal customization surface — a plugin SessionStart hook runs
+    # before the worker has read a line of its own policy, and every Skill on
+    # the machine is resolvable. That surface is not reviewed, not hashed, and
+    # not owned by this dispatcher. The invocation-specific flag closes it
+    # without touching the user's interactive Claude at all (§19).
+    #
+    # NOT ``--bare``. That flag looks adjacent and is materially weaker: its
+    # own help states Skills still resolve via ``/skill-name``. Never
+    # substitute one for the other.
+    if CLI_CAPABILITIES.get("safe_mode"):
+        argv.append("--safe-mode")
+
+    # Kept even though safe mode also claims to disable MCP servers: two
+    # independent mechanisms converge on zero MCP tools, so a CLI release that
+    # narrows either one still leaves the worker with none. Deliberately
+    # redundant, not accidentally so.
+    argv.append("--strict-mcp-config")
 
     if spec.mcp_config_path is not None:
         argv += ["--mcp-config", str(spec.mcp_config_path)]

@@ -1,0 +1,641 @@
+{
+  "schema_version": "1.0.0",
+  "manifest_kind": "project-guidance",
+  "generated": "2026-08-20",
+  "authored_by": "Gate 4.5 implementation lane B (content/data only)",
+  "governing_documents": [
+    ".claude/auto-mode/commissioning/GATE4.5-ADDENDUM-PROJECT-GUIDANCE.md",
+    ".claude/auto-mode/commissioning/GATE4.5-RULINGS.md",
+    ".claude/auto-mode/commissioning/PROJECT-GUIDANCE-PROPOSAL.md"
+  ],
+  "approval": {
+    "version": "v1",
+    "date": "2026-08-20",
+    "state": "PENDING_SOL",
+    "note": "Every entry with classification CURATED_* is drafted and self-consistent but is not live until Sol marks approval.state = APPROVED. The engine MUST refuse to project any entry while state != APPROVED."
+  },
+
+  "provenance_classes": {
+    "SOURCE_DERIVED": {
+      "meaning": "Text derived from an approved instruction source in the target repository. Every statement traces to a named source file, source SHA-256 and source section.",
+      "strict_content_scan": true,
+      "scan_patterns_id": "strict_secret_operator_v1",
+      "required_result": "ZERO matches. A match is fixed by changing the content, never by weakening the pattern set."
+    },
+    "DISPATCHER_AUTHORED": {
+      "meaning": "Refusal, prohibition, framing and policy text written and owned by the dispatcher. Not imported project content.",
+      "strict_content_scan": false,
+      "trusted_by": "its own artifact SHA-256 recorded in this manifest, plus dispatcher source review",
+      "rule": "MUST NOT be merged into a SOURCE_DERIVED file. This is a provenance distinction, not a scanner exception (GATE4.5-RULINGS.md §2)."
+    }
+  },
+
+  "strict_secret_operator_v1": {
+    "note": "Applied to SOURCE_DERIVED artifacts only. Patterns 1-6 are case-insensitive; pattern 7 is case-sensitive.",
+    "patterns": [
+      "\\.env",
+      "\\b[A-Za-z0-9_]*(API_KEY|AUTH_TOKEN|_TOKEN|_SECRET|PASSWORD|_SID|CREDENTIALS)\\b",
+      "\\bssh\\b|\\broot@\\b|\\bsystemctl\\b|\\bdocker (compose|restart|login)\\b",
+      "\\bgit (push|merge|rebase|commit|tag)\\b|\\bgh workflow run\\b|\\bgh pr\\b",
+      "\\bclickup\\b|webhook/.*\\b(restore|PUT)\\b",
+      "\\b[0-9]{1,3}(\\.[0-9]{1,3}){3}\\b",
+      "sk-ant-|Bearer |AC[0-9a-f]{32}"
+    ],
+    "last_run": {
+      "date": "2026-08-20",
+      "source_derived_files_scanned": 6,
+      "total_matches": 0
+    }
+  },
+
+  "behavioural_configuration_policy": {
+    "ruling": "GATE4.5-RULINGS.md §1",
+    "eligible": "Behavioural configuration defining application semantics, invariants, timeouts, limits, protocol behaviour, parsing behaviour, safety thresholds or compatibility constraints. Names and values may be projected as implementation facts.",
+    "eligible_examples": [
+      "HANDOFF_DIAL_TIMEOUT",
+      "STT_ENDPOINTING_SILENCE_SECONDS",
+      "STT_FINAL_GRACE_SECONDS",
+      "DTMF_INTERDIGIT_TIMEOUT_SECONDS",
+      "DTMF_OVERALL_TIMEOUT_SECONDS",
+      "DTMF_MAX_DIGITS",
+      "BARGEIN_MIN_CHARS",
+      "BARGEIN_DEBOUNCE_SECONDS",
+      "CAPTURE_BUFFER_MAX_CHARS",
+      "CAPTURE_DICTATION_MIN_RATIO",
+      "SMARTPBX_TRANSFER_PENDING_TIMEOUT_SECONDS",
+      "SLIC_SESSION_TTL_SECONDS",
+      "KAVYA_SERVICE_MODE",
+      "LLM_PROVIDER",
+      "CLAUDE_MODEL",
+      "OPENAI_MODEL",
+      "GEMINI_MODEL",
+      "ELEVENLABS_CR_VOICE",
+      "KAVYA_EN_ELEVENLABS_VOICE_ID",
+      "ENABLE_ASTERISK_ARI",
+      "N8N_BASE_URL",
+      "N8N_POSTCALL_WEBHOOK",
+      "PORT"
+    ],
+    "excluded_name_patterns": [
+      "*_API_KEY",
+      "*_AUTH_TOKEN",
+      "*_TOKEN",
+      "*_SECRET",
+      "*_PASSWORD",
+      "*_CREDENTIALS"
+    ],
+    "excluded_identifiers": [
+      "TWILIO_ACCOUNT_SID",
+      "CLOUDFLARE_ACCOUNT_ID"
+    ],
+    "secret_values": "NEVER, under any circumstances, in any artifact.",
+    "mandatory_framing_text": "These values are behavioural constraints / observed runtime decisions. Do not change production configuration. If implementation requires changing one, report the implication to Sol.",
+    "framing_location": "Carried verbatim in the DISPATCHER_AUTHORED policy artifact of every scope whose projection names such values, because SOURCE_DERIVED and DISPATCHER_AUTHORED text must not be commingled (rulings §2). The policy artifact is always emitted immediately before its source artifact, so the framing precedes the values in the worker's context.",
+    "production_config_mutation_authority": false
+  },
+
+  "repositories": [
+    {
+      "repository_id": "fva",
+      "display_name": "full-voice-agent",
+      "toplevel": "/home/dev/full-voice-agent",
+      "git_dir": "/home/dev/full-voice-agent/.git",
+      "origin_url": "https://github.com/taskforce-ai-dev/full-voice-agent.git",
+      "root_commit": "722c53ee7d33fa866ec18de778382820ba54dc04",
+      "measured_head_at_authoring": "06bfcd619a71272a9ce477484f54566a1e8ae849",
+      "identity_check": "toplevel AND git_dir AND origin_url AND root_commit must ALL match at dispatch; otherwise ProjectGuidanceRepositoryMismatch",
+      "source_resolution": {
+        "mode": "MANIFEST_PINNED_EXACT_PATHS_ONLY",
+        "rule": "Sources are resolved as toplevel + the exact repository-relative path recorded in an entry. There is NO glob-based nearest-CLAUDE.md discovery and no recursive instruction-file search for resolution (GATE4.5-RULINGS.md §3).",
+        "flow": ["exact manifest path", "resolve against pinned toplevel", "verify repository identity", "verify SHA-256", "load projection artifact", "verify projection SHA-256"]
+      },
+      "deny_prefixes": [
+        "Taskforce_AI_Website/",
+        ".claude/worktrees/"
+      ],
+      "deny_absolute_trees": [
+        "/home/dev/worktrees/",
+        "/tmp/kavya-task1-review-rebuild"
+      ],
+      "shadow_source_hazard": {
+        "measured": true,
+        "example_path": ".claude/worktrees/agent-aa383920556fd0f25/Kavya/CLAUDE.md",
+        "example_sha256": "689de88c8b59",
+        "primary_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519",
+        "note": "A DIFFERENT-hashed shadow copy of Kavya/CLAUDE.md exists inside an in-repo worktree, and ~30 more sibling copies exist under /home/dev/worktrees/. Neither may ever become a guidance source. This must have a hard regression test."
+      },
+      "unapproved_file_discovery": {
+        "purpose": "DEFAULT-DENY verification only. It never selects or resolves a source; resolution is manifest-pinned.",
+        "globs": ["**/CLAUDE.md", "**/AGENTS.md"],
+        "excludes": [
+          ".claude/worktrees/**",
+          "/home/dev/worktrees/**",
+          "Taskforce_AI_Website/**",
+          "node_modules/**",
+          ".venv/**",
+          "**/.git/**"
+        ],
+        "known_foreign_files": ["Taskforce_AI_Website/CLAUDE.md"],
+        "unlisted_file_policy": "DEFAULT_DENY_UNREVIEWED -> UnapprovedProjectGuidanceFile"
+      }
+    }
+  ],
+
+  "root_entry": "pg.fva.root",
+  "root_review_entry": "pg.fva.root.review",
+
+  "scope_map": {
+    "note": "Ordered, source-controlled, exact repository-relative directory prefixes. Nearest-scope inheritance is encoded here as DATA: the engine performs a longest-matching-prefix lookup over this list. No glob. No model. The six prefixes are mutually non-prefixing today, so the longest match is unique; if a nested scope is ever added, select ONLY the longest match plus the root entry.",
+    "match_rule": "rel == rstrip(scope_prefix,'/') OR rel.startswith(scope_prefix)",
+    "root_is_unconditional": true,
+    "max_subscopes": 2,
+    "entries": [
+      { "scope_prefix": "BSL Agent/",   "worker_entry": "pg.fva.bsl",         "review_entry": null,                   "approved": false },
+      { "scope_prefix": "Flico Agent/", "worker_entry": "pg.fva.flico",       "review_entry": null,                   "approved": true },
+      { "scope_prefix": "HattonHills/", "worker_entry": "pg.fva.hattonhills", "review_entry": null,                   "approved": false },
+      { "scope_prefix": "Kavya/",       "worker_entry": "pg.fva.kavya",       "review_entry": "pg.fva.kavya.review",  "approved": true },
+      { "scope_prefix": "SLIC Agent/",  "worker_entry": "pg.fva.slic",        "review_entry": null,                   "approved": true },
+      { "scope_prefix": "Sofia Agent/", "worker_entry": "pg.fva.sofia",       "review_entry": null,                   "approved": false }
+    ],
+    "unapproved_scope_behaviour": {
+      "typed_error": "ProjectGuidanceNotApproved",
+      "fallback_to_root_only": false,
+      "rule": "GATE4.5-RULINGS.md §7 — a task whose allowed_paths intersect a scope with no approved curated projection MUST fail closed. Silent root-only fallback is forbidden.",
+      "operator_text_artifact": "config/guidance/policy/scope-not-approved.v1.txt",
+      "operator_text_artifact_sha256": "5f8eb2395d82ed22d2d80b3639ac7017cdeb82a9c629c6b9abef6be9fa6e6b1b",
+      "operator_text_provenance_class": "DISPATCHER_AUTHORED"
+    }
+  },
+
+  "graph_refresh_gate": {
+    "ruling": "GATE4.5-ADDENDUM-PROJECT-GUIDANCE.md §5",
+    "selector": "deterministic set-membership on repository-relative allowed_paths",
+    "gate_prefix": "graphify-out/",
+    "on_match": {
+      "variant": "GATED_ON",
+      "artifact": "config/guidance/policy/graph-refresh.gated-on.v1.txt",
+      "sha256": "0a7d17f538226ebb855b0c1f6a1ec8908d45ae04370ee060dd787593f842bfe8",
+      "provenance_class": "DISPATCHER_AUTHORED"
+    },
+    "default": {
+      "variant": "GATED_OFF",
+      "artifact": "config/guidance/policy/graph-refresh.gated-off.v1.txt",
+      "sha256": "98e604a1f856e74ad1fce8550556392d3ffbda958038ce3c18745a77a44138f8",
+      "provenance_class": "DISPATCHER_AUTHORED"
+    },
+    "read_only_exploration": "ALWAYS ELIGIBLE — reading graphify-out/GRAPH_REPORT.md and running graphify query|path|explain is unconditional and lives in the root source projection block [R2].",
+    "worker_report_token": "GRAPH_REFRESH_REQUIRED"
+  },
+
+  "emission": {
+    "note": "Fixed, reproducible order. For each selected entry the DISPATCHER_AUTHORED policy artifact is emitted first, then its SOURCE_DERIVED artifact. The graph-refresh clause is emitted last.",
+    "order": [
+      "root_entry.policy_artifact",
+      "root_entry.source_artifact",
+      "for each selected subscope in scope_map declaration order: entry.policy_artifact then entry.source_artifact",
+      "graph_refresh_gate.<selected variant>.artifact"
+    ],
+    "worker_and_review_are_disjoint": "A worker never receives a review artifact and Fable never receives a worker artifact. The two artifact sets are disjoint files with disjoint hashes."
+  },
+
+  "entries": {
+    "pg.fva.root": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.root",
+      "audience": "worker",
+      "scope_prefix": "",
+      "scope_note": "always selected; root is unconditional",
+      "classification": "CURATED_ROOT",
+      "flags": ["ROOT_PAIR_DRIFT_ACKNOWLEDGED"],
+      "source_relationship": "UNION_OF_INDEPENDENT_SOURCES",
+      "source_relationship_note": "Root AGENTS.md and CLAUDE.md are NOT aliases and are NOT claimed to be synchronised. Both are independent reviewed sources; the projection is derived from both. Non-identity is expected and is NOT a Gate 4.5 failure (GATE4.5-RULINGS.md §6). Both hashes are pinned; a change to EITHER invalidates this projection until reapproved.",
+      "sources": [
+        { "source_path": "AGENTS.md",       "resolved_path": "/home/dev/full-voice-agent/AGENTS.md",       "sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b", "bytes": 24735, "alias_of": null },
+        { "source_path": "CLAUDE.md",       "resolved_path": "/home/dev/full-voice-agent/CLAUDE.md",       "sha256": "14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "bytes": 28478, "alias_of": null },
+        { "source_path": "CONTRIBUTING.md", "resolved_path": "/home/dev/full-voice-agent/CONTRIBUTING.md", "sha256": "d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "bytes": 11240, "alias_of": null }
+      ],
+      "source_artifact": {
+        "path": "config/guidance/worker/fva-root.source.v1.txt",
+        "provenance_class": "SOURCE_DERIVED",
+        "sha256": "ef672425711c79017c414ceb7fef5e42ecb60618a6a1054ba1666d748bef6e46",
+        "bytes": 7154,
+        "approx_tokens": 1788
+      },
+      "policy_artifact": {
+        "path": "config/guidance/worker/fva-root.policy.v1.txt",
+        "provenance_class": "DISPATCHER_AUTHORED",
+        "sha256": "8ba1d0b06fc893f8824d196dab54bd500e79a23ec2a48379fffdcdd2a7121742",
+        "bytes": 2807,
+        "approx_tokens": 701
+      },
+      "carries_behavioural_configuration": true,
+      "behavioural_framing_present_in_policy_artifact": true,
+      "included_sections": [
+        { "block": "R1", "statement": "monorepo shape; six subproject dirs; shared tooling dirs", "source": "CONTRIBUTING.md", "source_sha256": "d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "section": "## 1. preamble (private monorepo of multilingual AI voice agents)" },
+        { "block": "R1", "statement": "Taskforce_AI_Website/ is a separate untracked git repo and is out of scope", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## Taskforce AI Website (in-repo, Jun 2026)" },
+        { "block": "R1", "statement": "root pair is manually maintained, not identical, neither supersedes the other", "source": "CONTRIBUTING.md", "source_sha256": "d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "section": "## 4. Per-agent docs: CLAUDE.md is the source of truth (root-pair exemption clause)" },
+        { "block": "R1", "statement": "per-agent AGENTS.md is a generated mirror; never hand-edit; regeneration is scope-gated", "source": "CONTRIBUTING.md", "source_sha256": "d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "section": "## 4. Per-agent docs: CLAUDE.md is the source of truth" },
+        { "block": "R1", "statement": "CONTRIBUTING.md is the declared workflow/release source of truth", "source": "CONTRIBUTING.md", "source_sha256": "d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "section": "## 1. blockquote" },
+        { "block": "R2", "statement": "graph at graphify-out/; read GRAPH_REPORT.md first; three read-only query verbs; raw files last", "source": "AGENTS.md + CLAUDE.md + CONTRIBUTING.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d + d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "section": "## graphify — GRAPH-FIRST, ALWAYS steps 1-3 ; ## 5. graphify-first exploration steps 1-3" },
+        { "block": "R2", "statement": "quoted node/edge/community counts are informational, mutually inconsistent, and are not projected", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## graphify — GRAPH-FIRST, ALWAYS (observation about the source; the conflicting numbers themselves are DROPPED per rulings §5)" },
+        { "block": "R3", "statement": "production runs Python 3.11; validate against it; local compile is not proof", "source": "CONTRIBUTING.md", "source_sha256": "d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "section": "### Dependencies are pinned — edit the source, regenerate the lock (python:3.11-slim)" },
+        { "block": "R3", "statement": "requirements-prod.txt is edited, requirements-prod.lock.txt is generated; never hand-edit the lock", "source": "CONTRIBUTING.md", "source_sha256": "d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "section": "### Dependencies are pinned — edit the source, regenerate the lock" },
+        { "block": "R3", "statement": "this checkout is native Linux; WSL/UNC workarounds do not apply", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## Cloud Dev Rig — 2nd droplet doubles as our dev environment (Jul 1 2026) — native-Linux clause only" },
+        { "block": "R4", "statement": "ChromaDB delete-before-upsert in initialize_kb()", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## KB Auto-Structuring Feature (Jun 2026) — ChromaDB fix clause" },
+        { "block": "R4", "statement": "n8n faults are fixed in the workflow, not in this repo's Python", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## n8n Post-Call Processor — WhatsApp JID rules (Jul 2026) — NOTE for triage clause" },
+        { "block": "R4", "statement": "Kavya handover numbers are bare digits; normalisation in Kavya/handover.py::normalize_whatsapp; the agent never blocks on the webhook", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## n8n Kavya Handover Notify — unanswered human transfer (Jul 2026)" },
+        { "block": "R4", "statement": "Asterisk pilot is additive; do not point it at /voice/incoming; do not touch Kavya; ENABLE_ASTERISK_ARI=false; RTP ranges disjoint", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## Flico Asterisk SIP Pilot (Jun 2026) — operator allowlist / firewall / systemd clauses EXCLUDED" },
+        { "block": "R4", "statement": "Kavya's availability data comes from an external booking integration over HTTPS; never administer it", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## Second VPS — Yanolja/eZee Booking Integration (Kavya's data source) — host/SSH/PM2 clauses EXCLUDED" },
+        { "block": "R4", "statement": "dated notes are contradicted by later text; code wins; report staleness", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## KB Auto-Structuring Feature (Jun 2026) — Current checkout note (Jun 9, 2026)" },
+        { "block": "R5", "statement": "recorded graph-maintenance failure modes (graph.json semantic layer, silent graph.html deletion, non-retroactive .graphifyignore, paid full rebuild)", "source": "AGENTS.md + CLAUDE.md", "source_sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b + 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "section": "## graphify — GRAPH-FIRST, ALWAYS — 'Three gotchas learned on 2026-07-30' (edge-count figure DROPPED per rulings §5)" }
+      ],
+      "excluded": {
+        "operator_only_headings": [
+          "## VPS Access",
+          "## Local API-key stash (gitignored — never commit values)",
+          "## Handover — revert the prod server to clean (Jul 1 2026)",
+          "## claude-mem for Claude Code + Codex",
+          "## Team updates go to ClickUp (Aug 2026)"
+        ],
+        "ruling_driven_exclusions": [
+          "rulings §5: graph size and historical rebuild node/edge/community counts DROPPED (the two passages contradict each other)",
+          "rulings §5: ALL deployment prose DROPPED, including the root '## Deployment — AUTO-DEPLOY ON PUSH (Jul 1 2026)' section and the CONTRIBUTING.md '## 6.' clause 'a merge to main is a production release' that the audit draft had projected inside its refusal block. Deployment is operator-only and does not enter worker guidance at all.",
+          "addendum §12: no push/merge/release authority projected from CONTRIBUTING.md"
+        ],
+        "clause_group_count": 23
+      }
+    },
+
+    "pg.fva.kavya": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.kavya",
+      "audience": "worker",
+      "scope_prefix": "Kavya/",
+      "classification": "CURATED_SUBPROJECT",
+      "source_relationship": "ALIASES_BYTE_IDENTICAL",
+      "source_relationship_note": "One logical document, two source paths with equal SHA-256. Projected ONCE. If the two hashes ever differ, raise ProjectGuidanceDrift and fail closed (addendum §7, V1 preference).",
+      "sources": [
+        { "source_path": "Kavya/CLAUDE.md", "resolved_path": "/home/dev/full-voice-agent/Kavya/CLAUDE.md", "sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "bytes": 79628, "alias_of": null },
+        { "source_path": "Kavya/AGENTS.md", "resolved_path": "/home/dev/full-voice-agent/Kavya/AGENTS.md", "sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "bytes": 79628, "alias_of": "Kavya/CLAUDE.md" }
+      ],
+      "source_artifact": {
+        "path": "config/guidance/worker/fva-kavya.source.v1.txt",
+        "provenance_class": "SOURCE_DERIVED",
+        "sha256": "322b1435bb7b532e1f5c3a126775a504b365f3e7dfa330f04f0375451d29273a",
+        "bytes": 17019,
+        "approx_tokens": 4254
+      },
+      "policy_artifact": {
+        "path": "config/guidance/worker/fva-kavya.policy.v1.txt",
+        "provenance_class": "DISPATCHER_AUTHORED",
+        "sha256": "d5ab0fbd7522d5424a4f1dba248faf3eecf1cc34a3e606a97da74f53f8580577",
+        "bytes": 1633,
+        "approx_tokens": 408
+      },
+      "carries_behavioural_configuration": true,
+      "behavioural_framing_present_in_policy_artifact": true,
+      "included_sections": [
+        { "block": "K1", "statement": "what Kavya is; invented property; brand lineage with stale-doc warning; single property and five room types; English-only line with dormant language code", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "## What This Is ; ## System Prompt Structure (flagged stale) ; ### v0.20 — Rebrand to Hatton Hills" },
+        { "block": "K2", "statement": "source-of-truth modules and file map; ezee_api.py legacy; kpms_service.py dead code", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "## Project File Map ; ## Operational Details (Legacy clause) ; ### v0.20" },
+        { "block": "K3", "statement": "architecture: three providers, ConversationRelay vs Media Streams, async n8n polling, KB chunking and user-prefix injection, post-call capture", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "### LLM Integration ; ### ConversationRelay — server.py ; ### Media Streams — server.py ; ### Shared Components" },
+        { "block": "K4", "statement": "do-not-regress implementation invariants: single-property resolution, _property_of(), _normalize_property_and_room(), interim STT endpointing, format-aware history trimming, tool gating, Gemini double-empty failover, English voice profile hard-fail", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "### v0.20 ; ## Key Design Decisions ; ### Gemini double-empty is a failover, not an outcome (Aug 2026) ; ### SmartPBX migration operational hardening" },
+        { "block": "K5", "statement": "service modes: build_service_app, KAVYA_SERVICE_MODE, SmartPBX route set and auth, protocol/codec/capacity, module split, transport rules, fail-closed handover, environment-loading asymmetry, Dockerfile COPY manifest", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "## Service Modes ; ### v0.22 — Dialog SmartPBX service mode ; ## Operational Details (deployment shape / cutover / rollback clauses EXCLUDED)" },
+        { "block": "K6", "statement": "telephony and transfer decisions that must not be reverted, incl. HANDOFF_DIAL_TIMEOUT=25 as a settled decision and the corrected caller-ID diagnosis", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "### v0.18 — Transfers (incl. the 2026-08-05 CORRECTION block) ; ### v0.21 — The failsafe had never fired (faults 1-3 and the SETTLED block)" },
+        { "block": "K7", "statement": "spoken-number capture contract: primary vs fallback, deterministic parser chain as single normalisation source, arming, buffering, episode bounds, teardown forcing, barge-in survival, runner override", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "### Spoken-number capture contract" },
+        { "block": "K8", "statement": "gating test suites and the boundary-assertion lesson", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "### v0.17 / ### v0.18 / ### v0.21 / ### v0.22 / ### v0.23 'How to test' clauses" },
+        { "block": "K9", "statement": "verified server.py constant defaults and clamp ranges (behavioural configuration)", "source": "Kavya/CLAUDE.md", "source_sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "section": "## Server Constants ; ### v0.23 ; ### Spoken-number capture contract ; ### SmartPBX migration operational hardening" }
+      ],
+      "excluded": {
+        "operator_only_headings": [],
+        "note": "All Kavya operator material is clause-level inside MIXED headings; 11 excluded clause groups.",
+        "excluded_clause_groups": [
+          "./deploy.sh setup|deploy|logs|status and docker compose invocations (## Commands)",
+          "credential-bearing environment variable names (## Environment Setup)",
+          "SmartPBX deployment shape: compose profile, image tags, root-only environment file with chmod 600, TLS vhost, CI image-provenance gating, cutover/rollback runbook (## Service Modes)",
+          "VPS target/DNS/call-routing, registry login with password-stdin, deploy-gate workflow chain (## Operational Details)",
+          "GCP service-account JSON filename and a foreign-machine C:/Users extension path (## Project File Map)",
+          "live webhook test delivering a real WhatsApp message (### v0.17)",
+          "PMS SQL migration requiring root on another host, backup paths (### v0.20)",
+          "production environment values and paths (### v0.18)",
+          "production environment edit, backup path, phone-number identity (### v0.21)",
+          "CI publisher/probe workflows (### v0.22)",
+          "deploy-gate contract and registry token flow (### v0.23)"
+        ],
+        "superseded_not_projected": "### v0.1 .. ### v0.16 (16 change-history headings; several actively wrong post-rebrand)"
+      }
+    },
+
+    "pg.fva.slic": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.slic",
+      "audience": "worker",
+      "scope_prefix": "SLIC Agent/",
+      "classification": "CURATED_SUBPROJECT",
+      "source_relationship": "ALIASES_BYTE_IDENTICAL",
+      "sources": [
+        { "source_path": "SLIC Agent/CLAUDE.md", "resolved_path": "/home/dev/full-voice-agent/SLIC Agent/CLAUDE.md", "sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "bytes": 22020, "alias_of": null },
+        { "source_path": "SLIC Agent/AGENTS.md", "resolved_path": "/home/dev/full-voice-agent/SLIC Agent/AGENTS.md", "sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "bytes": 22020, "alias_of": "SLIC Agent/CLAUDE.md" }
+      ],
+      "source_artifact": {
+        "path": "config/guidance/worker/fva-slic.source.v1.txt",
+        "provenance_class": "SOURCE_DERIVED",
+        "sha256": "aeb19186e0b30e7b29144242351a792aa8c42155b3febd1c8fb88fcb9915aa3d",
+        "bytes": 8692,
+        "approx_tokens": 2173
+      },
+      "policy_artifact": {
+        "path": "config/guidance/worker/fva-slic.policy.v1.txt",
+        "provenance_class": "DISPATCHER_AUTHORED",
+        "sha256": "9db8dab7602583abb1600e3796fdabe90e1c9597900b0bd8b1ec047f93c56f23",
+        "bytes": 1232,
+        "approx_tokens": 308
+      },
+      "carries_behavioural_configuration": true,
+      "behavioural_framing_present_in_policy_artifact": true,
+      "included_sections": [
+        { "block": "S1", "statement": "what it is; English-only with do-not-reintroduce list; fully mocked backend except SMS", "source": "SLIC Agent/CLAUDE.md", "source_sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "section": "## What This Is ; ## Important Rules (English only bullet)" },
+        { "block": "S2", "statement": "source-of-truth modules vs rebranded-from-Kavya files; server.py entrypoint; knowledge_base.py is generic", "source": "SLIC Agent/CLAUDE.md", "source_sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "section": "## Notes for Future Edits" },
+        { "block": "S3", "statement": "end-to-end call flow and the required tool order", "source": "SLIC Agent/CLAUDE.md", "source_sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "section": "## End-to-End Call Flow steps 1-7 ; ## Important Rules (Required tool order bullet)" },
+        { "block": "S4", "statement": "domain rules: two-factor identity, lenient name matching, read-back before verify, claim reference never spoken, injected caller phone, location-only intake, verbal-only handoff, SMS to live caller, prompted emotional adaptation, shared reg-no normalisation, post-call isolation, mocks to replace", "source": "SLIC Agent/CLAUDE.md", "source_sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "section": "## Important Rules (Twilio geo-permissions console toggle and error-21660 account-ownership check EXCLUDED)" },
+        { "block": "S5", "statement": "state and session rules: in-memory authority, atomic snapshot, tolerant loader, SLIC_SESSION_TTL_SECONDS and its compose pin, import-time mock indexes", "source": "SLIC Agent/CLAUDE.md", "source_sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "section": "## Key Modules ; ## Environment Variables ; ## Adding a Mock Customer" },
+        { "block": "S6", "statement": "behavioural configuration and server constants; removed-from-Kavya list", "source": "SLIC Agent/CLAUDE.md", "source_sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "section": "## Environment Variables (non-credential subset only) ; ## Server Constants" },
+        { "block": "S7", "statement": "local verification commands", "source": "SLIC Agent/CLAUDE.md", "source_sha256": "aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff", "section": "## Running Locally" }
+      ],
+      "excluded": {
+        "operator_only_headings": ["## Docker / Deploy"],
+        "excluded_clause_groups": [
+          "Twilio geo-permissions console toggle (## Important Rules)",
+          "error-21660 account-ownership console check (## Important Rules)",
+          "credential-bearing environment variable names (## Environment Variables)"
+        ]
+      }
+    },
+
+    "pg.fva.flico": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.flico",
+      "audience": "worker",
+      "scope_prefix": "Flico Agent/",
+      "classification": "CURATED_SUBPROJECT",
+      "source_relationship": "ALIASES_BYTE_IDENTICAL",
+      "sources": [
+        { "source_path": "Flico Agent/CLAUDE.md", "resolved_path": "/home/dev/full-voice-agent/Flico Agent/CLAUDE.md", "sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "bytes": 24499, "alias_of": null },
+        { "source_path": "Flico Agent/AGENTS.md", "resolved_path": "/home/dev/full-voice-agent/Flico Agent/AGENTS.md", "sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "bytes": 24499, "alias_of": "Flico Agent/CLAUDE.md" }
+      ],
+      "source_artifact": {
+        "path": "config/guidance/worker/fva-flico.source.v1.txt",
+        "provenance_class": "SOURCE_DERIVED",
+        "sha256": "ac8922491f9818ec491e76992f127dfc7b86429136b009a8128f8c7bc9df5fad",
+        "bytes": 10593,
+        "approx_tokens": 2648
+      },
+      "policy_artifact": {
+        "path": "config/guidance/worker/fva-flico.policy.v1.txt",
+        "provenance_class": "DISPATCHER_AUTHORED",
+        "sha256": "c5668c150983c3d1267b264d85ebbf9bf9cc06be80a2cd918931213383d4a2e5",
+        "bytes": 1215,
+        "approx_tokens": 303
+      },
+      "carries_behavioural_configuration": false,
+      "behavioural_framing_present_in_policy_artifact": true,
+      "included_sections": [
+        { "block": "F1", "statement": "call routing: the phone IVR is gone; endpoint map; stale-doc warning that once caused a false test", "source": "Flico Agent/CLAUDE.md", "source_sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "section": "### Call flow — the phone IVR is GONE (verified 2026-07-30) ; ## Server Endpoints" },
+        { "block": "F2", "statement": "TTS/STT routing by language; wired-but-dead Sinhala VITS and Azure routines", "source": "Flico Agent/CLAUDE.md", "source_sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "section": "### TTS / STT routing by language" },
+        { "block": "F3", "statement": "the KB pipeline is inverted: rows are the source, prose is generated, no LLM in the pipeline", "source": "Flico Agent/CLAUDE.md", "source_sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "section": "### Jul 17 2026 — the pipeline is INVERTED: rows are the source, prose is generated" },
+        { "block": "F4", "statement": "exact retrieval and filter semantics: sticky constraints, occupancy is not bedrooms, exact vs floor bedroom counts, exclusive vs inclusive rent bounds and periods, the relaxation ladder with its NOTE prefix and never-drop-zone rule, ranking may order but never truncate, prompt/KB parity", "source": "Flico Agent/CLAUDE.md", "source_sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "section": "### Knowledge Base ; ### Jun 25 2026 — persona + retrieval hardening ; ### Jul 16 2026 — DEMO portfolio swap (P51–P62) ; ### Jul 16 2026 — the KB filter is verified by EXHAUSTION" },
+        { "block": "F5", "statement": "what is NOT guaranteed — all five bullets", "source": "Flico Agent/CLAUDE.md", "source_sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "section": "### Jul 16 2026 — the KB filter is verified by EXHAUSTION → 'What is NOT guaranteed'" },
+        { "block": "F6", "statement": "testing by exhaustion, the suite inventory, the deploy-gating claim, the migration bridge, and answer_eval as QA never proof", "source": "Flico Agent/CLAUDE.md", "source_sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "section": "### Jul 16 2026 — the KB filter is verified by EXHAUSTION ; ### Jul 16 2026 — DEMO portfolio swap ; ### Jul 17 2026 ; ### evals/answer_eval.py — QA, never quote it as proof (docker exec invocation EXCLUDED)" },
+        { "block": "F7", "statement": "production runs Python 3.11 while dev boxes run newer; the PEP 701 f-string outage", "source": "Flico Agent/CLAUDE.md", "source_sha256": "a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2", "section": "### Jul 17 2026" }
+      ],
+      "excluded": {
+        "operator_only_headings": ["## Deployment", "### Dialog SmartPBX WSS (operator-gated)"],
+        "excluded_clause_groups": [
+          "VPS volume-mount / force-recreate deploy note and disk-full note (### Jun 25 2026)",
+          "docker exec invocation (### evals/answer_eval.py)",
+          "deploy commands and credential-bearing environment names (## Commands, ## Environment Setup)"
+        ]
+      }
+    },
+
+    "pg.fva.bsl": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.bsl",
+      "audience": "worker",
+      "scope_prefix": "BSL Agent/",
+      "classification": "CLASSIFIED_NOT_APPROVED",
+      "approval_state": "NOT_APPROVED",
+      "on_selection": "ProjectGuidanceNotApproved",
+      "fallback_to_root_only": false,
+      "sources": [
+        { "source_path": "BSL Agent/CLAUDE.md", "resolved_path": "/home/dev/full-voice-agent/BSL Agent/CLAUDE.md", "sha256": "0f1efb7e1a5411d01616daacf6c107e880a500bf7820d1a0d3df23184c516678", "bytes": 23414, "alias_of": null },
+        { "source_path": "BSL Agent/AGENTS.md", "resolved_path": "/home/dev/full-voice-agent/BSL Agent/AGENTS.md", "sha256": "0f1efb7e1a5411d01616daacf6c107e880a500bf7820d1a0d3df23184c516678", "bytes": 23414, "alias_of": "BSL Agent/CLAUDE.md" }
+      ],
+      "source_artifact": null,
+      "policy_artifact": null,
+      "included_sections": "H2-level classification only (7 ELIGIBLE / 3 MIXED / 1 OPERATOR_ONLY); no curated projection drafted"
+    },
+
+    "pg.fva.hattonhills": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.hattonhills",
+      "audience": "worker",
+      "scope_prefix": "HattonHills/",
+      "classification": "CLASSIFIED_NOT_APPROVED",
+      "approval_state": "NOT_APPROVED",
+      "on_selection": "ProjectGuidanceNotApproved",
+      "fallback_to_root_only": false,
+      "sources": [
+        { "source_path": "HattonHills/CLAUDE.md", "resolved_path": "/home/dev/full-voice-agent/HattonHills/CLAUDE.md", "sha256": "3e5d1208ed08b6b568cb3b3a4c3a2eb1996de49bfed353c2080988225f8d89e0", "bytes": 43740, "alias_of": null },
+        { "source_path": "HattonHills/AGENTS.md", "resolved_path": "/home/dev/full-voice-agent/HattonHills/AGENTS.md", "sha256": "3e5d1208ed08b6b568cb3b3a4c3a2eb1996de49bfed353c2080988225f8d89e0", "bytes": 43740, "alias_of": "HattonHills/CLAUDE.md" }
+      ],
+      "source_artifact": null,
+      "policy_artifact": null,
+      "included_sections": "H2-level classification only; the 19-entry change history was NOT read clause by clause. Shares the Hatton Hills brand identity with Kavya, which is an active cross-agent confusion risk.",
+      "risk_note": "Highest-risk unapproved scope. Requires a full clause-level pass before any HattonHills dispatch."
+    },
+
+    "pg.fva.sofia": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.sofia",
+      "audience": "worker",
+      "scope_prefix": "Sofia Agent/",
+      "classification": "CLASSIFIED_NOT_APPROVED",
+      "approval_state": "NOT_APPROVED",
+      "on_selection": "ProjectGuidanceNotApproved",
+      "fallback_to_root_only": false,
+      "sources": [
+        { "source_path": "Sofia Agent/CLAUDE.md", "resolved_path": "/home/dev/full-voice-agent/Sofia Agent/CLAUDE.md", "sha256": "89afc55a7d1378faf59471fa3a5dd18045d4f31b5c4aa8b1cd6bc378cdcb3403", "bytes": 5923, "alias_of": null },
+        { "source_path": "Sofia Agent/AGENTS.md", "resolved_path": "/home/dev/full-voice-agent/Sofia Agent/AGENTS.md", "sha256": "89afc55a7d1378faf59471fa3a5dd18045d4f31b5c4aa8b1cd6bc378cdcb3403", "bytes": 5923, "alias_of": "Sofia Agent/CLAUDE.md" }
+      ],
+      "source_artifact": null,
+      "policy_artifact": null,
+      "included_sections": "H2-level classification only. CONTRIBUTING.md §6 records Sofia as parked and intentionally unpinned; a future projection must carry that fact."
+    },
+
+    "pg.taw.root": {
+      "repository_id": "taw",
+      "logical_id": "pg.taw.root",
+      "audience": "none",
+      "scope_prefix": null,
+      "classification": "EXCLUDED_FOREIGN_REPO",
+      "approval_state": "NEVER",
+      "sources": [
+        { "source_path": "Taskforce_AI_Website/CLAUDE.md", "resolved_path": "/home/dev/full-voice-agent/Taskforce_AI_Website/CLAUDE.md", "sha256": "bf77346be9099e56347ae9420552031a4704d6a8b9220c89bb84271d6c2c91f5", "bytes": 7982, "alias_of": null }
+      ],
+      "source_artifact": null,
+      "policy_artifact": null,
+      "evidence": {
+        "own_toplevel": "/home/dev/full-voice-agent/Taskforce_AI_Website",
+        "own_git_dir": "/home/dev/full-voice-agent/Taskforce_AI_Website/.git",
+        "own_root_commit": "fb74c39b1a33410748ba216c90d65206c778526d",
+        "own_origin_url": "https://github.com/thiva2k/Taskforce_AI_Website.git",
+        "not_a_submodule": "no .gitmodules and no gitlink entry",
+        "ignored_by_parent": ".gitignore:68:Taskforce_AI_Website/"
+      },
+      "note": "Inventoried for audit only. Never projected, never approved, and its presence must NOT trigger UnapprovedProjectGuidanceFile because it is a KNOWN foreign file listed here. Needs its own exact-git-root authorization in a future gate."
+    },
+
+    "pg.fva.root.review": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.root.review",
+      "audience": "fable_review",
+      "scope_prefix": "",
+      "classification": "CURATED_ROOT_REVIEW",
+      "source_relationship": "UNION_OF_INDEPENDENT_SOURCES",
+      "sources": [
+        { "source_path": "AGENTS.md",       "resolved_path": "/home/dev/full-voice-agent/AGENTS.md",       "sha256": "404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b", "bytes": 24735, "alias_of": null },
+        { "source_path": "CLAUDE.md",       "resolved_path": "/home/dev/full-voice-agent/CLAUDE.md",       "sha256": "14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d", "bytes": 28478, "alias_of": null },
+        { "source_path": "CONTRIBUTING.md", "resolved_path": "/home/dev/full-voice-agent/CONTRIBUTING.md", "sha256": "d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a", "bytes": 11240, "alias_of": null }
+      ],
+      "source_artifact": {
+        "path": "config/guidance/review/fva-root.review.source.v1.txt",
+        "provenance_class": "SOURCE_DERIVED",
+        "sha256": "4638965f446bb879bd712fabd342ecedd261911804a7c6a1864921fa0d2efbbd",
+        "bytes": 3721,
+        "approx_tokens": 930
+      },
+      "policy_artifact": {
+        "path": "config/guidance/review/fva-root.review.policy.v1.txt",
+        "provenance_class": "DISPATCHER_AUTHORED",
+        "sha256": "993b312fca27056f6d752cd9fe8a8ec4b4f9eb851171255655f16cb01738c250",
+        "bytes": 1182,
+        "approx_tokens": 295
+      },
+      "carries_behavioural_configuration": false,
+      "behavioural_framing_present_in_policy_artifact": false,
+      "included_sections": [
+        { "block": "REPOSITORY SHAPE", "source": "AGENTS.md + CLAUDE.md + CONTRIBUTING.md", "section": "## Taskforce AI Website (in-repo, Jun 2026) ; ## 4. Per-agent docs" },
+        { "block": "RUNTIME AND DEPENDENCY CONSTRAINTS", "source": "CONTRIBUTING.md", "section": "### Dependencies are pinned — edit the source, regenerate the lock" },
+        { "block": "INVARIANTS THAT A CHANGE MUST NOT SILENTLY BREAK", "source": "AGENTS.md + CLAUDE.md", "section": "## KB Auto-Structuring Feature ; ## n8n Post-Call Processor ; ## n8n Kavya Handover Notify ; ## Flico Asterisk SIP Pilot" },
+        { "block": "ACCEPTANCE AND TESTING EXPECTATIONS", "source": "CONTRIBUTING.md + Kavya/CLAUDE.md + Flico Agent/CLAUDE.md", "section": "### Dependencies are pinned (3.11 CI pin) ; Kavya ### v0.18 test lessons ; Flico ### Jul 17 2026" }
+      ],
+      "review_independence": {
+        "excluded_by_design": [
+          "implementation methodology (no TDD/incremental-implementation framing)",
+          "file-map-as-implementation-guide",
+          "configuration recipes and local-run commands",
+          "step-by-step call-flow procedure",
+          "implementation routing ('use these helpers')",
+          "reasoning scaffolds and check-X-then-Y checklists",
+          "production operator procedures",
+          "secrets of any kind"
+        ],
+        "rationale": "addendum §15 — Fable receives facts and acceptance constraints, never method, so review independence is preserved without context-free review."
+      }
+    },
+
+    "pg.fva.kavya.review": {
+      "repository_id": "fva",
+      "logical_id": "pg.fva.kavya.review",
+      "audience": "fable_review",
+      "scope_prefix": "Kavya/",
+      "classification": "CURATED_SUBPROJECT_REVIEW",
+      "source_relationship": "ALIASES_BYTE_IDENTICAL",
+      "sources": [
+        { "source_path": "Kavya/CLAUDE.md", "resolved_path": "/home/dev/full-voice-agent/Kavya/CLAUDE.md", "sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "bytes": 79628, "alias_of": null },
+        { "source_path": "Kavya/AGENTS.md", "resolved_path": "/home/dev/full-voice-agent/Kavya/AGENTS.md", "sha256": "9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519", "bytes": 79628, "alias_of": "Kavya/CLAUDE.md" }
+      ],
+      "source_artifact": {
+        "path": "config/guidance/review/fva-kavya.review.source.v1.txt",
+        "provenance_class": "SOURCE_DERIVED",
+        "sha256": "39cf2394bd830ca53db948dd6d8d0532250b79a5f331c7fc7feef4e149279ea4",
+        "bytes": 6132,
+        "approx_tokens": 1533
+      },
+      "policy_artifact": {
+        "path": "config/guidance/review/fva-kavya.review.policy.v1.txt",
+        "provenance_class": "DISPATCHER_AUTHORED",
+        "sha256": "4174654057e3b91bc612ee26c0b10662e2136f2d8777c39598d165885e8fe7ec",
+        "bytes": 1422,
+        "approx_tokens": 355
+      },
+      "carries_behavioural_configuration": true,
+      "behavioural_framing_present_in_policy_artifact": true,
+      "included_sections": [
+        { "block": "WHAT KAVYA IS", "source": "Kavya/CLAUDE.md", "section": "## What This Is ; ### v0.20 ; ## System Prompt Structure (flagged stale)" },
+        { "block": "SOURCE-OF-TRUTH BOUNDARIES", "source": "Kavya/CLAUDE.md", "section": "## Project File Map ; ## Operational Details ; ### Shared Components" },
+        { "block": "INVARIANTS A CHANGE MUST NOT SILENTLY BREAK", "source": "Kavya/CLAUDE.md", "section": "### v0.20 ; ## Key Design Decisions ; ## Service Modes ; ### v0.22 ; ### Gemini double-empty is a failover" },
+        { "block": "TELEPHONY DECISIONS THAT ARE SETTLED", "source": "Kavya/CLAUDE.md", "section": "### v0.18 (incl. CORRECTION) ; ### v0.21" },
+        { "block": "SPOKEN-NUMBER CAPTURE", "source": "Kavya/CLAUDE.md", "section": "### Spoken-number capture contract" },
+        { "block": "ACCEPTANCE AND TESTING", "source": "Kavya/CLAUDE.md", "section": "## Server Constants ; ### v0.17/v0.18/v0.21/v0.22/v0.23 'How to test' clauses" }
+      ]
+    }
+  },
+
+  "failure_semantics": [
+    { "condition": "repository identity mismatch on any of toplevel / git dir / origin url / root commit", "typed_error": "ProjectGuidanceRepositoryMismatch", "behaviour": "fail closed" },
+    { "condition": "a source file SHA-256 differs from this manifest", "typed_error": "ProjectGuidanceSourceChanged", "behaviour": "fail closed; reapproval required" },
+    { "condition": "an ALIASES_BYTE_IDENTICAL pair no longer has equal hashes", "typed_error": "ProjectGuidanceDrift", "behaviour": "fail closed (addendum §7 V1 preference)" },
+    { "condition": "root pair acquires CONFLICTING eligible guidance", "typed_error": "ProjectGuidanceDrift", "behaviour": "fail closed. Mere non-identity of the root pair is acknowledged in this manifest and does NOT fail (rulings §6)." },
+    { "condition": "a projection artifact SHA-256 differs from this manifest", "typed_error": "ProjectGuidanceProjectionChanged", "behaviour": "fail closed" },
+    { "condition": "selected scope has classification CLASSIFIED_NOT_APPROVED or approval_state != approved", "typed_error": "ProjectGuidanceNotApproved", "behaviour": "fail closed; NO root-only fallback (rulings §7)" },
+    { "condition": "an instruction file is found by the DEFAULT-DENY verification scan that is neither in this manifest nor in unapproved_file_discovery.excludes/known_foreign_files", "typed_error": "UnapprovedProjectGuidanceFile", "behaviour": "fail closed" },
+    { "condition": "an allowed_path resolves outside the repository toplevel, contains an escape after normalisation, or lands under a deny prefix or deny absolute tree", "typed_error": "ProjectGuidanceScopeError", "behaviour": "fail closed" },
+    { "condition": "selected subscope count exceeds scope_map.max_subscopes", "typed_error": "ProjectGuidanceScopeError", "behaviour": "fail closed; Sol narrows the envelope" },
+    { "condition": "resume fingerprint differs from the dispatch fingerprint", "typed_error": "ProjectGuidanceResumeDrift", "behaviour": "fail closed; return the drift to Sol (addendum §16)" },
+    { "condition": "manifest approval.state != APPROVED", "typed_error": "ProjectGuidanceNotApproved", "behaviour": "fail closed for every entry" }
+  ],
+
+  "resume_fingerprint": {
+    "spec": "sha256( join('\\n', [ logical_id + ':' + joined_source_hashes + ':' + source_artifact_sha256 + ':' + policy_artifact_sha256 for each emitted entry, in emission order ]) + '|graph:' + graph_variant + '|envelope:' + task_envelope_id )",
+    "note": "joined_source_hashes is the entry's source SHA-256 values joined by '+' in the order they appear in entry.sources. Combined with the approved Skill manifest fingerprint per addendum §16."
+  },
+
+  "worked_scope_outcomes": [
+    { "allowed_paths": ["Kavya/"],                                    "selected": ["pg.fva.root", "pg.fva.kavya"], "graph_variant": "GATED_OFF" },
+    { "allowed_paths": ["Kavya/server.py"],                           "selected": ["pg.fva.root", "pg.fva.kavya"], "graph_variant": "GATED_OFF" },
+    { "allowed_paths": ["Kavya/tests/test_handover.py"],              "selected": ["pg.fva.root", "pg.fva.kavya"], "graph_variant": "GATED_OFF" },
+    { "allowed_paths": ["SLIC Agent/claim_api.py"],                   "selected": ["pg.fva.root", "pg.fva.slic"],  "graph_variant": "GATED_OFF" },
+    { "allowed_paths": ["ops/", "README.md"],                         "selected": ["pg.fva.root"],                 "graph_variant": "GATED_OFF" },
+    { "allowed_paths": ["Kavya/handover.py", "Flico Agent/kb/engine.py"], "selected": ["pg.fva.root", "pg.fva.flico", "pg.fva.kavya"], "graph_variant": "GATED_OFF" },
+    { "allowed_paths": ["Kavya/", "graphify-out/"],                   "selected": ["pg.fva.root", "pg.fva.kavya"], "graph_variant": "GATED_ON" },
+    { "allowed_paths": ["Kavya/", "SLIC Agent/", "Flico Agent/"],     "error": "ProjectGuidanceScopeError (exceeds max_subscopes)" },
+    { "allowed_paths": ["HattonHills/server.py"],                     "error": "ProjectGuidanceNotApproved (pg.fva.hattonhills)" },
+    { "allowed_paths": ["BSL Agent/"],                                "error": "ProjectGuidanceNotApproved (pg.fva.bsl)" },
+    { "allowed_paths": ["Sofia Agent/"],                              "error": "ProjectGuidanceNotApproved (pg.fva.sofia)" },
+    { "allowed_paths": ["Taskforce_AI_Website/components/pages/BookDemo.tsx"], "error": "ProjectGuidanceScopeError (denied prefix)" },
+    { "allowed_paths": [".claude/worktrees/agent-aa383920556fd0f25/Kavya/"], "error": "ProjectGuidanceScopeError (denied prefix — the different-hash shadow copy hazard)" },
+    { "allowed_paths": ["/home/dev/worktrees/full-voice-agent-x/Kavya/"],    "error": "ProjectGuidanceScopeError (outside pinned toplevel / denied absolute tree)" }
+  ],
+
+  "dispatch_size_budget": {
+    "unit": "bytes, and approx tokens computed as bytes/4",
+    "worker": {
+      "root_only":        { "artifacts": ["fva-root.policy.v1.txt", "fva-root.source.v1.txt", "graph-refresh.gated-off.v1.txt"], "bytes": 11279, "approx_tokens": 2820, "source_bytes_replaced": 64453, "reduction_pct": 82.5 },
+      "root_plus_kavya":  { "artifacts": ["fva-root.policy.v1.txt", "fva-root.source.v1.txt", "fva-kavya.policy.v1.txt", "fva-kavya.source.v1.txt", "graph-refresh.gated-off.v1.txt"], "bytes": 29931, "approx_tokens": 7483, "source_bytes_replaced": 144081, "reduction_pct": 79.2 },
+      "root_plus_slic":   { "bytes": 21203, "approx_tokens": 5301, "source_bytes_replaced": 86473, "reduction_pct": 75.5 },
+      "root_plus_flico":  { "bytes": 23087, "approx_tokens": 5772, "source_bytes_replaced": 88952, "reduction_pct": 74.0 },
+      "worst_legitimate_cross_scope": { "note": "root + the two largest approved subscopes", "bytes": 40743, "approx_tokens": 10186 }
+    },
+    "fable_review": {
+      "root_only":       { "bytes": 4903,  "approx_tokens": 1226 },
+      "root_plus_kavya": { "bytes": 12457, "approx_tokens": 3114 }
+    },
+    "rejected_alternative": {
+      "description": "concatenating root + all six subproject instruction files verbatim",
+      "bytes": 319819,
+      "approx_tokens": 79955,
+      "note": "would also carry every operator and secret-adjacent section"
+    }
+  }
+}

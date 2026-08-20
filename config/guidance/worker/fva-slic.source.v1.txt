@@ -1,0 +1,129 @@
+PROJECT GUIDANCE — "SLIC Agent/" — SOURCE-DERIVED PROJECTION v1
+PROVENANCE CLASS: SOURCE_DERIVED — strict sensitive-content scanning applies to this
+file. Dispatcher-authored policy and refusal text for this scope is in the companion
+file fva-slic.policy.v1.txt, emitted immediately before this one.
+
+DERIVED FROM, AND ONLY FROM (repository /home/dev/full-voice-agent):
+  SLIC Agent/CLAUDE.md  sha256 aa745fc48368c4e0185560ed58af08147c10dbcc65d1ea2090bb7e946deb83ff   22020 bytes
+  SLIC Agent/AGENTS.md  — ALIAS of the above, byte-identical (same SHA-256). One
+                          logical source, two paths, projected once.
+Per-block provenance is recorded in the manifest entry "pg.fva.slic" of
+config/approved-guidance.json.
+
+[S1] WHAT THIS IS
+- A demo voice agent for Sri Lanka Insurance Corporation handling inbound
+  accident-hotline calls. The persona is Nimali — a Sri Lankan / South Asian English
+  voice, warm and professional, with explicit emotional adaptation to the caller.
+- ENGLISH ONLY. There is no IVR language menu and no Sinhala/Tamil code paths — they
+  were stripped out when duplicating from the Kavya hotel agent. There is a single
+  voice endpoint, /voice/incoming, returning TwiML with a <ConversationRelay>
+  element. DO NOT REINTRODUCE the Sinhala/Tamil paths, the IVR logic, the Media
+  Streams session code, Azure TTS or Google Cloud STT unless the demo scope changes.
+- The backend is entirely MOCKED except SMS: customers live in a local JSON file,
+  active sessions persist to another local JSON file, assessor dispatch picks from a
+  6-entry pool matched against the caller-supplied location, and claim references are
+  generated locally as SLIC-CLM-YYYYMMDD-XXXXXX. Every mock must be replaced before
+  any real SLIC integration — do not present mock behaviour as production behaviour.
+
+[S2] SOURCE-OF-TRUTH MODULES
+- Already rewritten for SLIC and therefore the source of truth: tools.py,
+  claim_api.py, mock_db.py, active_session.py, post_call.py, mock_customers.json.
+- Everything else (Dockerfile, compose, nginx, deploy script, environment template and
+  the project document itself) was rebranded from the Kavya source and may still carry
+  Kavya-shaped assumptions.
+- server.py is the entrypoint (uvicorn loads server:app). Do not rename it.
+- knowledge_base.py is not SLIC-specific; it indexes whatever is in knowledge_docs/.
+  New documents in that folder are picked up automatically on next startup.
+
+[S3] CALL FLOW AND TOOL ORDER (both enforced by the system prompt)
+1. /voice/incoming captures the caller's phone from the Twilio "From" parameter,
+   normalises it to E.164, and stashes it in a module-level dict keyed by Call SID.
+2. It then checks active_session for a non-expired record keyed to that phone (TTL
+   default 300 seconds). If one exists the greeting is personalised as a follow-up
+   and Nimali answers directly without running a new intake.
+3. Intake ordering: ask for the vehicle registration number → read it back
+   digit-by-digit and wait for confirmation → verify_vehicle_policy → announce the
+   make and model returned (never the customer name) → ask for the caller's full name
+   and silently fuzzy-match it → ask ONLY where the accident happened →
+   collect_accident_details(reg_no, location) → dispatch_nearest_assessor →
+   send_confirmation_sms.
+4. Required tool order: verify_vehicle_policy → (in-prompt name identity check) →
+   collect_accident_details(location) → dispatch_nearest_assessor →
+   send_confirmation_sms. If verification fails, names do not match, or the caller
+   asks for a human, the model calls request_live_agent_handoff and stops.
+5. On WebSocket close, a background task extracts structured claim data from the full
+   transcript and POSTs it to the n8n post-call webhook.
+
+[S4] DOMAIN RULES — DO NOT REGRESS
+- IDENTITY IS A TWO-FACTOR CHECK: registration number plus name. Neither alone is
+  sufficient, and intake does not begin until both pass.
+- NAME MATCHING IS LENIENT BY DESIGN. Telephony STT is noisy. The prompt matches on
+  any of first-name phonetic match, last-name phonetic match, or full-name
+  similarity, and leans TOWARD match when in doubt, with one polite retry before
+  declaring a mismatch. Do not tighten this without a better STT substitute.
+- READ-BACK BEFORE VERIFY. The digit-by-digit read-back before verify_vehicle_policy
+  is the primary defence against STT mis-hearing the registration (B vs V, S vs F).
+- THE CLAIM REFERENCE IS NEVER READ ALOUD. After dispatch, Nimali tells the caller
+  only the assessor's name and ETA. The reference goes out exclusively by SMS. Both
+  the system prompt and the dispatch tool description enforce this.
+- CALLER PHONE IS INJECTED, NEVER ASKED. The server reads "From" from the Twilio POST
+  and passes it as caller_phone on every execute_tool call. Tool schemas
+  INTENTIONALLY have no phone parameter, and the prompt forbids asking for a phone or
+  policy number. Do not add a phone field to a tool schema.
+- ONLY LOCATION IS ASKED DURING INTAKE. Injuries and vehicle condition were
+  deliberately dropped — the field assessor captures both on site.
+  collect_accident_details requires reg_no and location; the other fields accept
+  empty strings.
+- LIVE-AGENT HANDOFF IS VERBAL ONLY AND THE CALL DOES NOT HANG UP. The tool returns
+  {handoff, reason, message}; Nimali speaks it, the server logs the event via
+  _handoff_just_executed(), but NO ConversationRelay "end" message is sent. A
+  handoff_already_fired flag prevents re-logging on later turns.
+- SMS GOES TO THE LIVE CALLER, not the database phone, so callers dialling from an
+  alternate number still receive the confirmation. SMS never raises; failure is
+  caught and logged.
+- EMOTIONAL ADAPTATION IS PROMPTED, NOT CODED. There is no sentiment classifier — it
+  is all in-prompt guidance. Do not add one as a "fix".
+- REGISTRATION-NUMBER NORMALISATION IS SHARED. mock_db._normalize_reg_no canonicalises
+  whitespace and hyphens to a single "-" between the letter block and the digit block;
+  active_session.get_by_reg_no and claim_api both rely on it. Keep them in sync.
+- POST-CALL FAILURES NEVER AFFECT THE CALL. Everything in post_call.py is caught and
+  logged and fired as a background task. A webhook 404 (typically an inactive n8n
+  workflow) is fixed in n8n, not in code.
+- MOCKS TO REPLACE BEFORE PRODUCTION: mock_db.py policy/vehicle lookup,
+  claim_api.dispatch_nearest_assessor, the locally generated claim reference, and
+  active_session.py's on-disk JSON.
+
+[S5] STATE AND SESSION RULES
+- active_session.py is keyed primarily by normalised caller phone, with a secondary
+  get_by_reg_no() lookup. The IN-MEMORY DICT IS AUTHORITATIVE AT RUNTIME;
+  active_sessions.json on disk is only a crash-safety snapshot, written atomically
+  via a .tmp file plus os.replace. _load() tolerates old snapshots that predate later
+  fields — preserve that tolerance.
+- Session TTL is driven by SLIC_SESSION_TTL_SECONDS, default 300 (5 minutes). It is
+  ALSO pinned in docker-compose.yml, so a compose value takes priority unless both
+  are edited.
+- mock_db.py loads mock_customers.json ONCE AT IMPORT TIME and builds two indexes: a
+  phone-keyed customer dict and a reg-no-keyed vehicle index. Adding a customer means
+  adding a top-level E.164 key with name, policy_no and a vehicles list, then
+  restarting the server; the reg-no index rebuilds automatically.
+
+[S6] CONFIGURATION (behavioural, non-credential)
+- LLM_PROVIDER — "claude" (default) / "openai" / "gemini".
+- CLAUDE_MODEL / OPENAI_MODEL / GEMINI_MODEL — model selection only.
+- ELEVENLABS_CR_VOICE — the voice served to Twilio ConversationRelay, formatted
+  "<voice_id>-<model>"; falls back to a hardcoded default when unset. Note the
+  ElevenLabs voice and key variables are used ONLY by the local smoke test — TTS on a
+  real call goes through ConversationRelay, which authenticates on its own.
+- SLIC_SESSION_TTL_SECONDS, N8N_BASE_URL, N8N_POSTCALL_WEBHOOK, PORT (default 8000).
+- Removed from the inherited Kavya configuration: Azure Speech, Google Cloud STT and
+  its service-account JSON, PMS access configuration, and hotel-specific booking
+  endpoints. Do not reintroduce them.
+- Server constants: MAX_TOKENS = 300, MAX_HISTORY_MESSAGES = 20 (format-aware
+  trimming so orphaned tool results and tool calls are dropped together),
+  MAX_TOOL_ROUNDS = 5.
+
+[S7] LOCAL VERIFICATION
+- pip install -r requirements.txt
+- python test_voice_elevenlabs.py — typed input → LLM with tools → TTS playback. The
+  fastest way to exercise tool wiring and personality changes without Twilio.
+- python server.py — run the full server locally.

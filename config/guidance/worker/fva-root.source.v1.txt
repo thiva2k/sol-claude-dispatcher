@@ -1,0 +1,107 @@
+PROJECT GUIDANCE — full-voice-agent (ROOT) — SOURCE-DERIVED PROJECTION v1
+PROVENANCE CLASS: SOURCE_DERIVED — strict sensitive-content scanning applies to this
+file. It contains no dispatcher-authored policy or refusal text; that is carried in
+the companion file fva-root.policy.v1.txt, which is emitted immediately before this
+one.
+
+DERIVED FROM, AND ONLY FROM (repository /home/dev/full-voice-agent):
+  AGENTS.md        sha256 404af279f91b083952db82d758a4836edd439f58278d1b21297b5bafd4c6381b   24735 bytes
+  CLAUDE.md        sha256 14c2565aed9ca4de2c4e9c0bc0e4997637c4b08fdf929000c176bf4fddac173d   28478 bytes
+  CONTRIBUTING.md  sha256 d474a296cec7ce5523f8c5548fdc352da7845a5c4a399555d64fdbc79a19073a   11240 bytes
+
+Root AGENTS.md and root CLAUDE.md are TWO INDEPENDENT REVIEWED SOURCES. This
+projection is derived from both of them together. They are not byte-identical and no
+automation keeps them in sync — the repository documents that arrangement as
+deliberate, and it is not treated as a failure. Every block below carries per-block
+provenance (source file, source SHA-256, source section) in the manifest entry
+"pg.fva.root" of config/approved-guidance.json.
+
+[R1] REPOSITORY IDENTITY AND SCOPE
+- This is a private monorepo of multilingual AI voice agents. Six agent subprojects
+  sit at the repository root: "BSL Agent/", "Flico Agent/", "HattonHills/", "Kavya/",
+  "SLIC Agent/", "Sofia Agent/". Shared tooling lives in "ops/", "n8n-workflows/",
+  "graphify-out/" and "docs/".
+- "Taskforce_AI_Website/" is a SEPARATE git repository nested inside this working
+  tree, is not tracked by this repository, and is outside this repository's git
+  identity. It is out of scope: do not read, edit, or reason about it.
+- Root "CLAUDE.md" and root "AGENTS.md" are a manually maintained pair. They are NOT
+  byte-identical today and no automation keeps them in sync. Both are reviewed
+  sources; neither supersedes the other.
+- Per-agent "AGENTS.md" files are GENERATED MIRRORS of that agent's "CLAUDE.md".
+  Never hand-edit a per-agent "AGENTS.md" — edit the "CLAUDE.md". Regenerating the
+  mirrors rewrites files in the repository: only do it if those mirror files are
+  inside your allowed_paths, otherwise report that a regeneration is required.
+- "CONTRIBUTING.md" is the repository's own declared source of truth for workflow and
+  release policy. Where a root document and CONTRIBUTING.md disagree on workflow,
+  CONTRIBUTING.md is the later authority.
+
+[R2] GRAPH-FIRST EXPLORATION (read-only, preferred over scanning source)
+- A graphify knowledge graph for this repository lives at "graphify-out/".
+- Before broad exploration, read "graphify-out/GRAPH_REPORT.md" first — it gives god
+  nodes, communities and architecture in one read. Do not grep or read source files
+  merely to get oriented.
+- For any how/where/what/why question about the code, query the graph BEFORE
+  touching raw files:
+      graphify query "<question>"     — broad context, what connects to what
+      graphify path "<A>" "<B>"       — how concept A reaches concept B
+      graphify explain "<concept>"    — everything connected to one node
+  These traverse the extracted (AST) and inferred (semantic) edges and cost far
+  fewer tokens than reading whole files.
+- Open raw source files only once the graph points you at a specific file or symbol
+  and you need line-level detail to edit it.
+- Node, edge and community counts quoted anywhere in the repository's documents are
+  informational only, disagree with each other between passages, and must not be
+  relied on. If you need a count at all, read the current GRAPH_REPORT.md.
+- Refreshing the graph writes into "graphify-out/". Whether that is permitted for
+  this task is stated in the graph-refresh clause emitted with your envelope. See
+  also [R5] for the failure modes the repository has recorded.
+
+[R3] RUNTIME AND DEPENDENCY FACTS
+- Production containers run Python 3.11 (agent images build from "python:3.11-slim").
+  Validate compatibility against 3.11. A newer local interpreter will happily compile
+  syntax that is a SyntaxError in production; local py_compile will not catch it.
+- Each agent pins dependencies in two files: "requirements-prod.txt" is the
+  human-edited statement of intent, and "requirements-prod.lock.txt" is GENERATED and
+  fully resolved — the lock is what the image installs. Never hand-edit the lock. A
+  change to "requirements-prod.txt" without a regenerated lock has no effect on the
+  image.
+- This checkout is on a native Linux path. WSL/UNC-specific workarounds described in
+  the repository's documents do not apply here.
+
+[R4] CROSS-CUTTING IMPLEMENTATION INVARIANTS
+- ChromaDB knowledge bases: every agent's "knowledge_base.py" deletes before
+  upserting inside initialize_kb() — collection.delete(where={"source": filename}) —
+  to stop stale chunks accumulating when KB content is updated. Preserve this.
+- n8n workflow definitions are NOT part of this repository's Python code. Post-call
+  WhatsApp delivery faults are fixed in the n8n workflow, not in agent code. Do not
+  "fix" them by changing Python.
+- WhatsApp number normalisation for the Kavya handover path lives in
+  "Kavya/handover.py::normalize_whatsapp" and sends BARE DIGITS (e.g. 94771234567)
+  with no "@s.whatsapp.net" suffix — the n8n workflow owns JID formatting. The agent
+  never blocks on that webhook failing; every error is swallowed and the guest is
+  still promised a callback.
+- Flico's Asterisk/SIP pilot under "asterisk-flico/" is ADDITIVE: it does not replace
+  Twilio webhooks or ConversationRelay. Do not point Asterisk at "/voice/incoming" —
+  that route returns TwiML for Twilio. Do not modify Kavya for that pilot.
+  "ENABLE_ASTERISK_ARI" is false by default. Asterisk's public RTP range and Flico's
+  external-media listener range are deliberately disjoint; do not overlap them.
+- Kavya's availability data originates from a booking integration hosted outside this
+  repository and reached over HTTPS. Treat it as an external dependency: never
+  disable, administer or reconfigure it.
+- Repository documents carry dated notes that later text contradicts (for example a
+  June 2026 note warning that part of the admin knowledge-base feature may exist only
+  in a different checkout). When a document and the code disagree, the code wins.
+  Report the stale documentation; do not edit it unless it is in your allowed_paths
+  and your task says to.
+
+[R5] GRAPH MAINTENANCE — FAILURE MODES THE REPOSITORY HAS RECORDED
+These are facts about the tooling, not an instruction to run it. Whether any refresh
+is authorised at all is decided by the graph-refresh clause emitted with your
+envelope.
+- Deleting "graphify-out/graph.json" to force a clean rebuild destroys the inferred
+  semantic edge layer. An AST-only rebuild cannot recreate it.
+- A plain refresh can silently delete "graphify-out/graph.html" when the node count
+  exceeds the visualisation limit, printing only a skip notice.
+- Additions to ".graphifyignore" do not retroactively remove nodes that are already
+  in the graph, even with a force flag.
+- A full rebuild re-runs a paid semantic pass.

@@ -1,0 +1,248 @@
+PROJECT GUIDANCE — Kavya/ — SOURCE-DERIVED PROJECTION v1
+PROVENANCE CLASS: SOURCE_DERIVED — strict sensitive-content scanning applies to this
+file. Dispatcher-authored policy and refusal text for this scope is in the companion
+file fva-kavya.policy.v1.txt, emitted immediately before this one.
+
+DERIVED FROM, AND ONLY FROM (repository /home/dev/full-voice-agent):
+  Kavya/CLAUDE.md  sha256 9fd891ed89403730b045648439ee202afb4302bc9bd0b76ec827d82a8f6a3519   79628 bytes
+  Kavya/AGENTS.md  — ALIAS of the above, byte-identical (same SHA-256). One logical
+                     source, two paths, projected once.
+Per-block provenance (source section per block) is recorded in the manifest entry
+"pg.fva.kavya" of config/approved-guidance.json.
+
+[K1] WHAT THIS IS
+- Kavya is an AI voice agent for Hatton Hills, handling inbound phone calls via
+  Twilio, using a configurable LLM (Claude by default, or OpenAI / Gemini) for
+  conversation and tool use, integrating with the Yanolja PMS for availability and
+  booking, and grounding answers in a ChromaDB RAG knowledge base.
+- Hatton Hills is an INVENTED property for client demonstrations. The rate card, the
+  room descriptions and the reservations number are fictional. Do not treat them as
+  real-world facts and do not "correct" them against reality.
+- BRAND LINEAGE — read before trusting any older section of Kavya/CLAUDE.md. The
+  agent was Treehouse Chalets, then Mosvold Boutique Hotels, then Hatton Hills.
+  Sections written before v0.20 still name Treehouse or Mosvold, cite old room types
+  or the old reservations number. v0.20 IS AUTHORITATIVE. In particular the
+  "System Prompt Structure" section of that document still says "Treehouse Chalets"
+  and is stale on that point.
+- SINGLE PROPERTY. Hatton Hills has exactly five room types, all distinct: Forest
+  Escape Suite, Eco Harmony Suite, Sunrise Vista Premium Suite (each up to 2 guests),
+  Mount Luxe Chalet, Mount Monarch Chalet (each up to 5 guests). Kavya must NEVER ask
+  which property or location the caller means.
+- The line is English only. DIGIT_TO_LANG = {"1": "en"}; the Arabic and Sinhala
+  <Say> prompts are gone from /voice/incoming and /ws/media-stream/{lang} accepts
+  only "ta". The Sinhala/Arabic/Tamil TTS, STT, prompt and filler code all remain in
+  place and dormant. Do not delete dormant language code as "unused".
+
+[K2] SOURCE-OF-TRUTH MODULES AND FILE MAP
+- server.py — unified production server (IVR + ConversationRelay + Media Streams).
+- media_stream_server.py — standalone Media Streams server, reference/alternative
+  only, uses Anthropic directly. Not the production path.
+- booking_api.py — n8n webhook integration (availability polling, room type ids).
+- post_call.py — post-call LLM extraction plus the n8n webhook to Google Sheets.
+- tools.py — tool definitions in Anthropic / OpenAI / Gemini formats plus dispatch.
+- knowledge_base.py — ChromaDB RAG over knowledge_docs/.
+- handover.py — handover payload assembly, phone normalisation, n8n POST.
+- smartpbx_*.py — the Dialog SmartPBX service mode (see [K5]).
+- ezee_api.py — LEGACY, not imported, kept for reference. kpms_service.py is DEAD
+  CODE; nothing imports it and it was deliberately left in its pre-rebrand state.
+
+[K3] ARCHITECTURE
+- Three LLM providers switched by LLM_PROVIDER: Claude (default, primary tested),
+  OpenAI, Gemini. Each has its own client singleton, streaming function pair and
+  tool format. History is stored provider-native; Gemini converts via
+  _history_to_gemini(). tools.py exposes get_tools() / get_tools_openai() /
+  get_tools_gemini().
+- English rides Twilio ConversationRelay (server handles text only). Non-English
+  rides Twilio Media Streams (server owns the whole audio pipeline: Google Cloud STT
+  in a daemon thread, KB retrieval, LLM streaming with tools, TTS back as mulaw).
+  ConversationRelay does not support Arabic/Sinhala/Tamil — that is why those
+  languages are on Media Streams.
+- Availability/booking is ASYNC POLLING through n8n, not a direct PMS call: Kavya
+  POSTs a request, a browser extension scrapes the PMS and posts the result back, and
+  Kavya polls until the response is ready. Without that extension running,
+  availability checks time out.
+- Knowledge base: knowledge_docs/ chunked at 500 chars with 50 overlap, embedded with
+  all-MiniLM-L6-v2, stored in ChromaDB. Query embeddings are LRU-cached. KB context
+  is injected as a USER-MESSAGE PREFIX each turn, not into the system prompt, so it
+  cannot go stale. Chunk ids are SHA-256 hashes (idempotent re-indexing).
+- Post-call capture runs as a fire-and-forget background task on WebSocket close. A
+  separate never-trimmed full_transcript list accumulates alongside the trimmed
+  conversation_history. All errors are caught and logged — post-call failures must
+  never affect the call or server stability.
+
+[K4] IMPLEMENTATION INVARIANTS — DO NOT REGRESS
+- SINGLE-PROPERTY MODE is load-bearing. yanolja_service.resolve_property() and
+  tools.normalise_property() ALWAYS resolve to "Hatton Hills" and never return None;
+  the return type was narrowed from "str | None" to "str". The
+  "if property_name else None" short-circuits in derive_availability() and book()
+  were REMOVED — reintroducing them re-introduces the None and fails closed, which
+  would block every booking. "property" is not in any tool's required array.
+  _property_required_error() and the property_name-is-None guards in execute_tool are
+  kept but UNREACHABLE, as the restore point for a second property.
+- yanolja_service._property_of() must NOT fall back to resolve_property() on a
+  PMS-supplied property field. It derives solely from the canonical room name and
+  returns "" for anything unrecognised; that "" is what filters retired room types
+  and the "Default Unmapped Room" fallback out of availability. It is load-bearing.
+- post_call._normalize_property_and_room() must not NULL room_preference when
+  property is unresolved — it forces "Hatton Hills".
+- Interim-based STT endpointing: Google Cloud STT rarely fires is_final=True for
+  conversational speech. Each interim OVERWRITES _pending_transcript (never appends)
+  and resets a silence timer. Do not "fix" this by trusting finals.
+- History trimming (_trim_history) is FORMAT-AWARE: it skips orphaned tool-result
+  messages and orphaned assistant tool_use/tool_calls messages at the start of the
+  trimmed window, in both Anthropic and OpenAI shapes. Breaking this produces
+  provider 400s on orphaned tool results.
+- Tool gating lives in the system prompt: general information (rooms, rates,
+  policies, activities) is answered from KB context with NO tool call; tools are only
+  for date-specific booking operations.
+- The Gemini "double empty turn" is treated as a FAILOVER, not an outcome: two
+  consecutive empty rounds raise into the Gemini-to-Claude failover path rather than
+  speaking the canned fallback line. Failover is gated on round_idx == 0 with nothing
+  spoken and no tool executed, because it replays the whole turn — a later empty
+  round takes the canned line rather than risk running create_booking twice. Every
+  failover converts the tool list to Anthropic shape via _claude_tools_from_gemini;
+  substituting get_tools() would hand the restricted handover-failsafe session the
+  full booking tool set.
+- Missing KAVYA_EN_ELEVENLABS_VOICE_ID is a HARD failure path in
+  english_voice_profile.load_kavya_english_voice_profile() — it raises ValueError and
+  is logged as a skip. Never substitute fabricated or fallback speech.
+
+[K5] SERVICE MODES (Twilio vs Dialog SmartPBX)
+- server.py builds ONE OF TWO mutually exclusive FastAPI apps via
+  build_service_app(service_mode, environ), selected by KAVYA_SERVICE_MODE ("twilio"
+  default). The two modes never run in the same process, and lifespan() skips all
+  Twilio REST-client / handoff startup when the mode is smartpbx.
+- "twilio" is and remains the production default. Everything under /voice/*,
+  ConversationRelay, Media Streams and Twilio <Dial> handover belongs to it and is
+  unchanged by the SmartPBX work.
+- "smartpbx" exposes exactly three routes: GET /health, GET /smartpbx/status, and
+  WS /ws/v1/smartpbx/media. /smartpbx/status requires the same
+  X-Kavya-SmartPBX-Token header as the media socket (constant-time compare) because
+  the counters are a live occupancy and call-volume oracle; /health stays
+  unauthenticated for liveness probes. docs_url/redoc_url/openapi_url are disabled.
+- Protocol version is "smartpbx-ai-provider-v06". Audio is exact g711_ulaw at 8000 Hz
+  ONLY — any other codec or rate is rejected at the "start" event. Capacity is hard
+  capped at 4 concurrent calls; a 5th is rejected before the socket is accepted, and
+  SmartPBXSessionRegistry cannot be constructed outside 1–4.
+- Module split: smartpbx_protocol.py (strict fail-closed wire parser into a closed
+  dataclass union), smartpbx_gateway.py (settings, admission counter, event loop,
+  cleanup-once), smartpbx_transport.py (bounded outbound queue), smartpbx_session.py
+  (adapter onto the existing MediaStreamSession pipeline, forces lang="en"),
+  smartpbx_mcp.py (fail-closed Dialog call control), smartpbx_handover.py (transfer
+  state machine), smartpbx_diagnostics.py (diagnostic enum vocabulary).
+- Transport rules: frames are paced at realtime so barge-in has queued audio left to
+  cancel (Dialog defines no "clear" wire event); on overflow the transport REFUSES
+  THE NEWEST FRAME, cutting the tail of a reply rather than decimating it; sends are
+  generation-fenced so barge-in cannot leak stale audio; a dead sender raises a
+  failure signal so the gateway ends the call instead of leaving the guest in
+  silence.
+- Handover in SmartPBX mode uses the Dialog MCP transfer against the call's
+  otherLegCallId, fail-closed end to end: an empty transfer-destination map disables
+  transfer entirely (the default state), validation/auth failures never retry, and
+  only bounded network/server failures retry once. On failure it reuses the existing
+  handover.py WhatsApp notification — which notifies the manager but is NEVER
+  treated as evidence of a successful live transfer.
+- The two compose services load environment differently ON PURPOSE: the Twilio
+  service uses env_file, the SmartPBX service uses an explicit environment allowlist
+  and no env_file, so Twilio account variables and the human-agent phone number can
+  never reach it. Any variable that is only in the SmartPBX environment file is
+  ignored unless it is copied into that allowlist. Do not "simplify" this by adding
+  env_file.
+- The Dockerfile uses an explicit module COPY manifest plus a build-time
+  `RUN python -c "import server"` guard; Kavya/tests/test_dockerfile_manifest.py
+  enforces both. Adding a new module means updating the COPY manifest.
+
+[K6] TELEPHONY / TRANSFER DECISIONS THAT MUST NOT BE REVERTED
+- The failsafe notification fires from /voice/dial-result at the moment the transfer
+  is judged failed, NOT only from inside the failsafe recovery session. Reason: on a
+  carrier intercept the recovery WebSocket never opens, so both in-session notify
+  paths were unreachable precisely in the case they existed for — the workflow had
+  zero executions in five weeks.
+- The "notified" flag is set OPTIMISTICALLY BEFORE the POST (that is what stops two
+  racing paths both sending) and CLEARED AGAIN IF THE POST FAILS. Without that
+  rollback the flag would mean "attempted" rather than "delivered" and a swallowed
+  5xx would stand every remaining path down permanently.
+- A "completed" dial answered faster than the minimum-answer threshold is
+  reclassified as intercepted and runs the failsafe. This path FAILS OPEN — missing
+  timing is treated as a genuine answer, because bouncing a guest who really reached
+  a human is worse than one missed notification.
+- The live intercept hang-up trigger is deliberately STRICTER than the
+  reclassification check: it also requires that no "ringing" event arrived, because
+  it cuts off a LIVE call and a genuine handset essentially always rings first. A
+  failed REST hang-up is non-fatal.
+- HANDOFF_DIAL_TIMEOUT=25 is a SETTLED DECISION, not a demo-day workaround. Do NOT
+  "restore" it to the old 40. Raising it hands unanswered transfers to voicemail, and
+  because voicemail rings first and answers slowly it is undetectable by timing, so
+  the failsafe then never fires and the lead is lost silently. The margin is tight
+  and that is understood and accepted. If real answers start getting cut off, the fix
+  is a faster-ringing destination or a better route, not a higher number.
+- Setting an explicit transfer caller ID is correct and stays, but it does NOT
+  prevent intercepts. The earlier caller-ID diagnosis in that document is WRONG and
+  was disproved by carrier records; the real cause is an intermittent international
+  termination route. The code changes from that section are all still correct — only
+  the explanation was wrong.
+- Answering Machine Detection is not available on TwiML <Dial><Number>, so voicemail
+  cannot be detected in that path. Do not add detection logic claiming otherwise.
+
+[K7] SPOKEN-NUMBER CAPTURE CONTRACT
+- capture_spoken_number is the PRIMARY path for phone/WhatsApp/callback numbers and
+  receives caller phrases exactly as spoken. collect_number_via_keypad is
+  FALLBACK-ONLY, offered after repeated spoken-capture failures or on explicit caller
+  request.
+- The deterministic parser path is Kavya/handover.py: expand_spoken_repeats and
+  spoken_number_to_digits expand double/triple/treble and zero variants, then
+  normalize_whatsapp validates and normalises length. This is the SINGLE
+  normalisation source for live readback, booking phone and WhatsApp payload, so
+  model arithmetic can never drift from it.
+- Capture mode is armed by the DELIVERED ASK, not by the first capture tool call, so
+  the first fragment is already patient. A read-back is not an ask, and a successful
+  capture suppresses re-entry.
+- While armed, every provider FINAL refreshes the capture-silence window instead of
+  dispatching; the combined text is capped (head kept) and only the combined
+  utterance is dispatched. Finals still pass the echo gate before entering the
+  buffer.
+- The silence re-prompt cannot fire while a capture buffer or capture timer is
+  pending — a nudge mid-number talks over the caller.
+- The episode is bounded by a captured result, a too-low digit-token ratio, or a max
+  turn count. The allowance is spent AFTER the turn and entering capture mode never
+  refills a live episode, so "needs more" cannot reset an exhausted one.
+- Teardown FORCES the pending buffer into full_transcript (from MediaStreamSession
+  teardown, transfer-pending entry, and the SmartPBX session finish) — a
+  half-dictated number must still reach the call log and post-call extraction.
+- Capture mode deliberately survives a barge-in (the buffer does not): a caller
+  talking over the tail of the ask is a dictation starting.
+- Every runner OVERRIDES the model's "spoken" argument with the raw utterance, on
+  all media runners and all three ConversationRelay runners. The combined dictation
+  reaches the parser through that override and nowhere else, so a runner that skips
+  it silently discards the fragment combining.
+
+[K8] GATING TEST SUITES
+- pytest tests/test_handover.py tests/test_handover_server.py
+  tests/test_handover_session.py — the handover failsafe; no network, the n8n POST is
+  stubbed at the aiohttp boundary.
+- pytest tests/test_handoff_intercept.py — intercept detection, the threshold
+  boundary, callback retries and both dial-result branches. Two of its cases FAIL
+  against the pre-fix code with "manager was NOT notified when the transfer was
+  intercepted"; that failure is the point of the test, and any future test for this
+  path should clear the same bar. Note the original cases all passed against a
+  completely broken detector because they hand-built dial_events with an "answered"
+  key Twilio never sends — assert at the Twilio/n8n boundary, not at the
+  implementation.
+- pytest Kavya/tests/test_smartpbx_*.py — the Dialog SmartPBX service mode.
+- pytest Kavya/tests/test_dockerfile_manifest.py — COPY-manifest closure and the
+  build-time import guard.
+
+[K9] CONFIGURATION CLAMPS (verified server.py defaults)
+  MAX_TOKENS = 300 ; MAX_HISTORY_MESSAGES = 60 ; MAX_TOOL_ROUNDS = 5
+  STT_ENDPOINTING_SILENCE_SECONDS 1.0, clamp [0.2, 5.0]
+  STT_FINAL_GRACE_SECONDS 0.5, clamp [0.05, 5.0]
+  DTMF_INTERDIGIT_TIMEOUT_SECONDS 6.0, clamp [1.0, 30.0]
+  DTMF_OVERALL_TIMEOUT_SECONDS 30.0, clamp [5.0, 120.0]
+  DTMF_MAX_DIGITS 15, clamp [1, 40]
+  BARGEIN_MIN_CHARS 12, clamp [0, 200]
+  BARGEIN_DEBOUNCE_SECONDS 0.6, clamp [0.0, 5.0]
+  CAPTURE_BUFFER_MAX_CHARS 600, clamp [60, 4000]
+  CAPTURE_DICTATION_MIN_RATIO 0.3, clamp [0.0, 1.0]
+  SMARTPBX_TRANSFER_PENDING_TIMEOUT_SECONDS 300, clamp [30, 1800]
+  smartpbx_transport.py has no environment-driven knobs; it is bounded by internal
+  backpressure constants.

@@ -1,0 +1,151 @@
+PROJECT GUIDANCE — "Flico Agent/" — SOURCE-DERIVED PROJECTION v1
+PROVENANCE CLASS: SOURCE_DERIVED — strict sensitive-content scanning applies to this
+file. Dispatcher-authored policy and refusal text for this scope is in the companion
+file fva-flico.policy.v1.txt, emitted immediately before this one.
+
+DERIVED FROM, AND ONLY FROM (repository /home/dev/full-voice-agent):
+  Flico Agent/CLAUDE.md  sha256 a99dff867f6efd2851aca9fa6a66adad6fa8917d45667cd383dc8c45a09f5bc2   24499 bytes
+  Flico Agent/AGENTS.md  — ALIAS of the above, byte-identical (same SHA-256). One
+                           logical source, two paths, projected once.
+Per-block provenance is recorded in the manifest entry "pg.fva.flico" of
+config/approved-guidance.json.
+
+[F1] CALL ROUTING — THE PHONE IVR IS GONE
+- /voice/incoming has NO <Gather> and NO DTMF menu. Every inbound phone call connects
+  straight to the English ConversationRelay as brand "rodrigo".
+- /voice/demo-incoming is the website Book-a-Demo entry, English only, brand
+  "starproperties"; another agent's shared TwiML app redirects here for that agent id.
+- /voice/language-selected is RETAINED but the phone line no longer reaches it.
+- The Tamil/Sinhala Media Streams handlers at /ws/media-stream/{lang} still exist and
+  still work, but nothing routes a phone caller to them.
+- STALE-DOC WARNING: that project document previously described a <Gather> menu with
+  press 1/2/3 and a DIGIT_TO_LANG map. The code no longer has them, and the stale text
+  once caused a test to be written asserting a <Gather> that does not exist. Verify
+  routing against the code, not the prose. If you change routing, change the doc too.
+
+[F2] TTS / STT ROUTING
+- en — ConversationRelay, Google telephony STT, ElevenLabs flash_v2_5 (cloned voice).
+- ta — Media Streams, ta-IN STT (+en-US alternative), ElevenLabs multilingual_v2.
+- si — Media Streams, si-LK STT (+en-US alternative), OpenAI gpt-4o-mini-tts
+  (24 kHz PCM downsampled on the fly to 8 kHz mu-law for Twilio framing).
+- _speak() dispatches en/ta to ElevenLabs and everything else (i.e. si) to the OpenAI
+  path. The self-hosted Sinhala VITS routine and the Azure routine are both WIRED BUT
+  DEAD — no live call path reaches them, despite their names. Do not assume the
+  Sinhala VITS service is in use.
+
+[F3] THE KB PIPELINE IS INVERTED — ROWS ARE THE SOURCE, PROSE IS GENERATED
+- knowledge_docs/listings.json is the SOURCE OF TRUTH. kb/prose.py GENERATES each
+  listing's paragraph from its fields. NOTHING PARSES PROSE BACK INTO FIELDS on this
+  path — do not reintroduce that. It is the whole point of the design.
+- Why: the agency's data arrives structured. The old pipeline forced it into prose so
+  a migration layer could regex it back into rows; that round trip is where the bugs
+  lived (drifting duplicated type vocabulary, first-match rent parsing, unknown types
+  silently filed as apartments).
+- Edit listings in listings.json. Review is a diff — a changed rent is one line.
+- flico_info.txt is a FALLBACK ONLY; initialize_kb prefers listings.json and falls
+  back on any failure. flico_preamble.txt holds the non-listing prose.
+- key_features are DATA now. They previously existed only inside the paragraph, so no
+  filter could see them and "something with a pool" was structurally unanswerable.
+- commentary holds human-authored colour. That is where personality belongs — NEVER
+  an LLM paraphrase.
+- NO LLM IN THIS PIPELINE. The exhaustive proof is a statement about a FIXED row set;
+  making row derivation probabilistic makes all the filter cases verify against a
+  moving target. An LLM belongs at import time for genuinely messy documents only,
+  emitting rows and never prose, with per-field source quotes, nulls that block
+  publish rather than guesses, and a human reviewing against the source rather than
+  against the model's own output — then frozen as data and never re-run.
+
+[F4] RETRIEVAL AND FILTER SEMANTICS
+- retrieve_context() filters listings by property_type plus zone parsed from the
+  utterance.
+- STICKY CONSTRAINTS: an optional per-session sticky dict REMEMBERS the last non-null
+  property_type/zone across turns. A value stated this turn overrides; otherwise it
+  inherits. This is what stops retrieval losing "apartment" when a later utterance
+  only names an area. The carried constraint is also appended to the embedding query,
+  with a single embed per turn.
+- OCCUPANCY IS NEVER A BEDROOM FILTER. "N people/family/guests" is occupancy and is
+  handled in the system prompt, never as a bedroom count.
+- The sqlite backend (unlike chroma) DOES filter on bedrooms, from an explicit
+  "N-bed(room)" phrase only; the count may be a digit or a word because STT
+  transcribes what the caller says. A plain "two bedroom" is an EXACT match; only
+  "at least 2" / "2 or more" / "2+" is a floor. The count is sticky like type and
+  zone.
+- Rent: "under/below/less than" is EXCLUSIVE; "up to/max/budget of" is INCLUSIVE.
+  Ranges and floors parse, but a scale unit is required, so "more than 2 bedrooms" is
+  never read as money. Rent must be read with its exact period ("per day" vs "per
+  month"), never assumed monthly.
+- THE RELAXATION LADDER NEVER SUBSTITUTES SILENTLY. When the exact filter set is
+  empty it relaxes rent, then bedrooms, then property_type, and PREPENDS A "NOTE:" to
+  the context naming what was given up, so the model cannot present a house as the
+  apartment that was asked for. ZONE IS NEVER DROPPED. An exact match carries no
+  note. kb/engine.py::_RELAXATIONS is the whole ladder.
+- RANKING MAY ONLY ORDER THE MATCHED SET, NEVER TRUNCATE IT. n_results=None is the
+  default end to end. It was once 6 while the filter matched 9, so production silently
+  hid three properties the caller qualified for — while acceptance tests ran at 12,
+  certifying a configuration production never executed. If a real portfolio makes
+  unbounded context too slow, cap it DELIBERATELY and know the completeness guarantee
+  weakens to "top-k of a correct set".
+- Prompt and KB must state the SAME portfolio facts. When the portfolio changes, the
+  bedroom-floor and property-type claims in the system prompt must change with it, or
+  the agent will deny the very listings the KB contains.
+
+[F5] WHAT IS NOT GUARANTEED (say this plainly, never oversell it)
+- What the agent SAYS. The proof is that she is HANDED a correct, complete,
+  self-labelling context. Obeying it is prompt-following, not proof.
+- Tamil and Sinhala get NO FILTERS. The parser is English regex and those paths
+  transcribe in native script, so type/zone/bedrooms all come back None. Because
+  n_results=None, an unfiltered query returns the COMPLETE inventory — nothing is
+  hidden from the model, but the model rather than the provable SQL layer is doing the
+  filtering. The honest guarantee is "provably complete context, unproven filtering"
+  for TA/SI versus "provably correct filtered set" for English. THIS DOES NOT SCALE:
+  at a real portfolio size it forces truncation back, at which point TA/SI silently
+  lose listings again. A native-script parser vocabulary is the researched but
+  DELIBERATELY UNSHIPPED fix — it needs a native speaker and real STT transcripts
+  first, because of Indic word-boundary problems and substring traps.
+- Utterances outside the declared grammar fall through to unfiltered ranking, as does
+  an area outside the area-to-zone map.
+- The oracle rests on one human audit of the row table. Verification relocates trust.
+- The chroma backend has NONE of these semantics.
+
+[F6] TESTING — VERIFICATION IS BY EXHAUSTION, NOT BY SAMPLING
+- DO NOT FIX A KB BUG BY ADDING ONE MORE EXAMPLE TEST. Add the dimension to the
+  grammar/oracle and let the sweep prove the whole space. Five bugs were found by
+  spot-checking and six more by enumeration; the root cause was that the suite tested
+  a hand-picked diagonal of a matrix nobody had written down, so every dimension
+  no one consciously decided kept its accidental default.
+- tests/truth_table.py — the rows as plain data, transcribed by hand. It IMPORTS
+  NOTHING FROM kb/. Regenerate and re-audit when real data lands.
+- tests/oracle.py — satisfies() is written from the spec in its docstring, NOT from
+  the database module. Testing the code against itself proves nothing.
+- tests/test_truth_crosscheck.py — one assertion pinning both the prose parser and
+  the prose content.
+- tests/test_exhaustive_filter.py — every type x zone x beds x rent-bound. Rent uses
+  EQUIVALENCE CLASSES: SQL comparisons are monotone, so each distinct rent +/-1 plus
+  the midpoints covers every real-valued threshold.
+- tests/test_exhaustive_parser.py — a large utterance space from a grammar declared
+  as data, including STT mishearings and DECOYS THAT MUST PARSE TO NOTHING
+  (occupancy "four people", sizes "under 1000 square feet", counts "more than 2
+  bedrooms"). Each decoy was a real bug.
+- tests/test_portfolio_lookups.py — end-to-end against the real KB prose, with
+  expectations COMPUTED from truth_table.py via oracle.py::expected_ids, never
+  hardcoded; hardcoded id lists all went stale the moment the portfolio changed.
+- These suites need only numpy, pydantic and pytest — no sentence-transformers,
+  because the test fixture monkeypatches the embedder before the KB constructor runs
+  and the real library is imported lazily inside it. They DO gate deploys.
+- tests/test_prose_roundtrip.py is a MIGRATION BRIDGE: it renders every row and feeds
+  it through the OLD prose parser, asserting the fields survive. Two independent
+  implementations agreeing is evidence; one agreeing with itself is not. Delete it
+  together with the migration regex layer once structured rows are accepted directly.
+- evals/answer_eval.py IS QA, NEVER PROOF. It costs money, is nondeterministic and is
+  deliberately NOT in CI. Run it before shipping a prompt or KB change, and RUN IT
+  MORE THAN ONCE — a single green run means nothing; the one real invention it caught
+  only appeared on the third pass.
+- The KB reload endpoint bypasses CI entirely, so the sqlite validator rejects a bad
+  batch BEFORE writing to disk (writing first let a bad paste take effect on the next
+  restart) and keeps the previous inventory.
+
+[F7] RUNTIME COMPATIBILITY
+- PRODUCTION RUNS PYTHON 3.11 while dev boxes may run newer. A PEP 701 f-string
+  (nested same-type quotes) compiled locally and was a SyntaxError in production — a
+  hard outage, because kb/prose.py is imported by server.py. Local py_compile will not
+  save you; the CI verification job pins 3.11 and is what caught it.

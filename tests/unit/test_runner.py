@@ -131,6 +131,9 @@ def test_worker_argv_shape(dispatcher_config, envelope, fake_env, git_repo):
     assert flag_value(argv, "--model") == "sonnet"
     assert flag_value(argv, "--output-format") == "json"
     assert flag_value(argv, "--permission-mode") == "auto"
+    # Gate 4.5 §2: no inherited customization surface. See tests/unit/test_safe_mode.py.
+    assert "--safe-mode" in argv
+    assert "--bare" not in argv
     assert "--strict-mcp-config" in argv
     assert flag_value(argv, "--mcp-config").endswith("config/empty-mcp.json")
     assert flag_value(argv, "--session-id") == "11111111-1111-4111-8111-111111111111"
@@ -158,6 +161,9 @@ def test_worker_argv_strips_mcp_and_subagents(dispatcher_config, envelope, git_r
     assert "mcp__*" in disallowed
     assert "Bash(claude:*)" in disallowed
     assert "Bash(codex:*)" in disallowed
+    # Gate 4.5 deny-set holes P1/P2, closed in the core (non-configurable) set.
+    assert "Bash(git bisect:*)" in disallowed
+    assert "Bash(gh:*)" in disallowed
     # Granted tools never include a subagent spawner (§22 layer 2).
     granted = flag_values(argv, "--tools")
     assert "Agent" not in granted and "Task" not in granted
@@ -300,6 +306,11 @@ def test_fable_argv_is_read_only_and_fresh(dispatcher_config, envelope, git_repo
     assert "--worktree" not in argv
     assert "--resume" not in argv
     assert flag_value(argv, "--session-id") == "33333333-3333-4333-8333-333333333333"
+    # Gate 4.5 §2: the reviewer is isolated on exactly the same terms as the
+    # worker — Fable reads the tree, so an inherited hook or Skill would be
+    # shaping the review the dispatcher records as evidence.
+    assert "--safe-mode" in argv
+    assert "--bare" not in argv
     assert "--strict-mcp-config" in argv
     assert flag_value(argv, "--mcp-config").endswith("config/empty-mcp.json")
     # Reviewer policy, inline, verbatim.

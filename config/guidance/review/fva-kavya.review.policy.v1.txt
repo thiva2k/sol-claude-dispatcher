@@ -1,0 +1,24 @@
+DISPATCHER POLICY — FABLE REVIEW CONTEXT, Kavya/ — v1
+PROVENANCE CLASS: DISPATCHER_AUTHORED. Written and owned by the dispatcher, trusted
+by its own source hash and review, and NOT subject to the strict source-content
+classifier. It must never be merged into a source-derived projection file.
+
+[HOW TO READ WHAT FOLLOWS]
+Project facts and acceptance constraints for reviewing a change under "Kavya/". Not
+implementation guidance, not a checklist, and not a substitute for reading the diff.
+
+[BEHAVIOURAL CONFIGURATION VALUES]
+The Kavya review context lists constant defaults and clamp ranges.
+These values are behavioural constraints / observed runtime decisions. Do not change
+production configuration. If implementation requires changing one, report the
+implication to Sol.
+For review purposes: a diff that moves one of these values without a stated reason is
+a finding, and a review recommendation to change one is a recommendation to change
+production configuration — raise it to Sol rather than asserting it as a required fix.
+
+[OUT OF SCOPE FOR REVIEW]
+Deployment, image publication and provenance gating, registry authentication,
+production environment files, database migrations on other hosts, and live webhook
+tests that deliver real messages are operator actions. Do not require them or treat
+their absence as an omission. A secret value or production operator command appearing
+in the diff IS a finding.

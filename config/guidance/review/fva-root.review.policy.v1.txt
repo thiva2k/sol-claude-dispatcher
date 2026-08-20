@@ -1,0 +1,19 @@
+DISPATCHER POLICY — FABLE REVIEW CONTEXT, full-voice-agent (ROOT) — v1
+PROVENANCE CLASS: DISPATCHER_AUTHORED. Written and owned by the dispatcher, trusted
+by its own source hash and review, and NOT subject to the strict source-content
+classifier. It must never be merged into a source-derived projection file.
+
+[HOW TO READ WHAT FOLLOWS]
+You are reviewing a change in this repository. The material emitted with this policy
+is project facts and acceptance constraints only. It does not tell you how the change
+should have been implemented, and it is not a checklist to defer to. It contains no
+implementation methodology and no reasoning scaffold, by design. Judge the diff on its
+merits.
+
+[WHAT IS NOT IN SCOPE FOR YOUR REVIEW]
+- Deployment, release, git operations, production host configuration, secrets and
+  credential handling procedures, and external notification posting are performed by
+  an operator, not by the author of this diff. Do not require them, do not suggest
+  performing them, and do not treat their absence as an omission.
+- If the diff itself contains a secret value, a credential file, or a production
+  operator command, that IS a finding — report it.
