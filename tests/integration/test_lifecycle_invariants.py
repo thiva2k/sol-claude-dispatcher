@@ -220,7 +220,12 @@ async def test_the_lock_is_released_after_a_failed_review(
 
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "failure")
     failed = await dispatcher.review_task_with_fable(task_id)
-    assert failed["error"] == "ClaudeStructuredOutputInvalid"
+    # DEFECT-L2-02: a reviewer that exits non-zero writing nothing to stdout is
+    # a *process* failure and is now reported as one, with its stderr quoted.
+    # It used to be reported as ClaudeStructuredOutputInvalid — the model blamed
+    # for the CLI. The invariant under test is unchanged: the lock is released.
+    assert failed["error"] == "ClaudeExecutionFailed"
+    assert "simulated worker failure" in failed["details"]["stderr_tail"]
 
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "fable-review")
     again = await dispatcher.review_task_with_fable(task_id)

@@ -77,6 +77,19 @@ check_git() {
 
 # Locates a worker CLI on PATH and probes only --version. Never invokes it
 # with -p / --print, never spawns a worker.
+#
+# FAILS CLOSED (DEFECT-L2-01). An earlier version discarded the probe's exit
+# status with `|| true` and always returned 0, so a binary that merely existed
+# on PATH was reported PASS — including one that exits non-zero printing
+# "Error: claude native binary not installed." That is a green gate on a dead
+# CLI, which is precisely what this script exists to prevent. Three things now
+# fail the check: a non-zero probe, empty output, and output with no dotted
+# version in it (a stub that exits 0 printing prose must not be accepted).
+#
+# Reporting the ACTUAL first line of `--version` is also the drift alarm for
+# runner.CLI_CAPABILITIES, which is a hardcoded dict pinned to one CLI release
+# while this machine auto-updates unattended (NOTE-L2-A). The version the gate
+# prints is the version that ran, not the version anyone assumed.
 check_binary_version() {
     local binary_name="$1"
     local resolved
@@ -84,10 +97,22 @@ check_binary_version() {
         echo "${binary_name} not found on PATH"
         return 1
     fi
-    local ver
-    ver="$("$resolved" --version 2>&1 || true)"
+    local ver status
+    if ver="$("$resolved" --version 2>&1)"; then
+        status=0
+    else
+        status=$?
+    fi
     ver="$(printf '%s' "$ver" | head -n1)"
-    echo "${resolved} (${ver:-version unknown})"
+    if [[ "$status" -ne 0 ]]; then
+        echo "${resolved} --version failed (exit ${status}): ${ver:-no output}"
+        return 1
+    fi
+    if [[ ! "$ver" =~ [0-9]+\.[0-9]+\.[0-9]+ ]]; then
+        echo "${resolved} --version produced no recognisable version: ${ver:-no output}"
+        return 1
+    fi
+    echo "${resolved} (${ver})"
 }
 
 check_state_perms() {
@@ -175,6 +200,14 @@ check_fake_claude_present() {
 }
 
 # --- run everything ----------------------------------------------------------
+
+# Sourcing this file defines the check functions and runs nothing. That is what
+# the regression tests do: they call check_binary_version directly against stub
+# binaries, without probing this machine's real toolchain or executing any other
+# check. Executing the script normally is unaffected.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    return 0
+fi
 
 echo "sol-claude-dispatcher doctor — read-only diagnostic, nothing is modified"
 echo "project root: ${PROJECT_ROOT}"

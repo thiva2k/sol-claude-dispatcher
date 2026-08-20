@@ -25,10 +25,13 @@ from sol_claude_dispatcher.runner import (
     ALWAYS_DISALLOWED_TOOLS,
     CLI_CAPABILITIES,
     FORBIDDEN_FLAGS,
+    STDERR_TAIL_CHARS,
     WorkerInvocation,
+    WorkerRun,
     build_argv,
     build_fable_invocation,
     build_worker_invocation,
+    cli_failure,
     run_worker,
 )
 from sol_claude_dispatcher.security import assert_no_recursion
@@ -561,3 +564,108 @@ async def test_fable_review_mode_returns_review_shaped_json(
     assert record["tools"] == ["Read", "Glob", "Grep"]
     assert record["has_worktree"] is False
     assert record["model"] == "fable"
+
+
+# ---------------------------------------------------------------------------
+# DEFECT-L2-02: a present-but-broken CLI must not be misreported as bad model
+# output. ``ClaudeBinaryNotFound`` only covers absent/non-executable binaries;
+# a partially installed CLI starts fine, exits non-zero, and writes nothing.
+# ---------------------------------------------------------------------------
+
+
+def _run(**overrides) -> WorkerRun:
+    fields = {
+        "argv": ["claude", "-p"],
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "",
+        "duration_ms": 12,
+    }
+    fields.update(overrides)
+    return WorkerRun(**fields)  # type: ignore[arg-type]
+
+
+def test_cli_failure_names_the_environment_fault_with_the_stderr_tail():
+    run = _run(
+        exit_code=1,
+        stdout="",
+        stderr=(
+            "Error: claude native binary not installed.\n"
+            "Run the postinstall manually.\n"
+        ),
+    )
+
+    error = cli_failure(run, binary="/usr/bin/claude", role="implementer")
+
+    assert error is not None
+    assert error.code == "ClaudeExecutionFailed"
+    assert "claude native binary not installed" in error.details["stderr_tail"]
+    assert error.details["exit_code"] == 1
+    assert error.details["binary"] == "/usr/bin/claude"
+    assert error.details["role"] == "implementer"
+    # The operator must not be told the model produced bad JSON.
+    assert "JSON" not in error.message
+
+
+def test_cli_failure_redacts_secret_shaped_stderr():
+    """§28: stderr is diagnostics and may quote a secret-shaped value."""
+    run = _run(stderr='ANTHROPIC_API_KEY=sk-live-abcdef\nfatal: cannot start\n')
+
+    error = cli_failure(run, binary="claude", role="implementer")
+
+    assert error is not None
+    assert "sk-live-abcdef" not in error.details["stderr_tail"]
+    assert "REDACTED" in error.details["stderr_tail"]
+
+
+def test_cli_failure_tail_is_bounded():
+    run = _run(stderr="x" * 50_000)
+
+    error = cli_failure(run, binary="claude", role="reviewer")
+
+    assert error is not None
+    assert len(error.details["stderr_tail"]) <= STDERR_TAIL_CHARS
+
+
+def test_cli_failure_ignores_a_run_that_produced_output():
+    """A non-zero exit that still emitted a result is a parsing question."""
+    run = _run(exit_code=2, stdout='{"structured_output": {}}', stderr="noisy")
+
+    assert cli_failure(run, binary="claude", role="implementer") is None
+
+
+def test_cli_failure_ignores_success_timeout_and_start_failure():
+    assert cli_failure(_run(exit_code=0), binary="claude", role="implementer") is None
+    assert (
+        cli_failure(
+            _run(exit_code=None, timed_out=True), binary="claude", role="implementer"
+        )
+        is None
+    )
+    assert (
+        cli_failure(
+            _run(exit_code=None, start_failed=True), binary="claude", role="implementer"
+        )
+        is None
+    )
+
+
+async def test_cli_failure_diagnoses_a_real_broken_binary_stub(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    """End to end through ``run_worker``, against a stub shaped like the real
+    breakage: present, executable, exits non-zero, empty stdout."""
+    stub = tmp_path / "broken-claude"
+    stub.write_text(
+        "#!/bin/sh\necho 'Error: claude native binary not installed.' >&2\nexit 1\n"
+    )
+    stub.chmod(0o755)
+    dispatcher_config.claude.binary = str(stub)
+
+    run = await run_worker(invocation(dispatcher_config, envelope, git_repo, fake_env))
+
+    assert run.exit_code == 1
+    assert run.stdout == ""
+    error = cli_failure(run, binary=str(stub), role="implementer")
+    assert error is not None
+    assert "claude native binary not installed" in error.details["stderr_tail"]

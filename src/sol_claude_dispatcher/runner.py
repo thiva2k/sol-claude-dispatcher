@@ -45,6 +45,7 @@ from typing import Mapping
 from .config import Config
 from .errors import (
     ClaudeBinaryNotFound,
+    ClaudeExecutionFailed,
     ConfigurationError,
     InternalDispatcherError,
 )
@@ -56,6 +57,8 @@ __all__ = [
     "WorkerRun",
     "StreamCapture",
     "run_worker",
+    "cli_failure",
+    "STDERR_TAIL_CHARS",
     "build_argv",
     "build_worker_invocation",
     "build_fable_invocation",
@@ -74,6 +77,15 @@ __all__ = [
 
 #: Feature flags for the installed Claude CLI. Keyed by flag name; values are
 #: set from ``docs/DISCOVERY.md`` findings and may become runtime-probed later.
+#:
+#: Drift risk (NOTE-L2-A), recorded rather than engineered around: this dict is
+#: pinned to one verified CLI release while the CLI can auto-update unattended.
+#: An update that *adds* ``--max-turns`` would leave the dispatcher silently not
+#: enforcing a turn cap; one that *removes* a flag emitted unconditionally would
+#: make every dispatch fail. ``scripts/doctor.sh`` now prints the actual
+#: installed ``--version`` and fails closed when the probe does not, so the drift
+#: is visible at the gate instead of at dispatch time. Runtime capability
+#: probing is deliberately NOT built here — that is a design change, not a fix.
 CLI_CAPABILITIES: dict[str, bool] = {
     "max_turns": False,          # absent in 2.1.234
     "append_system_prompt_file": False,  # inline string only
@@ -246,6 +258,56 @@ class WorkerRun:
         a very large run loses its result to the truncation marker.
         """
         return self.structured_stdout if self.structured_stdout is not None else self.stdout
+
+
+#: How much of the captured stderr is quoted back in a CLI-failure diagnostic.
+#: Bounded (and taken from the tail, where the fatal message is) so an error
+#: payload crossing the MCP boundary stays short — §29.
+STDERR_TAIL_CHARS: int = 1200
+
+
+def cli_failure(run: WorkerRun, *, binary: str, role: str) -> ClaudeExecutionFailed | None:
+    """Diagnose a CLI that ran but produced nothing to parse (DEFECT-L2-02).
+
+    ``ClaudeBinaryNotFound`` only covers an *absent* or *non-executable* binary
+    (FileNotFoundError / PermissionError at spawn time). A binary that is present
+    and executable but broken — a partially installed CLI whose launcher exits
+    non-zero writing "claude native binary not installed" to stderr — starts
+    fine, exits non-zero, and writes nothing to stdout. Handing that empty stdout
+    to :func:`results.extract_structured_payload` produced
+    ``ClaudeStructuredOutputInvalid("Claude's stdout was not valid JSON.")``,
+    which blames the model for an environment fault and buries the real cause one
+    layer away in stderr.
+
+    So: before parsing, a non-zero exit with empty stdout is reported as what it
+    is, with the stderr tail quoted. Returns ``None`` for every other outcome —
+    a run that produced output is still parsed exactly as before, and a
+    timed-out or never-started run already has its own reporting path. Redacted
+    on the way out (§28): stderr is diagnostics and may quote a secret-shaped
+    value.
+    """
+    if run.start_failed or run.timed_out:
+        return None
+    if run.exit_code is None or run.exit_code == 0:
+        return None
+    if run.stdout_for_parsing.strip():
+        return None
+
+    tail = redact(run.stderr).strip()[-STDERR_TAIL_CHARS:]
+    return ClaudeExecutionFailed(
+        "The Claude CLI exited non-zero and wrote nothing to stdout: the CLI or "
+        "its environment failed, so there is no model output to parse.",
+        details={
+            "binary": binary,
+            "role": role,
+            "exit_code": run.exit_code,
+            "stderr_tail": tail or "<empty>",
+        },
+        remediation=(
+            "Run ./scripts/doctor.sh (or the binary's own --version) — a broken, "
+            "partially installed, or mis-pathed CLI reports the cause on stderr."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

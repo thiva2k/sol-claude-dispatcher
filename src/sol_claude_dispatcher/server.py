@@ -101,6 +101,7 @@ from .runner import (
     WorkerRun,
     build_fable_invocation,
     build_worker_invocation,
+    cli_failure,
     run_worker,
 )
 from .security import (
@@ -1021,6 +1022,17 @@ class Dispatcher:
                 finished_at=finished_at,
             )
 
+            # DEFECT-L2-02: a reviewer CLI that exited non-zero without writing
+            # anything failed as a *process*. Raise that, with its stderr tail,
+            # rather than letting the parser report the empty stdout as invalid
+            # model output.
+            cli_error = cli_failure(
+                worker_run, binary=self.config.claude.binary, role="reviewer"
+            )
+            if cli_error is not None:
+                cli_error.details["task_id"] = task_id
+                raise cli_error
+
             # Lane B R1: the retained stream carries an in-band truncation
             # marker for a very large run and is deliberately not JSON then.
             review = parse_fable_review(worker_run.stdout_for_parsing)
@@ -1314,6 +1326,13 @@ class Dispatcher:
             )
         elif worker_run.start_failed:
             worker_result_error = "worker process could not be started"
+        elif (cli_error := cli_failure(
+            worker_run, binary=self.config.claude.binary, role="implementer"
+        )) is not None:
+            # DEFECT-L2-02: a present-but-broken CLI exits non-zero with empty
+            # stdout. Reporting "stdout was not valid JSON" here blames the
+            # model for an environment failure; the real cause is on stderr.
+            worker_result_error = f"{cli_error.message} {json.dumps(cli_error.details, default=str)}"
         else:
             try:
                 # Lane B R1: never ``worker_run.stdout`` — beyond the retention
@@ -1796,6 +1815,22 @@ class Dispatcher:
             )
 
         if worker_result is None:
+            # DEFECT-L2-02: distinguish "the CLI never produced anything" from
+            # "the model's output did not parse". A present-but-broken binary
+            # exits non-zero with empty stdout, and calling that a structured
+            # output problem sends the operator hunting the wrong layer.
+            cli_error = cli_failure(
+                worker_run, binary=self.config.claude.binary, role="implementer"
+            )
+            if cli_error is not None:
+                cli_error.details["task_id"] = task_id
+                return self.store.transition(
+                    task_id,
+                    TaskState.FAILED,
+                    reason="cli_unusable",
+                    last_error=cli_error.to_payload(),
+                    **updates,
+                )
             error = ClaudeStructuredOutputInvalid(
                 "Worker produced no usable structured result.",
                 details={"task_id": task_id, "reason": worker_result_error},

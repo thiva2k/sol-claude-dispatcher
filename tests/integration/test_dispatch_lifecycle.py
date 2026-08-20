@@ -365,3 +365,43 @@ async def test_worktree_is_never_merged_into_the_primary_tree(
 
     assert (git_repo / ".git" / "HEAD").read_text() == head_before
     assert result["dispatcher_observations"]["primary_worktree_clean"] is True
+
+
+async def test_cli_that_ran_but_produced_nothing_is_reported_as_a_cli_failure(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    """DEFECT-L2-02: don't blame the model for a broken CLI.
+
+    A present-but-broken Claude install (the commissioning box's actual state:
+    an auto-update left the platform-native binary undownloaded) starts fine,
+    writes its complaint to stderr, exits non-zero, and writes nothing to
+    stdout. Before this fix that empty stdout reached the parser and surfaced as
+    ``ClaudeStructuredOutputInvalid("Claude's stdout was not valid JSON.")`` —
+    an environment fault reported as a model-output fault, with the real cause
+    one layer away in stderr. The fake's ``failure`` mode has exactly that
+    shape.
+    """
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "failure")
+
+    result = await dispatcher.dispatch_claude_task(request_payload)
+
+    assert result["status"] == TaskState.FAILED.value
+    assert result["worker_claims"] is None
+    assert result["last_error"]["error"] == "ClaudeExecutionFailed"
+    # The operator is shown what the CLI actually said.
+    assert (
+        "simulated worker failure"
+        in result["last_error"]["details"]["stderr_tail"]
+    )
+    assert result["last_error"]["details"]["exit_code"] == 2
+    assert "doctor.sh" in result["last_error"]["remediation"]
+    # ...and is NOT told the model emitted bad JSON.
+    assert "not valid JSON" not in json.dumps(result)
+    assert "not_json" not in json.dumps(result)
+    assert "simulated worker failure" in result["worker_result_error"]
+
+    # Evidence still survives the failure (§13, §20).
+    run_dir = Path(dispatcher.store.run_dir(result["task_id"], 1))
+    assert "simulated worker failure" in (run_dir / "stderr.log").read_text()
+    record = dispatcher.store.load(result["task_id"])
+    assert record.state_history[-1]["reason"] == "cli_unusable"

@@ -7,6 +7,8 @@ Fable never touches the implementation worker's conversation.
 
 from __future__ import annotations
 
+import json
+
 from sol_claude_dispatcher.models import TaskState
 from sol_claude_dispatcher.runner import MUTATING_TOOL_NAMES
 
@@ -168,3 +170,33 @@ async def test_unparseable_review_output_is_reported_not_guessed(
     assert record.state is TaskState.AWAITING_SOL_REVIEW
     assert record.run_count == 2
     assert record.fable_review_count == 0
+
+
+async def test_reviewer_cli_failure_is_reported_as_a_cli_failure_not_bad_output(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    """DEFECT-L2-02, reviewer half: the Fable path shares the same trap.
+
+    ``_review`` parsed the reviewer's stdout directly, so a reviewer CLI that
+    exited non-zero without writing anything surfaced as
+    ``ClaudeStructuredOutputInvalid`` — the review's failure attributed to the
+    model rather than to the CLI that never ran.
+    """
+    dispatched = await _dispatched(dispatcher, request_payload, monkeypatch)
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "failure")
+
+    result = await dispatcher.review_task_with_fable(dispatched["task_id"], ["security"])
+
+    assert result["error"] == "ClaudeExecutionFailed"
+    assert "simulated worker failure" in result["details"]["stderr_tail"]
+    assert result["details"]["role"] == "reviewer"
+    assert result["details"]["exit_code"] == 2
+    assert "not valid JSON" not in json.dumps(result)
+
+    # The task is not marked reviewed on a CLI failure, and the repository lock
+    # is released — a second attempt is refused for the CLI reason, not for a
+    # stale lock.
+    record = dispatcher.store.load(dispatched["task_id"])
+    assert record.state is not TaskState.FABLE_REVIEWED
+    again = await dispatcher.review_task_with_fable(dispatched["task_id"], ["security"])
+    assert again["error"] == "ClaudeExecutionFailed"
