@@ -102,7 +102,9 @@ from .runner import (
     build_fable_invocation,
     build_worker_invocation,
     cli_failure,
+    fable_policy_text,
     run_worker,
+    worker_policy_text,
 )
 from .security import (
     assert_dispatch_depth,
@@ -114,6 +116,7 @@ from .security import (
 from .sessions import new_session, resume_limit_response, resume_plan
 from .state import TaskStore, atomic_write_json, atomic_write_text
 from .validation import compare_claims_to_validation, run_validations
+from .worker_context import WorkerContext, WorkerContextComposer
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from mcp.server import MCPServer
@@ -632,6 +635,11 @@ class Dispatcher:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.store = TaskStore(config.tasks_path)
+        #: Gate 4.5 §14/§16. Holds the two projection engines and composes the
+        #: final worker context. Both engines stay unbuilt — and no manifest is
+        #: read — while their feature flags are off, so a dispatcher configured
+        #: exactly as it was before Gate 4.5 behaves exactly as it did.
+        self.context = WorkerContextComposer(config)
 
     # -- public tool surface ------------------------------------------------
     #
@@ -709,12 +717,31 @@ class Dispatcher:
             run_id = new_run_id()
             prompt = build_worker_prompt(envelope)
 
+            # Gate 4.5 §14. Both projections happen here, before the worker is
+            # launched, so a refusal (unapproved scope, drifted hash, unreviewed
+            # instruction file) lands the task in FAILED with ``last_error`` set
+            # instead of dispatching a worker without its guidance. Nothing in
+            # this block runs while the two feature flags are off.
+            self.context.assert_repository_reviewed()
+            identity = await asyncio.to_thread(
+                self.context.repository_identity, canonical_root
+            )
+            worker_context = self.context.for_worker(
+                envelope,
+                run_kind=RunKind.DISPATCH,
+                policy_text=worker_policy_text(self.config),
+                task_prompt=prompt,
+                identity=identity,
+            )
+            self._anchor_dispatch_context(task_id, worker_context)
+
             invocation = build_worker_invocation(
                 envelope,
                 self.config,
                 model=model,
                 session_id=session_id,
                 prompt=prompt,
+                append_system_prompt=worker_context.append_system_prompt,
                 # The worktree does not exist yet: the Claude CLI creates it
                 # from --worktree (§12), so run 1 starts in the repository root
                 # and the worktree path is resolved afterwards, from
@@ -784,6 +811,7 @@ class Dispatcher:
                     worker_run=worker_run,
                     started_at=started_at,
                     finished_at=finished_at,
+                    worker_context=worker_context,
                 )
                 self.store.transition(
                     task_id,
@@ -806,6 +834,7 @@ class Dispatcher:
                 finished_at=finished_at,
                 repository_root=canonical_root,
                 primary_tree_before=primary_tree_before,
+                worker_context=worker_context,
             )
         except DispatcherError as exc:
             self._record_failure(task_id, exc)
@@ -867,6 +896,26 @@ class Dispatcher:
 
             run_index = record.run_count + 1
             run_id = new_run_id()
+            resume_prompt = build_resume_prompt(envelope, plan.instruction)
+
+            # Gate 4.5 §16, in this order and no other: VERIFY the dispatch
+            # anchor first, then project. A changed skill hash or a changed
+            # CLAUDE.md must return the task to Sol rather than silently resume
+            # under different instructions. The resume *selection* legitimately
+            # differs from dispatch (the manifest adds ``receiving-code-review``
+            # on RunKind.RESUME) — that is not drift, and verification does not
+            # look at it.
+            identity = await asyncio.to_thread(
+                self.context.repository_identity, canonical_root
+            )
+            self.context.verify_dispatch_anchor(record, identity=identity)
+            worker_context = self.context.for_worker(
+                envelope,
+                run_kind=RunKind.RESUME,
+                policy_text=worker_policy_text(self.config),
+                task_prompt=resume_prompt,
+                identity=identity,
+            )
 
             invocation = build_worker_invocation(
                 envelope,
@@ -874,7 +923,8 @@ class Dispatcher:
                 model=plan.model,
                 session_id=plan.session_id,
                 resume_session_id=plan.session_id,
-                prompt=build_resume_prompt(envelope, plan.instruction),
+                prompt=resume_prompt,
+                append_system_prompt=worker_context.append_system_prompt,
                 # Same worktree, no new one (§18). build_worker_invocation
                 # refuses to emit --worktree alongside --resume.
                 cwd=Path(plan.worktree_path),
@@ -915,6 +965,7 @@ class Dispatcher:
                 finished_at=finished_at,
                 repository_root=canonical_root,
                 primary_tree_before=primary_tree_before,
+                worker_context=worker_context,
             )
         except DispatcherError as exc:
             self._record_failure(task_id, exc)
@@ -983,19 +1034,37 @@ class Dispatcher:
             run_index = record.run_count + 1
             run_id = new_run_id()
 
+            review_prompt = build_fable_prompt(
+                envelope,
+                diff_text=diff_text,
+                changed_paths=changed_paths,
+                worker_claims=worker_claims,
+                validation_results=validation_results,
+                focus=list(focus or []),
+                validation_added_paths=self._validation_added_paths(task_id),
+            )
+
+            # Gate 4.5 §15. Fable gets a SEPARATE review-context guidance
+            # projection — different artifacts, different hashes, disjoint from
+            # the worker's — and no skill projection at all. A scope whose
+            # review projection was never approved fails closed here; it must
+            # not degrade to root-only review context (RULINGS §7).
+            review_identity = await asyncio.to_thread(
+                self.context.repository_identity, canonical_root
+            )
+            review_context = self.context.for_review(
+                envelope,
+                policy_text=fable_policy_text(self.config),
+                task_prompt=review_prompt,
+                identity=review_identity,
+            )
+
             invocation = build_fable_invocation(
                 envelope,
                 self.config,
                 session_id=session_id,
-                prompt=build_fable_prompt(
-                    envelope,
-                    diff_text=diff_text,
-                    changed_paths=changed_paths,
-                    worker_claims=worker_claims,
-                    validation_results=validation_results,
-                    focus=list(focus or []),
-                    validation_added_paths=self._validation_added_paths(task_id),
-                ),
+                prompt=review_prompt,
+                append_system_prompt=review_context.append_system_prompt,
                 cwd=worktree,
             )
             invocation = self._with_run_spools(invocation, task_id, run_index)
@@ -1020,6 +1089,7 @@ class Dispatcher:
                 worker_run=worker_run,
                 started_at=started_at,
                 finished_at=finished_at,
+                worker_context=review_context,
             )
 
             # DEFECT-L2-02: a reviewer CLI that exited non-zero without writing
@@ -1193,6 +1263,35 @@ class Dispatcher:
         if worker_run.stderr_spool_path is None:
             atomic_write_text(run_dir / "stderr.log", redact(worker_run.stderr))
 
+    def _anchor_dispatch_context(self, task_id: str, context: WorkerContext) -> None:
+        """Persist the dispatch-time context as the task's anchor (§16).
+
+        Written **before** the worker starts, so the evidence survives a crash,
+        and written **once**: a task already carrying an anchor keeps it. Resume
+        legitimately projects a different skill profile, and overwriting the
+        anchor with it would erase the value drift is measured against. The
+        per-run values live on :class:`RunMetadata`.
+        """
+        record = self.store.load(task_id)
+        if record.context_fingerprint is not None:
+            return
+        record.skill_policy = context.skill_record
+        record.project_guidance = context.guidance_record
+        record.context_fingerprint = context.fingerprint
+        self.store.save(record)
+        _event(
+            "worker_context_anchored",
+            task_id=task_id,
+            context_fingerprint=context.fingerprint,
+            sections=list(context.sections),
+            skill_ids=list(context.skill_projection.skill_ids)
+            if context.skill_projection is not None
+            else [],
+            guidance_logical_ids=list(context.guidance_projection.logical_ids)
+            if context.guidance_projection is not None
+            else [],
+        )
+
     def _record_bare_run(
         self,
         *,
@@ -1207,6 +1306,7 @@ class Dispatcher:
         worker_run: WorkerRun,
         started_at: Any,
         finished_at: Any,
+        worker_context: WorkerContext | None = None,
     ) -> None:
         """Record a run that produced no diff evidence (review, or no worktree)."""
         metadata = self._run_metadata(
@@ -1221,6 +1321,7 @@ class Dispatcher:
             worker_run=worker_run,
             started_at=started_at,
             finished_at=finished_at,
+            worker_context=worker_context,
         )
         self.store.append_run(envelope.task_id, RunRecord(metadata=metadata))
 
@@ -1238,7 +1339,20 @@ class Dispatcher:
         worker_run: WorkerRun,
         started_at: Any,
         finished_at: Any,
+        worker_context: WorkerContext | None = None,
     ) -> RunMetadata:
+        skill_fingerprint: str | None = None
+        guidance_fingerprint: str | None = None
+        context_fingerprint: str | None = None
+        if worker_context is not None:
+            context_fingerprint = worker_context.fingerprint
+            if worker_context.skill_projection is not None:
+                skill_fingerprint = worker_context.skill_projection.fingerprint
+            if (
+                worker_context.guidance_projection is not None
+                and worker_context.guidance_projection.mode != "disabled"
+            ):
+                guidance_fingerprint = worker_context.guidance_projection.fingerprint
         return RunMetadata(
             run_id=run_id,
             run_index=run_index,
@@ -1276,6 +1390,12 @@ class Dispatcher:
             # compare its size against ``stdout_bytes`` or open ``stdout.raw``.
             stdout_truncated=worker_run.stdout_truncated,
             stderr_truncated=worker_run.stderr_truncated,
+            # Gate 4.5 §15/§16: per-run context evidence. These move when a
+            # resume legitimately selects a different profile; the dispatch
+            # anchor on ``TaskRecord`` does not.
+            skill_policy_fingerprint=skill_fingerprint,
+            project_guidance_fingerprint=guidance_fingerprint,
+            context_fingerprint=context_fingerprint,
         )
 
     async def _finalise_worker_run(
@@ -1293,6 +1413,7 @@ class Dispatcher:
         finished_at: Any,
         repository_root: Path,
         primary_tree_before: PrimaryTreeSnapshot,
+        worker_context: WorkerContext | None = None,
     ) -> dict[str, Any]:
         """Collect evidence, record the run, and land the task in a state.
 
@@ -1443,6 +1564,7 @@ class Dispatcher:
             worker_run=worker_run,
             started_at=started_at,
             finished_at=finished_at,
+            worker_context=worker_context,
         )
         self.store.append_run(
             task_id,

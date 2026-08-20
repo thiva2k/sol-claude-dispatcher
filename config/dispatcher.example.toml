@@ -99,8 +99,8 @@ reviewer_tools = ["Read", "Glob", "Grep"]
 
 # Deny patterns applied on top of the tool list. This list is ADDITIVE ONLY:
 # runner.ALWAYS_DISALLOWED_TOOLS (mcp__*, Agent, Task, Bash(claude:*),
-# Bash(codex:*)) and runner.CORE_DENIED_GIT_OPERATIONS (the seven git
-# operations below) are appended unconditionally, so deleting an entry here
+# Bash(codex:*), Bash(gh:*)) and runner.CORE_DENIED_GIT_OPERATIONS (the eight
+# git operations below) are appended unconditionally, so deleting an entry here
 # removes nothing — emptying this list entirely changes no prohibition. Add
 # your own patterns; you cannot subtract these.
 #
@@ -132,7 +132,11 @@ disallowed_tools = [
 # the "Skill" tool, and never trusts a plugin, a directory, or a path family:
 # every projectable skill is an explicit entry in the manifest below.
 [skills]
-enabled = true
+# GATE 4.5 lane F: projection is now WIRED into the real dispatch and resume
+# paths, so this flag is live rather than decorative. It stays FALSE until the
+# §18 disposable live adversarial gate passes — Sol turns it on deliberately,
+# and turning it on is a configuration change only, never a code change.
+enabled = false
 
 # Only "projected" exists. "native" is refused at load time — approving a
 # SKILL.md hash does not approve the plugin runtime, hooks, subagents or MCP

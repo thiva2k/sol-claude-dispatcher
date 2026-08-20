@@ -115,6 +115,55 @@ check_binary_version() {
     echo "${resolved} (${ver})"
 }
 
+# Probes that a flag the dispatcher emits UNCONDITIONALLY is still accepted by
+# the installed CLI. Reads `--help` only; never -p / --print, never a worker.
+#
+# Why this exists: runner.build_argv() appends --safe-mode on every worker and
+# every Fable invocation while CLI_CAPABILITIES["safe_mode"] is true. A CLI
+# release that renames or removes the flag would therefore fail EVERY dispatch
+# at launch, with a bare non-zero exit from the child. That belongs at the gate,
+# not at dispatch time. The same argument applies to --strict-mcp-config and
+# --json-schema, which are equally unconditional, so all three are probed.
+#
+# FAILS CLOSED, deliberately, in the same shape as check_binary_version: a
+# non-zero `--help`, empty output, or a missing flag is a FAIL. There is no
+# `|| true` anywhere in here — that construct is the exact defect DEFECT-L2-01
+# fixed, and reintroducing it would let this check go green on a dead CLI.
+check_cli_flag_present() {
+    local binary_name="$1"
+    shift
+    local resolved
+    if ! resolved="$(command -v "$binary_name" 2>/dev/null)"; then
+        echo "${binary_name} not found on PATH"
+        return 1
+    fi
+    local help_text status
+    if help_text="$("$resolved" --help 2>&1)"; then
+        status=0
+    else
+        status=$?
+    fi
+    if [[ "$status" -ne 0 ]]; then
+        echo "${resolved} --help failed (exit ${status}): $(printf '%s' "$help_text" | head -n1)"
+        return 1
+    fi
+    if [[ -z "$help_text" ]]; then
+        echo "${resolved} --help produced no output"
+        return 1
+    fi
+    local flag missing=()
+    for flag in "$@"; do
+        if [[ "$help_text" != *"$flag"* ]]; then
+            missing+=("$flag")
+        fi
+    done
+    if [[ "${#missing[@]}" -gt 0 ]]; then
+        echo "${resolved} --help does not mention: ${missing[*]} — the dispatcher emits these unconditionally, so every dispatch would fail"
+        return 1
+    fi
+    echo "${resolved} accepts $*"
+}
+
 check_state_perms() {
     local dir="${PROJECT_ROOT}/state"
     if [[ ! -d "$dir" ]]; then
@@ -219,6 +268,7 @@ run_check "pydantic package"       check_pkg_version pydantic
 run_check "pytest package"         check_pkg_version pytest
 run_check "git"                    check_git
 run_check "claude binary"          check_binary_version claude
+run_check "claude unconditional flags" check_cli_flag_present claude --safe-mode --strict-mcp-config --json-schema
 run_check "codex binary"           check_binary_version codex
 run_check "state dir permissions"  check_state_perms
 run_check "config parses"          check_config_parses

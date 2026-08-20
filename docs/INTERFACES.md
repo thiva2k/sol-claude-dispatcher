@@ -319,6 +319,44 @@ Subclasses: `InvalidRepository`, `RepositoryNotAllowed`, `RepositoryBusy`
 `PolicyViolation`, `ValidationFailed`, `GitEvidenceCollectionFailed`,
 `RecursionDetected`, `ConfigurationError`, `InternalDispatcherError`.
 
+Gate 4.5 added eleven more. All are in `ERROR_CODES` and serialise through
+`to_payload()` unchanged.
+
+| code | base | meaning |
+|---|---|---|
+| `SkillPolicyViolation` | `PolicyViolation` | an unapproved / rejected / non-projectable skill id, a skill whose `requires_deny_patterns` are not in the effective deny list, refused content (a declared mechanism, an unterminated frontmatter block), or the projected size cap exceeded |
+| `ApprovedSkillChanged` | `DispatcherError` | a pinned `SKILL.md` or supporting file changed, vanished, moved, became a symlink, left its pinned plugin install, or the manifest was re-approved; also raised on resume when skill projection was switched off after dispatch (`details["reason"] == "skills_disabled_after_dispatch"`) |
+| `ProjectGuidanceNotApproved` | `PolicyViolation` | manifest not approved, scope not approved, or no approved review projection for a selected scope. `details["operator_text"]` carries the canonical refusal text verbatim; there is deliberately **no** root-only fallback (RULINGS §7) |
+| `ProjectGuidanceScopeError` | `PolicyViolation` | an `allowed_paths` entry outside the pinned toplevel, under a deny prefix / deny absolute tree, escaping after normalisation, or intersecting more subscopes than the policy permits |
+| `ProjectGuidancePolicyViolation` | `PolicyViolation` | `details["reason"]` is `sensitive_content_in_source_derived_artifact` or `size_cap_exceeded` |
+| `ProjectGuidanceRepositoryMismatch` | `DispatcherError` | one of the four identity fields (toplevel, git_dir, origin_url, root_commit) does not match the pin |
+| `ProjectGuidanceSourceChanged` | `DispatcherError` | a pinned `CLAUDE.md`/`AGENTS.md` changed, moved, vanished or became a symlink |
+| `ProjectGuidanceDrift` | `DispatcherError` | a pair approved as byte-identical aliases has diverged |
+| `ProjectGuidanceProjectionChanged` | `DispatcherError` | a curated artifact under `config/guidance/` no longer matches its pinned hash |
+| `ProjectGuidanceResumeDrift` | `DispatcherError` | every hash verifies but the manifest was re-approved with different content; also raised on resume when guidance projection was switched off after dispatch (`details["reason"] == "project_guidance_disabled_after_dispatch"`) |
+| `UnapprovedProjectGuidanceFile` | `DispatcherError` | the DEFAULT-DENY verification scan found an instruction file that is neither approved nor excluded |
+
+**Error ordering when a source is edited (Sol ruling, 2026-08-20).** Editing one
+half of an approved alias pair is simultaneously an alias divergence and a hash
+mismatch. The engine reports the **more precise** condition first:
+
+```
+alias pair diverged                 -> ProjectGuidanceDrift
+otherwise, pinned source mismatched -> ProjectGuidanceSourceChanged
+otherwise, curated artifact changed -> ProjectGuidanceProjectionChanged
+otherwise, manifest re-approved     -> ProjectGuidanceResumeDrift
+```
+
+All four are fail-closed and all four return the task to Sol. Do not "fix" the
+code to report the generic error first; the ordering above is the intended
+behaviour and `tests/integration/test_gate45_context.py` pins it.
+
+`ProvenanceSeparationError` is **not** a `DispatcherError` — it is a `ValueError`
+raised only when the strict content classifier is pointed at
+`DISPATCHER_AUTHORED` text, i.e. when the engine has been miswired across the
+provenance boundary (RULINGS §2). Never catch it and convert it into a
+dispatcher error, and never weaken the regex to silence it: fix the call site.
+
 `GitEvidenceCollectionFailed` means an authoritative git command failed, timed
 out, produced unusable output, or could not be run. Sol must read it as
 *evidence unavailable — do not infer a clean tree*, never as "no changes".
@@ -334,7 +372,8 @@ load_config_from_mapping(data, *, source_path=None, project_root=".") -> Config
 ```
 
 `Config` sections: `.dispatcher`, `.models`, `.routing`, `.security`,
-`.validation`, `.claude`, `.logging`, plus `.source_path`, `.project_root`.
+`.validation`, `.claude`, `.skills`, `.project_guidance`, `.logging`, plus
+`.source_path`, `.project_root`.
 
 Derived helpers you should use rather than re-deriving paths:
 
@@ -342,6 +381,7 @@ Derived helpers you should use rather than re-deriving paths:
 config.state_path / tasks_path / locks_path / proposals_path   -> Path
 config.worker_policy_file / fable_policy_file / empty_mcp_file -> Path
 config.worker_schema_file / fable_schema_file                  -> Path
+config.approved_skills_file / approved_guidance_file           -> Path
 config.model_for("sonnet"|"opus"|"fable") -> str
 config.clamp_timeout(requested: int) -> int
 ```
@@ -829,8 +869,14 @@ Rules:
   (verified — see `docs/DISCOVERY.md`). Gate it on
   `CLI_CAPABILITIES["max_turns"]` so it can be turned on later without editing
   call sites.
-- `--append-system-prompt` takes the **policy text**, not a path. The caller
-  reads `config.worker_policy_file` and passes the contents.
+- `--append-system-prompt` takes the **policy text**, not a path. By default
+  `build_worker_invocation` / `build_fable_invocation` read
+  `config.worker_policy_file` / `config.fable_policy_file` themselves
+  (`runner.worker_policy_text()` / `runner.fable_policy_text()` expose the same
+  read). Both builders also accept `append_system_prompt=<str>`, which the
+  Gate 4.5 §14 composer uses to supply the whole composed context — the policy
+  file is then one labelled section inside it (see §11a). Passing `None` keeps
+  the pre-Gate-4.5 behaviour byte for byte.
 - `--json-schema` takes the **minified schema string**
   (`json.dumps(schema, separators=(",", ":"))`), not a path. It is produced by
   `runner.schema_for_claude_cli()`, which drops **only** the canonical schema's
@@ -1047,6 +1093,182 @@ Fable review, policy violations, timeout info.
 Every tool wraps its body in `except DispatcherError as e: return e.to_payload()`
 and `except Exception: log traceback to stderr; return
 InternalDispatcherError(...).to_payload()`.
+
+---
+
+## 11a. Gate 4.5 — `skills.py`, `project_guidance.py`, `worker_context.py`
+
+Three modules, one direction of dependency: `worker_context` imports the other
+two; neither of them imports the other or the server. Both engines are
+**manifest-driven and never discover anything on disk**; both are inert until
+their feature flag is turned on, and both flags default to `false`.
+
+### `sol_claude_dispatcher.skills`
+
+Approved-skill projection: hash-pinned inert text, never a skill runtime.
+`"Skill"` never enters `worker_tools`/`reviewer_tools`, no `--skill`-style flag
+is ever emitted, and no plugin is enabled.
+
+```python
+load_manifest(path) -> SkillManifest
+load_manifest_from_mapping(data, *, source_path=None) -> SkillManifest
+
+class SkillProjectionEngine:
+    @classmethod
+    def from_config(cls, config, *, denied_tools=None) -> SkillProjectionEngine
+    def select(self, *, task_kind, complexity, risk, run_kind,
+               role=WorkerRole.IMPLEMENTER) -> tuple[str, ...]
+    def project_for(self, *, task_kind, complexity, risk, run_kind,
+                    role=WorkerRole.IMPLEMENTER) -> SkillProjection
+    def project(self, skill_ids) -> SkillProjection
+    def fingerprint(self, skill_ids) -> str
+    def verify(self, record: SkillPolicyRecord) -> SkillProjection   # raises ApprovedSkillChanged
+    def audit(self) -> tuple[SkillAuditRow, ...]                     # read-only, never raises
+```
+
+`denied_tools` **must** be the effective deny list the worker is actually
+invoked with — `[*config.claude.disallowed_tools, *runner.ALWAYS_DISALLOWED_TOOLS]`.
+Two approved skills declare `requires_deny_patterns` and the engine refuses to
+project them when the pattern is absent, so passing only the configured half
+silently drops reviewed guidance.
+
+`SkillProjection` carries `.skill_ids`, `.skills` (each with `.id`, `.tier`,
+`.activation` and `.text`), `.text`, `.projected_bytes`, `.approx_tokens`,
+`.fingerprint`, and `.to_record() -> SkillPolicyRecord`. `.text` is `""` for the
+reviewer and while the flag is off; an empty projection is not an error.
+`.text` carries per-skill BEGIN/END delimiters and **no policy framing** — the
+envelope-precedence preamble is dispatcher-authored and lives in
+`worker_context` (RULINGS §2).
+
+`select()` reads exactly `task.kind`, `routing.complexity`, `routing.risk`,
+`RunKind` and `WorkerRole`. `RunKind.RESUME` legitimately adds
+`superpowers.receiving-code-review`; **that is selection, not drift**, and
+`verify()` deliberately checks the recorded id set instead.
+
+### `sol_claude_dispatcher.project_guidance`
+
+Curated project-guidance projection: hash-pinned, scope-aware,
+manifest-driven, never a `CLAUDE.md` loader. Discovery is forbidden
+(RULINGS §3); resolution is exact-path only.
+
+```python
+load_manifest(path) -> GuidanceManifest
+
+@dataclass(frozen=True)
+class RepositoryIdentity:
+    toplevel: str; git_dir: str; origin_url: str; root_commit: str
+
+class GuidanceAudience(str, Enum): WORKER = "worker"; FABLE_REVIEW = "fable_review"
+
+class ProjectGuidanceEngine:
+    @classmethod
+    def from_config(cls, config) -> ProjectGuidanceEngine
+    def relativise(self, allowed_paths, *, repository) -> tuple[str, ...]
+    def select(self, allowed_paths, *, repository, audience=WORKER) -> GuidanceSelection
+    def project(self, allowed_paths, *, repository, task_envelope_id,
+                audience=WORKER) -> ProjectGuidanceProjection
+    def verify(self, record: ProjectGuidanceRecord, *, repository) -> ProjectGuidanceProjection
+    def audit(self) -> tuple[GuidanceAuditRow, ...]        # read-only, never raises
+    def discover_unapproved(self) -> tuple[str, ...]       # verification only
+    def assert_no_unapproved_files(self) -> None           # raises UnapprovedProjectGuidanceFile
+```
+
+Collect `RepositoryIdentity` with `git.collect_repository_identity(root)`
+against the **canonical primary repository** named by
+`envelope.repository.root`, never the dispatcher-created worktree: inside a
+linked worktree `--show-toplevel` and `--absolute-git-dir` both answer about the
+worktree and would fail the pin for no good reason (RULINGS §4).
+
+`ProjectGuidanceProjection` carries `.logical_ids`, `.scopes` (root first, then
+selected subscopes in manifest declaration order), `.artifacts`, `.text`,
+`.graph_variant`, `.fingerprint`, `.to_record() -> ProjectGuidanceRecord`, and
+the two **disjoint** provenance sets `.scanned_artifacts` (SOURCE_DERIVED) /
+`.exempt_artifacts` (DISPATCHER_AUTHORED). Fable gets a *different* projection
+with disjoint files and hashes and no graph-refresh clause.
+
+`discover_unapproved()` never selects a guidance source — it exists so a new
+`CLAUDE.md` defaults to DENY/UNREVIEWED and is reported. The dispatcher calls
+`assert_no_unapproved_files()` at dispatch admission, not inside `project()`.
+
+### `sol_claude_dispatcher.worker_context`
+
+The only place the two projections meet the dispatcher's own policy text, and
+the only place the combined §16 fingerprint is computed.
+
+```python
+SECTION_ORDER: tuple[str, ...]          # the ADDENDUM §14 order, literally
+ENVELOPE_PRECEDENCE_PREAMBLE: str       # DISPATCHER_AUTHORED; never content-scanned
+CONTEXT_FINGERPRINT_VERSION = "worker-context-fingerprint/v1"
+
+class Provenance(str, Enum):
+    DISPATCHER_AUTHORED; SOURCE_DERIVED; PRE_CLASSIFIED
+
+@dataclass(frozen=True)
+class ContextBlock: section; provenance; channel: "system"|"prompt"; text
+
+@dataclass(frozen=True)
+class WorkerContext:
+    role; task_envelope_id; blocks; fingerprint
+    skill_projection; guidance_projection
+    .append_system_prompt -> str      # the "system"-channel blocks, in order
+    .prompt -> str                    # the "prompt"-channel block
+    .skill_record / .guidance_record  # what the dispatch anchor persists
+
+def compose_worker_context(*, role, task_envelope_id, policy_text, task_prompt,
+                           skill_projection=None, guidance_projection=None,
+                           core_skill_ids=()) -> WorkerContext
+def context_fingerprint(*, role, task_envelope_id,
+                        skill_projection, guidance_projection) -> str
+
+class WorkerContextComposer:            # held by Dispatcher as `.context`
+    def __init__(self, config)
+    skill_engine / guidance_engine -> engine | None      # None while the flag is off
+    def repository_identity(self, canonical_root) -> RepositoryIdentity | None
+    def assert_repository_reviewed(self) -> None
+    def for_worker(self, envelope, *, run_kind, policy_text, task_prompt, identity)
+    def for_review(self, envelope, *, policy_text, task_prompt, identity)
+    def verify_dispatch_anchor(self, record: TaskRecord, *, identity) -> None
+```
+
+`SECTION_ORDER` is the ADDENDUM §14 order and emitted sections are always a
+subsequence of it:
+
+```
+DISPATCHER_SYSTEM_POLICY                 system channel  (worker/fable policy file)
+TASK_ENVELOPE                            prompt channel  (trailing positional)
+ENVELOPE_PRECEDENCE_PREAMBLE             system channel  (only when something is projected)
+CORE_APPROVED_SKILLS                     system channel
+CONTEXTUAL_SKILLS                        system channel
+CURATED_ROOT_GUIDANCE                    system channel
+CURATED_IN_SCOPE_SUBPROJECT_GUIDANCE     system channel
+GRAPH_REFRESH_CLAUSE                     system channel
+```
+
+Rules that must not move:
+
+- The preamble is emitted **immediately before the first projected block**, and
+  not at all when nothing is projected.
+- No block ever mixes provenance domains. Classification has already happened
+  inside both engines; a post-hoc scanner, if one is ever added, must be pointed
+  at `WorkerContext.blocks`, never at `append_system_prompt` (RULINGS §2).
+- With both flags off, `append_system_prompt` is the worker policy file's text
+  byte for byte, and no manifest is read.
+
+### Persistence (§15, §16)
+
+| field | written | meaning |
+|---|---|---|
+| `TaskRecord.skill_policy` | once, at dispatch | the approved-skill policy the task was dispatched under |
+| `TaskRecord.project_guidance` | once, at dispatch | the curated guidance context the task was dispatched under |
+| `TaskRecord.context_fingerprint` | once, at dispatch | the **combined** fingerprint; the dispatch anchor |
+| `RunMetadata.skill_policy_fingerprint` | every run | per-run skill profile |
+| `RunMetadata.project_guidance_fingerprint` | every run | per-run guidance context |
+| `RunMetadata.context_fingerprint` | every run | per-run combined value |
+
+The anchor is **never** overwritten. A resume legitimately projects a different
+skill profile, so refreshing the anchor would erase the value drift is measured
+against. Resume calls `verify_dispatch_anchor()` **before** projecting anything;
+every drift error propagates.
 
 ---
 

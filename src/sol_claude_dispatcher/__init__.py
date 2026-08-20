@@ -26,7 +26,11 @@ Module map (see ``docs/INTERFACES.md`` for the full contract):
 ``validation``   Independent re-execution of trusted validation commands.
 ``skills``       Approved-skill projection: hash-pinned inert guidance,
                  manifest-driven, never a skill runtime.
-``project_guidance``  (Gate 4.5, owed by a sibling lane — not yet landed.)
+``project_guidance``  Curated project-guidance projection: hash-pinned,
+                 scope-aware, manifest-driven, never a CLAUDE.md loader.
+``worker_context``  Final worker-context composition (ADDENDUM §14) and the
+                 combined context fingerprint (§16). The only place the two
+                 projections meet dispatcher-authored policy text.
 ``server``       The stdio MCP server exposing exactly four tools.
 ===============  ==========================================================
 """

@@ -878,6 +878,13 @@ class RunMetadata(StrictModel):
     #: projected — which is also what every run recorded before the guidance
     #: engine existed says.
     project_guidance_fingerprint: str | None = None
+    #: The *combined* worker-context fingerprint for this run (addendum §16):
+    #: skill policy plus project guidance plus envelope identity, under one
+    #: reviewed recipe (``worker_context.context_fingerprint``). Recomputed per
+    #: run, so a resume that legitimately selects a different skill profile
+    #: differs here while ``TaskRecord.context_fingerprint`` — the dispatch
+    #: anchor — does not move. ``None`` for runs recorded before it existed.
+    context_fingerprint: str | None = None
 
 
 class DispatcherObservations(StrictModel):
@@ -972,3 +979,15 @@ class TaskRecord(StrictModel):
     #: Resume must verify it and fail closed on drift. ``None`` means the task
     #: was dispatched with no projected project guidance.
     project_guidance: ProjectGuidanceRecord | None = None
+    #: The combined worker-context fingerprint captured at **dispatch**
+    #: (addendum §16): approved skill manifest/profile + root guidance
+    #: projection version/hash + scoped guidance projection version/hash + task
+    #: envelope identity, under one reviewed recipe
+    #: (``worker_context.context_fingerprint``).
+    #:
+    #: This is the **dispatch anchor** and is written exactly once. It is
+    #: deliberately *not* refreshed on resume: a resume legitimately selects a
+    #: different skill profile (the manifest adds ``receiving-code-review``), so
+    #: overwriting this would erase the value drift is measured against. The
+    #: per-run value lives on :attr:`RunMetadata.context_fingerprint`.
+    context_fingerprint: str | None = None

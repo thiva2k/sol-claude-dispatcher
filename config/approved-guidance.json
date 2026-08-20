@@ -583,9 +583,10 @@
   },
 
   "failure_semantics": [
+    { "condition": "ORDERING (Sol ruling 2026-08-20): when more than one condition below is true for the same edit, the MORE PRECISE error is reported. Editing one half of an ALIASES_BYTE_IDENTICAL pair is simultaneously an alias divergence and a source hash mismatch; ProjectGuidanceDrift fires first because \"these approved aliases no longer agree\" is operationally more useful than \"one source hash changed\". Both are fail-closed and both return the task to Sol. This documents the intended behaviour of the shipped engine; do not change the code to match older prose that listed SourceChanged first.", "typed_error": null, "behaviour": "documentation of evaluation order" },
     { "condition": "repository identity mismatch on any of toplevel / git dir / origin url / root commit", "typed_error": "ProjectGuidanceRepositoryMismatch", "behaviour": "fail closed" },
-    { "condition": "a source file SHA-256 differs from this manifest", "typed_error": "ProjectGuidanceSourceChanged", "behaviour": "fail closed; reapproval required" },
-    { "condition": "an ALIASES_BYTE_IDENTICAL pair no longer has equal hashes", "typed_error": "ProjectGuidanceDrift", "behaviour": "fail closed (addendum §7 V1 preference)" },
+    { "condition": "an ALIASES_BYTE_IDENTICAL pair no longer has equal hashes", "typed_error": "ProjectGuidanceDrift", "behaviour": "fail closed (addendum §7 V1 preference); evaluated BEFORE the generic source-hash condition below" },
+    { "condition": "a source file SHA-256 differs from this manifest and the file is not half of a diverged alias pair", "typed_error": "ProjectGuidanceSourceChanged", "behaviour": "fail closed; reapproval required" },
     { "condition": "root pair acquires CONFLICTING eligible guidance", "typed_error": "ProjectGuidanceDrift", "behaviour": "fail closed. Mere non-identity of the root pair is acknowledged in this manifest and does NOT fail (rulings §6)." },
     { "condition": "a projection artifact SHA-256 differs from this manifest", "typed_error": "ProjectGuidanceProjectionChanged", "behaviour": "fail closed" },
     { "condition": "selected scope has classification CLASSIFIED_NOT_APPROVED or approval_state != approved", "typed_error": "ProjectGuidanceNotApproved", "behaviour": "fail closed; NO root-only fallback (rulings §7)" },
@@ -625,7 +626,7 @@
       "root_plus_kavya":  { "artifacts": ["fva-root.policy.v1.txt", "fva-root.source.v1.txt", "fva-kavya.policy.v1.txt", "fva-kavya.source.v1.txt", "graph-refresh.gated-off.v1.txt"], "bytes": 29931, "approx_tokens": 7483, "source_bytes_replaced": 144081, "reduction_pct": 79.2 },
       "root_plus_slic":   { "bytes": 21203, "approx_tokens": 5301, "source_bytes_replaced": 86473, "reduction_pct": 75.5 },
       "root_plus_flico":  { "bytes": 23087, "approx_tokens": 5772, "source_bytes_replaced": 88952, "reduction_pct": 74.0 },
-      "worst_legitimate_cross_scope": { "note": "root + the two largest approved subscopes", "bytes": 40743, "approx_tokens": 10186 }
+      "worst_legitimate_cross_scope": { "note": "root + the two largest approved subscopes (Kavya + Flico). CORRECTED 2026-08-20 by Sol ruling: the previously recorded 40743 / 10186 did not match measurement. Remeasure rather than carrying either number forward if the projection contents change again before approval.", "bytes": 41739, "approx_tokens": 10435 }
     },
     "fable_review": {
       "root_only":       { "bytes": 4903,  "approx_tokens": 1226 },

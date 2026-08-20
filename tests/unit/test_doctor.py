@@ -175,3 +175,119 @@ def test_doctor_never_writes_to_the_repository(stub_dir: Path) -> None:
     _run_snippet("check_binary_version definitely-not-installed", stub_dir)
 
     assert sorted(os.listdir(DOCTOR.parent)) == before
+
+
+# ---------------------------------------------------------------------------
+# Gate 4.5 — unconditional-flag presence probe (`check_cli_flag_present`)
+# ---------------------------------------------------------------------------
+#
+# ``runner.build_argv`` emits ``--safe-mode`` on every worker and every Fable
+# invocation. A CLI release that renamed or removed it would fail EVERY
+# dispatch at launch, so its absence has to be a doctor failure. These tests
+# use stub binaries only; the machine's real CLI is never probed here.
+
+HELP_WITH_FLAGS = (
+    "#!/bin/sh\n"
+    "cat <<'EOF'\n"
+    "Usage: claude [options]\n"
+    "  --safe-mode           Start with all customizations disabled\n"
+    "  --strict-mcp-config   Only use MCP servers from --mcp-config\n"
+    "  --json-schema <s>     Structured output schema\n"
+    "EOF\n"
+)
+
+
+def test_flag_probe_passes_when_every_flag_is_present(stub_dir: Path) -> None:
+    _stub(stub_dir, "claudeish", HELP_WITH_FLAGS)
+
+    result = _run_snippet(
+        'run_check "flags" check_cli_flag_present claudeish '
+        "--safe-mode --strict-mcp-config --json-schema\n"
+        'printf "FAILURES=%s\\n" "$FAILURES"\n',
+        stub_dir,
+    )
+
+    assert result.stdout.startswith("PASS  flags")
+    assert "FAILURES=0" in result.stdout
+
+
+def test_flag_probe_fails_closed_when_safe_mode_disappears(stub_dir: Path) -> None:
+    """The whole point: a CLI that dropped --safe-mode must turn the gate red."""
+    _stub(
+        stub_dir,
+        "claudeish",
+        HELP_WITH_FLAGS.replace(
+            "  --safe-mode           Start with all customizations disabled\n", ""
+        ),
+    )
+
+    result = _run_snippet(
+        'run_check "flags" check_cli_flag_present claudeish '
+        "--safe-mode --strict-mcp-config --json-schema\n"
+        'printf "FAILURES=%s\\n" "$FAILURES"\n',
+        stub_dir,
+    )
+
+    assert result.stdout.startswith("FAIL  flags")
+    assert "--safe-mode" in result.stdout
+    assert "FAILURES=1" in result.stdout
+
+
+def test_flag_probe_fails_closed_on_a_nonzero_help(stub_dir: Path) -> None:
+    """DEFECT-L2-01's shape must not come back: a broken CLI is never PASS."""
+    _stub(
+        stub_dir,
+        "claudeish",
+        "#!/bin/sh\necho 'Error: claude native binary not installed.' >&2\nexit 1\n",
+    )
+
+    result = _run_snippet(
+        'run_check "flags" check_cli_flag_present claudeish --safe-mode\n'
+        'printf "FAILURES=%s\\n" "$FAILURES"\n',
+        stub_dir,
+    )
+
+    assert result.stdout.startswith("FAIL  flags")
+    assert "FAILURES=1" in result.stdout
+
+
+def test_flag_probe_fails_closed_on_empty_help(stub_dir: Path) -> None:
+    """A stub that exits 0 printing nothing is not evidence of anything."""
+    _stub(stub_dir, "claudeish", "#!/bin/sh\nexit 0\n")
+
+    result = _run_snippet(
+        'run_check "flags" check_cli_flag_present claudeish --safe-mode\n'
+        'printf "FAILURES=%s\\n" "$FAILURES"\n',
+        stub_dir,
+    )
+
+    assert result.stdout.startswith("FAIL  flags")
+    assert "FAILURES=1" in result.stdout
+
+
+def test_flag_probe_fails_closed_when_the_binary_is_absent(stub_dir: Path) -> None:
+    stub_dir.mkdir(parents=True, exist_ok=True)
+
+    result = _run_snippet(
+        'run_check "flags" check_cli_flag_present definitely-not-installed --safe-mode\n'
+        'printf "FAILURES=%s\\n" "$FAILURES"\n',
+        stub_dir,
+    )
+
+    assert result.stdout.startswith("FAIL  flags")
+    assert "FAILURES=1" in result.stdout
+
+
+def test_doctor_script_contains_no_exit_status_swallowing_or_true(stub_dir: Path) -> None:
+    """DEFECT-L2-01 regression, textual: `|| true` must not reappear in CODE.
+
+    The two comment blocks that *describe* the defect are allowed to name it;
+    an executable line that swallows an exit status is not.
+    """
+    code = [
+        line
+        for line in DOCTOR.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    offenders = [line for line in code if "|| true" in line or "|| :" in line]
+    assert offenders == []

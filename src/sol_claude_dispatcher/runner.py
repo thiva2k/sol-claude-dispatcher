@@ -76,6 +76,8 @@ __all__ = [
     "build_fable_invocation",
     "build_worker_argv",
     "build_fable_argv",
+    "worker_policy_text",
+    "fable_policy_text",
     "CLI_CAPABILITIES",
     "SUBAGENT_TOOL_NAMES",
     "ALWAYS_DISALLOWED_TOOLS",
@@ -539,6 +541,22 @@ def _read_text_file(path: Path, *, what: str) -> str:
     return text
 
 
+def worker_policy_text(config: Config) -> str:
+    """The dispatcher-authored worker policy, read from its configured file.
+
+    Exposed so the context composer (Gate 4.5 §14) can place this text as the
+    ``DISPATCHER_SYSTEM_POLICY`` section rather than having the invocation
+    builder read it privately. When no context is composed the builders still
+    read it themselves, so the disabled path is unchanged.
+    """
+    return _read_text_file(config.worker_policy_file, what="Worker policy")
+
+
+def fable_policy_text(config: Config) -> str:
+    """The dispatcher-authored reviewer policy, read from its configured file."""
+    return _read_text_file(config.fable_policy_file, what="Fable reviewer policy")
+
+
 def schema_for_claude_cli(path: Path, *, what: str) -> str:
     """Project a canonical schema file into the string handed to ``--json-schema``.
 
@@ -607,6 +625,7 @@ def build_worker_invocation(
     timeout_seconds: int | None = None,
     base_env: Mapping[str, str] | None = None,
     grace_seconds: float = DEFAULT_GRACE_SECONDS,
+    append_system_prompt: str | None = None,
 ) -> WorkerInvocation:
     """Resolve an implementation-worker invocation from config + envelope.
 
@@ -614,6 +633,11 @@ def build_worker_invocation(
     (§18). The environment is always built through
     :func:`security.worker_environment`, so ``SOL_WORKER=1`` and the depth
     marker are present and dispatcher secrets are stripped (§22 layers 4, 7).
+
+    ``append_system_prompt`` overrides what goes into ``--append-system-prompt``.
+    It exists for the Gate 4.5 §14 composer, which places the worker policy as
+    one labelled section among several. ``None`` keeps the pre-Gate-4.5
+    behaviour exactly: read the configured policy file and emit its text.
     """
     if include_worktree is None:
         include_worktree = resume_session_id is None
@@ -634,8 +658,10 @@ def build_worker_invocation(
         json_schema=schema_for_claude_cli(
             config.worker_schema_file, what="Worker result schema"
         ),
-        append_system_prompt=_read_text_file(
-            config.worker_policy_file, what="Worker policy"
+        append_system_prompt=(
+            append_system_prompt
+            if append_system_prompt is not None
+            else worker_policy_text(config)
         ),
         tools=list(config.claude.worker_tools),
         disallowed_tools=_deduped(config.claude.disallowed_tools, ALWAYS_DISALLOWED_TOOLS),
@@ -662,11 +688,16 @@ def build_fable_invocation(
     timeout_seconds: int | None = None,
     base_env: Mapping[str, str] | None = None,
     grace_seconds: float = DEFAULT_GRACE_SECONDS,
+    append_system_prompt: str | None = None,
 ) -> WorkerInvocation:
     """Resolve the read-only Fable review invocation (§7.3, §19).
 
     Always a fresh session: Fable never resumes the worker's conversation, and
     never receives a worktree — it reads the one the worker already produced.
+
+    ``append_system_prompt`` overrides what goes into ``--append-system-prompt``
+    for the Gate 4.5 §15 review context. ``None`` reads the configured reviewer
+    policy file, exactly as before.
     """
     timeout = timeout_seconds if timeout_seconds is not None else envelope.execution.timeout_seconds
     timeout = config.clamp_timeout(timeout)
@@ -693,8 +724,10 @@ def build_fable_invocation(
         json_schema=schema_for_claude_cli(
             config.fable_schema_file, what="Fable review schema"
         ),
-        append_system_prompt=_read_text_file(
-            config.fable_policy_file, what="Fable reviewer policy"
+        append_system_prompt=(
+            append_system_prompt
+            if append_system_prompt is not None
+            else fable_policy_text(config)
         ),
         tools=tools,
         disallowed_tools=_deduped(

@@ -43,9 +43,13 @@ import subprocess
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .errors import GitEvidenceCollectionFailed, InvalidRepository
 from .models import ScopeSpec, worktree_name_for
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .project_guidance import RepositoryIdentity
 
 __all__ = [
     "DiffEvidence",
@@ -53,6 +57,7 @@ __all__ = [
     "is_git_repository",
     "git_top_level",
     "git_top_level_or_none",
+    "collect_repository_identity",
     "resolve_base_commit",
     "create_worktree_name",
     "worktree_path_for",
@@ -288,6 +293,61 @@ def git_top_level_or_none(path: Path) -> Path | None:
         return git_top_level(path)
     except InvalidRepository:
         return None
+
+
+def collect_repository_identity(repo: Path) -> "RepositoryIdentity":
+    """Measure the four identity facts project guidance pins (Gate 4.5 §16).
+
+    Run this against the **canonical primary repository** named by
+    ``envelope.repository.root``, never against a dispatcher-created worktree.
+    Inside a linked worktree ``--show-toplevel`` answers with the worktree path
+    and ``--absolute-git-dir`` with ``<primary>/.git/worktrees/<name>``; both
+    would mismatch the manifest pin and refuse a legitimate dispatch
+    (RULINGS §4, Lane D R2).
+
+    Three traps this function closes, none of which the guidance engine can see:
+
+    * ``git rev-parse --git-dir`` returns the literal string ``.git`` at the top
+      level, so ``--absolute-git-dir`` is used instead;
+    * a repository with **more than one root commit** is a fail-closed
+      condition, not a "pick the first" — the caller must never guess which
+      history the pin meant;
+    * a repository with no ``origin`` remote yields ``""`` rather than an error,
+      because "no origin" is a perfectly measurable fact and the engine's
+      four-field comparison is where it becomes a refusal.
+    """
+    from .project_guidance import RepositoryIdentity
+
+    toplevel = _git_checked(
+        ["rev-parse", "--show-toplevel"], cwd=repo, what="repository toplevel"
+    ).stdout.strip()
+    git_dir = _git_checked(
+        ["rev-parse", "--absolute-git-dir"], cwd=repo, what="repository git dir"
+    ).stdout.strip()
+
+    # `git config --get` exits 1 when the key is simply absent. That is not a
+    # failure to measure; it is the measurement.
+    origin = _run_git(["config", "--get", "remote.origin.url"], cwd=repo)
+    origin_url = origin.stdout.strip() if origin.returncode == 0 else ""
+
+    roots = _git_checked(
+        ["rev-list", "--max-parents=0", "HEAD"], cwd=repo, what="repository root commit"
+    ).stdout.split()
+    if len(roots) != 1:
+        raise GitEvidenceCollectionFailed(
+            "The repository does not have exactly one root commit, so its "
+            "identity cannot be pinned.",
+            details={"repo": str(repo), "root_commits": roots[:8], "count": len(roots)},
+            remediation="A guidance manifest pins one root commit. Do not pick "
+            "one of several; decide which history is canonical and record it.",
+        )
+
+    return RepositoryIdentity(
+        toplevel=toplevel,
+        git_dir=git_dir,
+        origin_url=origin_url,
+        root_commit=roots[0],
+    )
 
 
 def resolve_base_commit(repo: Path, base_ref: str) -> str:
