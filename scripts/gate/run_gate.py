@@ -59,7 +59,9 @@ from _common import (  # noqa: E402
     stray_sentinel_scan,
     write_evidence,
 )
+import boundary  # noqa: E402
 import claims  # noqa: E402
+import mcp_stdio  # noqa: E402
 from probes import PROBES  # noqa: E402
 
 from sol_claude_dispatcher.config import load_config  # noqa: E402
@@ -125,6 +127,7 @@ class Gate:
         self.observations: dict[str, str] = {}
         self.size_facts: dict[str, Any] = {}
         self.last_spec: Any = None
+        self.mcp_task_id: str | None = None
         self.fx = fixture_mod.build(self.root)
         subprocess.run(  # noqa: S603 - argv list, no shell
             ["git", "remote", "add", "origin", manifests_mod.FAKE_ORIGIN],
@@ -186,6 +189,42 @@ class Gate:
         self.assertions.append(a)
         eprint(f"  [N/T ] {ident}: {statement} — {reason}")
         return a
+
+    def new_session_id(self) -> str:
+        return str(uuid.uuid4())
+
+    def live_or_not_testable(self, ident: str, surface: str, inv, evidence: str) -> bool:
+        """Guard every live assertion against an environment-poisoned run.
+
+        A 429 usage limit returns a well-formed envelope with zero tokens, and
+        a timeout or a CLI failure returns nothing at all. Scoring any of those
+        as PASS or FAIL would be inventing evidence, so they become
+        NOT-TESTABLE and the arm has to be re-run. This is the hardened
+        detection the brief requires be kept permanently.
+        """
+        parsed = inv.parsed or {}
+        api_error = parsed.get("api_error_status")
+        if api_error:
+            self.not_testable(
+                ident, surface, "the probe engaged the CLI",
+                f"HTTP {api_error} from the API ({inv.result_text[:120]!r}) — a "
+                f"zero-token envelope. Nothing about this probe is evidence. "
+                f"Re-run the arm.",
+            )
+            return False
+        if inv.timed_out:
+            self.not_testable(ident, surface, "the probe engaged the CLI",
+                              "the invocation timed out; no model turn happened")
+            return False
+        if inv.exit_code is None:
+            self.not_testable(ident, surface, "the probe engaged the CLI",
+                              f"the process never started: {inv.stderr[:200]!r}")
+            return False
+        if inv.parsed is None:
+            self.not_testable(ident, surface, "the probe engaged the CLI",
+                              "the CLI returned no parseable result envelope")
+            return False
+        return True
 
     def tok(self, key: str) -> str:
         return self.fx.sentinels[key].token
@@ -790,14 +829,14 @@ def main() -> int:
         claims.claim_M_fable(gate, live=live)
         if live:
             claims.claims_KL_preamble(gate)
+    if "boundary" in arms:
+        boundary.run(gate, live=("claims-live" in arms or "boundary-live" in arms))
+    if "mcp" in arms:
+        mcp_stdio.run(gate, live=True)
     if "safe" in arms:
         gate.arm_live("safe", DEFAULT_ADMISSIBLE)
     if "dispatcher" in arms:
         gate.arm_live("dispatcher", DEFAULT_ADMISSIBLE)
-    if "claims-live" in arms:
-        # Last: it permanently pads the fixture's artifacts to production size,
-        # which would make every later probe needlessly expensive.
-        claims.claim_I_size(gate)
     if "claims" in arms or "claims-live" in arms:
         claims.claim_S_doctor(gate, "after")
 
