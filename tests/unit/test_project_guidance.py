@@ -867,10 +867,26 @@ class TestApprovalGate:
             _project(engine, repo, ["README.md"])
         assert exc.value.details["approval_state"] == "PENDING_SOL"
 
-    def test_shipped_manifest_is_still_pending_sol(self):
-        """The real manifest must not project until Sol approves it."""
+    def test_shipped_manifest_is_approved_by_sol(self):
+        """The real manifest carries Sol's approval of the Gate 4.5 artifact.
+
+        This assertion replaced ``test_shipped_manifest_is_still_pending_sol``
+        at the commissioning -> production transition (2026-08-21). It is not a
+        weakening of the approval gate: the gate itself lives in
+        ``ProjectGuidanceEngine`` and is proved by
+        ``test_manifest_pending_approval_refuses_everything`` just above, which
+        still shows that a non-APPROVED manifest projects nothing.
+
+        What changed is the source-controlled artifact's own state. The
+        manifest is tracked in git, so its approval state is a portable
+        property of this repository rather than a property of one host, and the
+        test that pins it moves with it. ``approval.version`` stays ``"v1"``
+        because resume records compare the recorded approval version against
+        the current one; bumping it would invalidate stored sessions.
+        """
         manifest = load_manifest(REAL_MANIFEST)
-        assert manifest.approval.state == "PENDING_SOL"
+        assert manifest.approval.state == "APPROVED"
+        assert manifest.approval.version == "v1"
 
 
 # ---------------------------------------------------------------------------

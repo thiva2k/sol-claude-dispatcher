@@ -25,9 +25,15 @@ from pathlib import Path
 
 import pytest
 
-from sol_claude_dispatcher.config import load_config
+from sol_claude_dispatcher.config import (
+    DISPATCHER_AUTHORED_RESERVE_BYTES,
+    MAX_APPEND_SYSTEM_PROMPT_BYTES,
+    load_config,
+    load_config_from_mapping,
+)
 from sol_claude_dispatcher.errors import (
     ApprovedSkillChanged,
+    ConfigurationError,
     ProjectGuidanceNotApproved,
     ProjectGuidanceResumeDrift,
     ProjectGuidanceSourceChanged,
@@ -713,12 +719,74 @@ class TestEphemeralEnablement:
         assert "KAVYA-SOURCE-ARTIFACT-SENTINEL" in prompt
         assert result["state"] == "awaiting_sol_review"
 
-    def test_production_config_stays_inert(self):
-        """The shipped production config must not enable either projection."""
+    def test_production_config_holds_its_state_independent_invariants(self):
+        """Invariants the host-local production config must hold in EITHER state.
+
+        This replaced ``test_production_config_stays_inert`` at the
+        commissioning -> production transition (2026-08-21).
+
+        ``config/dispatcher.toml`` is gitignored and host-local. Whether
+        projection is currently switched on is an OPERATIONAL property of one
+        deployment, not a portable property of this source tree: a clone, a
+        recovery environment, a dev host or a freshly provisioned dispatcher
+        may all legitimately have it off, and the activated production host has
+        it on. Pinning ``enabled is False`` here made repository correctness
+        depend on the deployment state of the machine the suite happened to run
+        on, which is the wrong thing for a repository test to own.
+
+        So this test asserts only what must hold in either legitimate state.
+        The activation state itself is checked deliberately and explicitly by
+        ``scripts/check-production-activation.py``, which takes the expected
+        state as a required argument rather than inferring it.
+
+        Deliberately NOT relaxed alongside this:
+        ``test_example_config_stays_inert`` (the shipped default must remain
+        safe-off) and ``test_no_environment_variable_can_enable_projection``
+        (no env hatch exists) both keep their original assertions.
+        """
         production = load_config(PROJECT_ROOT / "config" / "dispatcher.toml")
-        assert production.skills.enabled is False
-        assert production.project_guidance.enabled is False
+
+        # The approved production boundary is unchanged by activation.
         assert production.security.allowed_repository_roots == ["/home/dev/full-voice-agent"]
+
+        # Projection stays controlled projection, never the native runtimes.
+        assert production.skills.mode == "projected"
+        assert production.project_guidance.mode == "projected"
+
+        # Drift stays fail-closed in both states.
+        assert production.skills.fail_on_drift is True
+        assert production.project_guidance.fail_on_drift is True
+
+        # B1: the configured caps still fit the inline transport ceiling.
+        composed = (
+            production.skills.max_projected_bytes
+            + production.project_guidance.max_projected_bytes
+            + DISPATCHER_AUTHORED_RESERVE_BYTES
+        )
+        assert composed <= MAX_APPEND_SYSTEM_PROMPT_BYTES
+
+        # Both flags are genuine booleans, whichever way they are set.
+        assert isinstance(production.skills.enabled, bool)
+        assert isinstance(production.project_guidance.enabled, bool)
+
+    def test_native_projection_mode_stays_impossible_for_the_production_config(self):
+        """No edit to the host-local config can select a native runtime."""
+        import tomllib
+
+        raw = tomllib.loads((PROJECT_ROOT / "config" / "dispatcher.toml").read_bytes().decode())
+
+        for section in ("skills", "project_guidance"):
+            data = json.loads(json.dumps(raw))
+            data[section]["mode"] = "native"
+            with pytest.raises(ConfigurationError) as exc:
+                load_config_from_mapping(
+                    data, source_path="<native-attempt>", project_root=PROJECT_ROOT
+                )
+            issues = exc.value.details["issues"]
+            assert any(
+                issue["location"] == f"{section}.mode" and "projected" in issue["problem"]
+                for issue in issues
+            ), issues
 
     def test_example_config_stays_inert(self):
         # The example carries the /CONFIGURE/ME placeholder root on purpose, so

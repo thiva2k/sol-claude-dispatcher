@@ -560,9 +560,13 @@ class TestConfigCeiling:
             + DISPATCHER_AUTHORED_RESERVE_BYTES
         )
         assert composed <= MAX_APPEND_SYSTEM_PROMPT_BYTES
-        # Untouched by this fix: both projections stay inert.
-        assert config.skills.enabled is False
-        assert config.project_guidance.enabled is False
+        # This test owns TRANSPORT SAFETY, not deployment state. It used to also
+        # assert both projections were inert; those two assertions were removed
+        # at the commissioning -> production transition (2026-08-21) because they
+        # belonged to neither B1 nor this file. The host-local config's
+        # activation state is checked explicitly, against a required expected
+        # value, by scripts/check-production-activation.py. B1 holds either way:
+        # the caps are what the transport ceiling constrains, not the flags.
 
     def test_the_shipped_example_config_is_within_the_budget(self):
         import tomllib

@@ -10,9 +10,9 @@
   ],
   "approval": {
     "version": "v1",
-    "date": "2026-08-20",
-    "state": "PENDING_SOL",
-    "note": "Every entry with classification CURATED_* is drafted and self-consistent but is not live until Sol marks approval.state = APPROVED. The engine MUST refuse to project any entry while state != APPROVED."
+    "date": "2026-08-21",
+    "state": "APPROVED",
+    "note": "Sol approved this exact Gate 4.5 manifest on 2026-08-21. Approval covers the reviewed artifact as it stands: no source hash, artifact hash, scope definition, classification, projection text, review mapping or repository identity was altered by the approval. Scopes classified CLASSIFIED_NOT_APPROVED (e.g. HattonHills) remain unapproved and continue to fail closed. The engine MUST still refuse to project any entry while state != APPROVED."
   },
 
   "provenance_classes": {
