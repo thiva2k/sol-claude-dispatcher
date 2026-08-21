@@ -221,6 +221,30 @@ class WorkerContext:
         return tuple(b.section for b in self.blocks)
 
     @property
+    def skill_ids(self) -> tuple[str, ...]:
+        """Selected approved-skill ids. Ids only — never the projected text.
+
+        Read-only view for the invocation builders, so a transport refusal
+        (``ContextTooLarge``, B1) can name the selected profile without the
+        runner reaching into a projection object. Composition, section order
+        and the fingerprint recipe are untouched by this.
+        """
+        return (
+            self.skill_projection.skill_ids
+            if self.skill_projection is not None
+            else ()
+        )
+
+    @property
+    def guidance_scope_ids(self) -> tuple[str, ...]:
+        """Selected project-guidance logical scope ids (e.g. ``pg.fva.kavya``)."""
+        return (
+            self.guidance_projection.logical_ids
+            if self.guidance_projection is not None
+            else ()
+        )
+
+    @property
     def scanned_artifacts(self) -> tuple[str, ...]:
         """Guidance artifacts the engine content-classified (``SOURCE_DERIVED``)."""
         return (

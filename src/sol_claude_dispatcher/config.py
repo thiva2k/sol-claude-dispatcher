@@ -24,6 +24,7 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from .errors import ConfigurationError
@@ -38,6 +39,10 @@ __all__ = [
     "SkillsSettings",
     "LoggingSettings",
     "Config",
+    "MEASURED_SINGLE_ARGV_LIMIT_BYTES",
+    "MAX_APPEND_SYSTEM_PROMPT_BYTES",
+    "DISPATCHER_AUTHORED_RESERVE_BYTES",
+    "MAX_PROJECTED_CONTEXT_BYTES",
     "MAX_PROJECTED_BYTES_CEILING",
     "MAX_GUIDANCE_BYTES_CEILING",
     "ProjectGuidanceSettings",
@@ -235,13 +240,67 @@ class ClaudeSettings(_StrictSection):
         return v
 
 
+# ---------------------------------------------------------------------------
+# Transport ceiling for the composed system prompt (BLOCKER B1)
+# ---------------------------------------------------------------------------
+#
+# ``--append-system-prompt`` is emitted INLINE, as ONE argv element (the CLI
+# takes a string, not a path — ``CLI_CAPABILITIES["append_system_prompt_file"]``
+# is False). Linux therefore applies ``MAX_ARG_STRLEN`` to it.
+#
+# Measured facts, from Lane G's live adversarial gate (``GATE-LIVE-RESULT.md``,
+# claims ``I-0`` … ``I-4``) — recorded here because these numbers, not a guess,
+# are why the ceiling below is what it is:
+#
+#   * **131,071 bytes** — the host's hard cap on a SINGLE argv element,
+#     measured by bisection against ``/bin/true``. Above it ``execve`` fails
+#     with ``E2BIG``, the worker never starts, and (before this fix) the
+#     dispatcher surfaced a raw ``OSError`` instead of a typed error.
+#   * **128,992 bytes** — launched live, answered, and came back with nothing
+#     truncated. A large prompt is not silently trimmed by the CLI.
+#   * **144,486 bytes** — could not launch at all.
+#   * **79,406 bytes** — the intended first-task shape (curated root + Kavya
+#     guidance + core skill pack + preamble + policy). PASSES, with substantial
+#     headroom.
+#   * **184,718 bytes** — the ceiling this config file used to *permit*
+#     (skills 120,000 + guidance 60,000 + preamble 1,834 + policy 2,884). That
+#     is 41% above what the OS accepts: INVALID, and refused at load from here
+#     on rather than clamped, so the operator learns their requested policy
+#     cannot be honoured safely.
+#   * **142,006 bytes** — the measured production worst case. Under V1 inline
+#     transport that composition is **not supported** and MUST be refused; it
+#     is not a shape this dispatcher can carry.
+MEASURED_SINGLE_ARGV_LIMIT_BYTES = 131_071
+
+#: The V1 hard ceiling on the FINAL composed ``--append-system-prompt`` value,
+#: in UTF-8 **bytes** (never Python characters). 120 KiB, ~8 KiB below the
+#: measured kernel cliff — deliberate reserve, because the kernel counts the
+#: whole ``argv`` + ``envp`` block and remains the authority.
+MAX_APPEND_SYSTEM_PROMPT_BYTES = 122_880
+
+#: How much of the ceiling is reserved for the dispatcher's own authored text —
+#: the worker/reviewer policy file and the envelope-precedence preamble — which
+#: no ``[skills]`` or ``[project_guidance]`` cap covers. Measured on the
+#: production shape: preamble 1,834 + policy 2,884 = 4,718 bytes. 8 KiB leaves
+#: room for those files to grow without silently eating the transport budget.
+#: It is a *reserve*, not a cap: the authoritative check is the measurement of
+#: the final composed payload in ``runner.build_argv``.
+DISPATCHER_AUTHORED_RESERVE_BYTES = 8_192
+
+#: What is left for projected material once the reserve is set aside. Every
+#: configurable projection ceiling is bounded by this, individually and in sum.
+MAX_PROJECTED_CONTEXT_BYTES = (
+    MAX_APPEND_SYSTEM_PROMPT_BYTES - DISPATCHER_AUTHORED_RESERVE_BYTES
+)
+
+
 #: Absolute ceiling on projected skill guidance, independent of what an
 #: operator writes in the config. The Gate 4.5 §18 measurement puts the
 #: deterministic worst-case profile at ~105 KB including co-projected support
-#: files; the recommended cap is 120,000 bytes. A config asking for more than
-#: this ceiling is refused rather than clamped: nothing this system does should
-#: put a quarter of a megabyte of imported prose in front of a worker.
-MAX_PROJECTED_BYTES_CEILING = 200_000
+#: files. It used to be 200,000 bytes, which the transport cannot carry; it is
+#: now the transport budget itself. A config asking for more is refused rather
+#: than clamped.
+MAX_PROJECTED_BYTES_CEILING = MAX_PROJECTED_CONTEXT_BYTES
 
 
 class SkillsSettings(_StrictSection):
@@ -262,8 +321,13 @@ class SkillsSettings(_StrictSection):
     enabled: bool = False
     mode: str = "projected"
     fail_on_drift: bool = True
+    #: 72,000 bytes: what remains of the transport budget once the guidance
+    #: default is set aside. It covers the intended first-task core pack
+    #: (44,757 bytes measured) with headroom, and deliberately does NOT cover
+    #: the 95,333-byte worst-case profile — that profile cannot be transported
+    #: inline under V1 at all (see the B1 block above).
     max_projected_bytes: int = Field(
-        default=120_000, ge=1, le=MAX_PROJECTED_BYTES_CEILING
+        default=72_000, ge=1, le=MAX_PROJECTED_BYTES_CEILING
     )
     #: The source-controlled approval manifest (§9). Never auto-rewritten.
     manifest_path: str = "./config/approved-skills.json"
@@ -303,10 +367,10 @@ class SkillsSettings(_StrictSection):
 
 #: Absolute ceiling on projected project guidance. The measured worst
 #: legitimate cross-scope shape (curated root + the two largest approved
-#: subproject projections + the graph-refresh clause) is ~41 KB; 60,000 bytes
-#: leaves headroom for a future approved subproject without ever letting a
-#: quarter of a megabyte of project prose reach a worker.
-MAX_GUIDANCE_BYTES_CEILING = 120_000
+#: subproject projections + the graph-refresh clause) is 41,955 bytes. Bounded
+#: by the same transport budget as the skill cap (B1): what an operator may ask
+#: for is limited by what ``execve`` will actually carry, not by taste.
+MAX_GUIDANCE_BYTES_CEILING = MAX_PROJECTED_CONTEXT_BYTES
 
 
 class ProjectGuidanceSettings(_StrictSection):
@@ -327,8 +391,11 @@ class ProjectGuidanceSettings(_StrictSection):
     enabled: bool = False
     mode: str = "projected"
     fail_on_drift: bool = True
+    #: 42,000 bytes: covers the measured production worst-case guidance shape
+    #: (41,955 bytes) exactly, and no more — the rest of the transport budget
+    #: belongs to the skill pack.
     max_projected_bytes: int = Field(
-        default=60_000, ge=1, le=MAX_GUIDANCE_BYTES_CEILING
+        default=42_000, ge=1, le=MAX_GUIDANCE_BYTES_CEILING
     )
     #: The reviewed, source-controlled approval manifest. Never auto-rewritten.
     manifest_path: str = "./config/approved-guidance.json"
@@ -403,6 +470,54 @@ class Config(BaseModel):
     source_path: str | None = None
     #: Directory relative paths in this config resolve against.
     project_root: str = "."
+
+    # -- cross-section invariants -----------------------------------------
+
+    @model_validator(mode="after")
+    def _composed_context_fits_the_transport(self) -> "Config":
+        """Refuse a configuration whose composed ceiling ``execve`` cannot carry.
+
+        BLOCKER B1. Per-section caps are checked individually above, but a sum
+        of individually legal caps is not automatically legal: the two
+        projections and the dispatcher's own authored text all end up in ONE
+        argv element, and Linux caps that element at 131,071 bytes. The old
+        defaults permitted 184,718 bytes — 41% above what the OS accepts — so
+        the dispatcher would compose a payload, hand it to ``execve``, and get
+        ``E2BIG`` with no worker and no typed error.
+
+        Fail closed at load, and do NOT clamp: an operator who asked for a
+        larger context must learn that their policy cannot be honoured, not
+        silently receive a smaller one. The authoritative check is still the
+        measurement of the final composed payload in ``runner.build_argv``;
+        this one exists so an impossible policy is rejected before any task
+        depends on it.
+
+        Enforced whether or not the sections are enabled: the config states a
+        policy, and a policy that cannot be transported is wrong while it is
+        switched off too.
+        """
+        projected = (
+            self.skills.max_projected_bytes
+            + self.project_guidance.max_projected_bytes
+        )
+        composed = projected + DISPATCHER_AUTHORED_RESERVE_BYTES
+        if composed > MAX_APPEND_SYSTEM_PROMPT_BYTES:
+            raise ValueError(
+                "the composed context ceiling this configuration requests "
+                f"({composed} bytes = skills {self.skills.max_projected_bytes} "
+                f"+ project_guidance {self.project_guidance.max_projected_bytes} "
+                f"+ {DISPATCHER_AUTHORED_RESERVE_BYTES} reserved for the worker "
+                "policy and the envelope-precedence preamble) exceeds the "
+                f"{MAX_APPEND_SYSTEM_PROMPT_BYTES}-byte transport ceiling for a "
+                "single --append-system-prompt argv element. The measured Linux "
+                f"limit is {MEASURED_SINGLE_ARGV_LIMIT_BYTES} bytes; a payload "
+                "above it cannot be launched at all. Lower "
+                "skills.max_projected_bytes and/or "
+                "project_guidance.max_projected_bytes so they sum to at most "
+                f"{MAX_PROJECTED_CONTEXT_BYTES} bytes. This ceiling is not "
+                "clamped down for you on purpose"
+            )
+        return self
 
     # -- derived paths ----------------------------------------------------
 

@@ -45,6 +45,7 @@ Verified on Claude Code 2.1.237 (Gate 4.5, ``SAFEMODE-VERIFICATION.md``):
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import os
 import signal
@@ -54,11 +55,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
-from .config import Config
+from .config import (
+    MAX_APPEND_SYSTEM_PROMPT_BYTES,
+    MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+    Config,
+)
 from .errors import (
     ClaudeBinaryNotFound,
     ClaudeExecutionFailed,
     ConfigurationError,
+    ContextTooLarge,
     InternalDispatcherError,
 )
 from .models import TaskEnvelope
@@ -87,6 +93,8 @@ __all__ = [
     "DEFAULT_GRACE_SECONDS",
     "MAX_CAPTURED_BYTES",
     "MAX_RECOVERED_BYTES",
+    "MAX_APPEND_SYSTEM_PROMPT_BYTES",
+    "MEASURED_SINGLE_ARGV_LIMIT_BYTES",
 ]
 
 #: Feature flags for the installed Claude CLI. Keyed by flag name; values are
@@ -252,6 +260,18 @@ class WorkerInvocation:
     #: ``CLI_CAPABILITIES["max_turns"]`` is False (the flag does not exist on
     #: Claude Code 2.1.234). Kept here so the gate has something to gate.
     max_turns: int | None = None
+    # -- diagnostic identity, reported only in a ContextTooLarge refusal (B1) --
+    #
+    # These never reach argv and never change the invocation. They exist so a
+    # transport refusal can name the selected profile, letting Sol decide
+    # whether to narrow the task — which is the whole point of refusing rather
+    # than silently dropping part of the approved context.
+    #: The task envelope this invocation belongs to, when there is one.
+    task_id: str | None = None
+    #: The approved-skill ids selected for this run (ids only, never text).
+    skill_ids: tuple[str, ...] = ()
+    #: The project-guidance logical scope ids selected for this run.
+    guidance_scope_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -360,8 +380,14 @@ def build_argv(spec: WorkerInvocation) -> list[str]:
     Order is fixed by ``docs/INTERFACES.md`` §7 and must not drift: the prompt
     is the single trailing positional, and the variadic tool flags are always
     followed by a further flag so they cannot swallow it.
+
+    Raises:
+        ContextTooLarge: the composed ``--append-system-prompt`` value is above
+            the transport ceiling. Raised here, before any argv exists, so no
+            call site can accidentally reach ``execve`` with it (B1).
     """
     _assert_invocation_sane(spec)
+    _assert_context_fits_the_transport(spec)
 
     argv: list[str] = [
         spec.binary,
@@ -448,6 +474,90 @@ def build_argv(spec: WorkerInvocation) -> list[str]:
             details={"flags": sorted(banned)},
         )
     return argv
+
+
+#: How many selected ids a ContextTooLarge payload quotes. Bounded because §29
+#: says an error crossing the MCP boundary stays short; the count is always
+#: reported in full alongside, so a truncated list is never mistaken for the
+#: whole selection.
+_MAX_REPORTED_IDS: int = 32
+
+
+def _reported_ids(ids: tuple[str, ...]) -> list[str]:
+    return list(ids[:_MAX_REPORTED_IDS])
+
+
+def _context_too_large(
+    spec: WorkerInvocation,
+    *,
+    payload_bytes: int,
+    source: str,
+    os_errno: int | None = None,
+    total_argv_bytes: int | None = None,
+) -> ContextTooLarge:
+    """Build the typed refusal. Bounded facts only — never the payload itself.
+
+    Deliberately absent: the prompt, the projected guidance, the skill text, the
+    environment. A size failure must not become a content leak (§28, §29).
+    """
+    details: dict[str, object] = {
+        "actual_bytes": payload_bytes,
+        "maximum_bytes": MAX_APPEND_SYSTEM_PROMPT_BYTES,
+        "excess_bytes": max(payload_bytes - MAX_APPEND_SYSTEM_PROMPT_BYTES, 0),
+        "measured_argv_element_limit_bytes": MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+        "model": spec.model,
+        "role": spec.role,
+        "task_id": spec.task_id,
+        "resumed": bool(spec.resume_session_id),
+        "skill_ids": _reported_ids(spec.skill_ids),
+        "skill_count": len(spec.skill_ids),
+        "guidance_scope_ids": _reported_ids(spec.guidance_scope_ids),
+        "guidance_scope_count": len(spec.guidance_scope_ids),
+        "source": source,
+    }
+    if total_argv_bytes is not None:
+        details["total_argv_bytes"] = total_argv_bytes
+    if os_errno is not None:
+        # Preserved for diagnostics. The original OSError is also chained as
+        # __cause__ by the caller, so nothing about the kernel fault is lost.
+        details["errno"] = os_errno
+        details["errno_name"] = errno.errorcode.get(os_errno, "UNKNOWN")
+
+    return ContextTooLarge(
+        "The composed worker context is larger than a single argv element can "
+        "carry, so no Claude process was started.",
+        details=details,
+        remediation=(
+            "This is a refusal, not a degradation: the dispatcher will not drop "
+            "an approved Skill or guidance scope, and will not truncate. Narrow "
+            "the task's allowed_paths so fewer scopes are selected, or split it "
+            "— or wait for a transport that carries more than "
+            f"{MEASURED_SINGLE_ARGV_LIMIT_BYTES} bytes in one argv element."
+        ),
+    )
+
+
+def _assert_context_fits_the_transport(spec: WorkerInvocation) -> None:
+    """Measure the FINAL composed system prompt, in UTF-8 bytes, before exec.
+
+    BLOCKER B1. The check is on the exact string that becomes the argv element
+    after ``--append-system-prompt`` — not on any component, and not on a
+    character count. Per-component caps summing to something legal proves
+    nothing: only the composed payload is what ``execve`` sees.
+
+    Deliberately *not* extended to the other argv elements in V1. The prompt
+    positional and the projected JSON schema are bounded by their own
+    producers, and the kernel remains the authority for everything else — see
+    the ``E2BIG`` translation in :func:`run_worker`, which exists precisely
+    because this preflight covers one known element and not the whole block.
+    """
+    if not spec.append_system_prompt:
+        return
+    payload_bytes = len(spec.append_system_prompt.encode("utf-8"))
+    if payload_bytes > MAX_APPEND_SYSTEM_PROMPT_BYTES:
+        raise _context_too_large(
+            spec, payload_bytes=payload_bytes, source="preflight"
+        )
 
 
 def _format_budget(amount: float) -> str:
@@ -626,6 +736,8 @@ def build_worker_invocation(
     base_env: Mapping[str, str] | None = None,
     grace_seconds: float = DEFAULT_GRACE_SECONDS,
     append_system_prompt: str | None = None,
+    skill_ids: tuple[str, ...] = (),
+    guidance_scope_ids: tuple[str, ...] = (),
 ) -> WorkerInvocation:
     """Resolve an implementation-worker invocation from config + envelope.
 
@@ -638,6 +750,10 @@ def build_worker_invocation(
     It exists for the Gate 4.5 §14 composer, which places the worker policy as
     one labelled section among several. ``None`` keeps the pre-Gate-4.5
     behaviour exactly: read the configured policy file and emit its text.
+
+    ``skill_ids`` / ``guidance_scope_ids`` are recorded for diagnostics only:
+    they never reach argv, and are reported if the composed context turns out
+    to be too large to transport (B1).
     """
     if include_worktree is None:
         include_worktree = resume_session_id is None
@@ -675,6 +791,9 @@ def build_worker_invocation(
         ),
         grace_seconds=grace_seconds,
         max_turns=envelope.execution.max_turns,
+        task_id=envelope.task_id,
+        skill_ids=tuple(skill_ids),
+        guidance_scope_ids=tuple(guidance_scope_ids),
     )
 
 
@@ -689,6 +808,7 @@ def build_fable_invocation(
     base_env: Mapping[str, str] | None = None,
     grace_seconds: float = DEFAULT_GRACE_SECONDS,
     append_system_prompt: str | None = None,
+    guidance_scope_ids: tuple[str, ...] = (),
 ) -> WorkerInvocation:
     """Resolve the read-only Fable review invocation (§7.3, §19).
 
@@ -758,6 +878,10 @@ def build_fable_invocation(
         ),
         grace_seconds=grace_seconds,
         max_turns=None,
+        task_id=envelope.task_id,
+        # Fable never receives a skill projection at all (§15), so there is no
+        # skill profile to report — only its own review-context scopes.
+        guidance_scope_ids=tuple(guidance_scope_ids),
     )
 
 
@@ -1005,6 +1129,13 @@ async def run_worker(spec: WorkerInvocation) -> WorkerRun:
     Timeout discipline (§20): SIGTERM the group, wait ``grace_seconds``, then
     SIGKILL. Whatever the process already wrote is still collected and returned
     — a timeout must not destroy evidence.
+
+    Raises:
+        ClaudeBinaryNotFound: the binary is absent or not executable.
+        ContextTooLarge: the composed context is above the transport ceiling
+            (refused before spawn), or the kernel rejected the invocation with
+            ``E2BIG`` anyway (B1). Every other start failure is returned as a
+            ``WorkerRun`` with ``start_failed`` set, exactly as before.
     """
     argv = build_argv(spec)
     started = time.monotonic()
@@ -1050,6 +1181,25 @@ async def run_worker(spec: WorkerInvocation) -> WorkerRun:
     except OSError as exc:
         stdout_capture.close()
         stderr_capture.close()
+        if exc.errno == errno.E2BIG:
+            # Defence in depth (B1). The preflight ceiling protects the one
+            # element we compose, but the kernel counts the whole argv+envp
+            # block and stays the authority: a longer environment, a larger
+            # projected schema, or a future flag could push us over without the
+            # system prompt having changed. Whatever the cause, an invocation
+            # too large to exec must reach Sol as a typed dispatcher error, not
+            # as a raw OSError. The original errno is preserved in details and
+            # the OSError is chained as __cause__.
+            raise _context_too_large(
+                spec,
+                payload_bytes=len((spec.append_system_prompt or "").encode("utf-8")),
+                source="kernel_e2big",
+                os_errno=exc.errno,
+                total_argv_bytes=sum(len(a.encode("utf-8")) for a in argv),
+            ) from exc
+        # Every other OSError keeps its existing handling: a start failure is
+        # evidence, not a size verdict, and mislabelling it would be worse than
+        # the bug this fix closes.
         return WorkerRun(
             argv=argv,
             exit_code=None,

@@ -148,11 +148,25 @@ mode = "projected"
 # than silently accepting a new hash.
 fail_on_drift = true
 
-# Fail-closed cap on the total projected payload. The measured deterministic
-# worst case (large_refactor + critical risk + high complexity + resume, with
-# co-projected supporting files) is ~105 KB; anything above the cap refuses
-# rather than truncating reviewed guidance mid-sentence.
-max_projected_bytes = 120000
+# Fail-closed cap on the total projected payload. Anything above the cap
+# refuses rather than truncating reviewed guidance mid-sentence.
+#
+# Lowered from 120000 by BLOCKER B1. --append-system-prompt is emitted inline
+# as ONE argv element and Linux caps a single argv element at 131,071 bytes
+# (measured). The composed ceiling this file used to permit was 184,718 bytes
+# (skills 120,000 + guidance 60,000 + preamble 1,834 + policy 2,884) — 41%
+# above what the OS accepts, so the worker simply never started. The V1
+# transport ceiling is 122,880 bytes for the FINAL composed value; 8,192 of
+# those are reserved for the policy + preamble, leaving 114,688 to be split
+# between this cap and project_guidance.max_projected_bytes. A config whose
+# caps sum above that is REFUSED at load, never clamped.
+#
+# 72,000 covers the intended first-task core pack (44,757 bytes measured) with
+# headroom. The 95,333-byte worst-case skill profile is deliberately NOT
+# covered: composed with worst-case guidance it reaches 142,006 bytes, which
+# inline transport cannot carry at all. That task shape is refused, not
+# trimmed.
+max_projected_bytes = 72000
 
 # The reviewed, source-controlled approval manifest. Never auto-rewritten:
 # drift is a human/Sol reapproval decision.
@@ -178,8 +192,12 @@ fail_on_drift = true
 
 # Fail-closed cap on the total projected guidance payload. The measured worst
 # legitimate cross-scope shape (curated root + the two largest approved
-# subproject projections + the graph-refresh clause) is ~41 KB.
-max_projected_bytes = 60000
+# subproject projections + the graph-refresh clause) is 41,955 bytes.
+#
+# Lowered from 60000 by BLOCKER B1 (see [skills].max_projected_bytes above):
+# 42,000 covers that measured worst case exactly, and the remainder of the
+# 114,688-byte transport budget belongs to the skill pack.
+max_projected_bytes = 42000
 
 # The reviewed, source-controlled approval manifest. Never auto-rewritten:
 # drift is a human/Sol reapproval decision. Nothing projects while its

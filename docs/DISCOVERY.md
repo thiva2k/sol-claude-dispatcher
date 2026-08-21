@@ -81,6 +81,39 @@ dispatcher reads `prompts/worker-policy.md` itself and passes the contents
 inline. This is also the more testable path: the exact policy text becomes
 visible in the recorded argv.
 
+**Delta 2a — the inline string has a hard size cliff (BLOCKER B1).** Because it
+is one argv element, Linux applies `MAX_ARG_STRLEN` to it: **131,071 bytes**,
+measured by bisection against `/bin/true` on this host during Gate 4.5's live
+gate. Above it `execve` fails with `E2BIG`; the worker never starts. Measured
+live: 128,992 bytes launched and answered with **nothing truncated**; 144,486
+bytes could not launch at all. The dispatcher's V1 ceiling is therefore
+**122,880 bytes (120 KiB) of UTF-8** on the final composed value, enforced
+before spawn (`ContextTooLarge`), with the raw `E2BIG` translated to the same
+typed error as defence in depth. See `docs/INTERFACES.md` and
+`src/sol_claude_dispatcher/config.py`.
+
+**Re-checked on the installed CLI 2.1.237 (2026-08-21, read-only `claude
+--help`): `--append-system-prompt-file` still does NOT exist as its own
+option.** `--append-system-prompt <prompt>` and `--system-prompt <prompt>` are
+each listed; neither `-file` variant has an entry anywhere in the 242-line help
+output. The only occurrence of the spelling is inside the `--bare` description,
+`"--system-prompt[-file], --append-system-prompt[-file], --add-dir"`, which
+hints at a hidden or aliased flag but proves nothing. Lane C's original finding
+stands.
+
+**Follow-up design item — DO NOT IMPLEMENT WITHOUT COMMISSIONING.** A
+file-based system-prompt transport is the preferred way to remove the
+single-argv limit while preserving the default system prompt. It is recorded
+here, not built. A future commissioning must prove, at minimum: the installed
+CLI actually supports the flag (the datum above says it is undocumented today);
+a 0600 prompt file written atomically; a dispatcher-owned contained path; no
+symlink substitution between write and exec; an exact content hash carried into
+the run record; resume integrity (the resumed turn gets the same bytes);
+worker/Fable parity; cleanup and retention semantics; no prompt content exposed
+through argv; and one live invocation above 131 KiB that actually succeeds.
+Until every one of those is proven, inline transport plus the 122,880-byte
+ceiling is the contract.
+
 `--permission-mode` accepts: `acceptEdits`, `auto`, `bypassPermissions`,
 `manual`, `dontAsk`, `plan`. `auto` (as the brief specifies) is valid.
 

@@ -49,6 +49,7 @@ __all__ = [
     "ProjectGuidanceDrift",
     "ProjectGuidanceResumeDrift",
     "UnapprovedProjectGuidanceFile",
+    "ContextTooLarge",
     "ValidationFailed",
     "WorktreeCreationFailed",
     "GitEvidenceCollectionFailed",
@@ -367,6 +368,28 @@ class UnapprovedProjectGuidanceFile(DispatcherError):
     code = "UnapprovedProjectGuidanceFile"
 
 
+class ContextTooLarge(DispatcherError):
+    """The composed worker context cannot be transported to the CLI (B1).
+
+    ``--append-system-prompt`` is emitted inline as ONE argv element, and Linux
+    caps a single argv element at 131,071 bytes (measured). The dispatcher's V1
+    ceiling is 122,880 bytes of UTF-8, checked against the FINAL composed value
+    before ``execve`` — and again, defensively, if the kernel returns ``E2BIG``
+    anyway.
+
+    This is a **refusal**, not a degradation. The approved deterministic context
+    is part of the task contract, so the dispatcher never drops a Skill, never
+    drops a guidance scope, and never truncates to squeeze underneath. The
+    selected profile is reported instead, so Sol can narrow the task or wait for
+    a transport that carries more.
+
+    ``details`` carries bounded facts only — sizes, ids, the model, the role —
+    never the payload, never projected guidance, never anything secret-adjacent.
+    """
+
+    code = "ContextTooLarge"
+
+
 class ValidationFailed(DispatcherError):
     """A trusted dispatcher validation command failed (§17)."""
 
@@ -426,6 +449,7 @@ ERROR_CODES: frozenset[str] = frozenset(
         "ProjectGuidanceDrift",
         "ProjectGuidanceResumeDrift",
         "UnapprovedProjectGuidanceFile",
+        "ContextTooLarge",
         "ValidationFailed",
         "WorktreeCreationFailed",
         "GitEvidenceCollectionFailed",

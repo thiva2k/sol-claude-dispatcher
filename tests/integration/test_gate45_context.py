@@ -557,7 +557,10 @@ def _guidance_manifest(repo: Path, disp: Path, identity, **overrides) -> dict:
     return data
 
 
-def _config_text(repo: Path, *, skills: bool, guidance: bool) -> str:
+def _config_text(
+    repo: Path, *, skills: bool, guidance: bool, policy_path: Path | None = None
+) -> str:
+    worker_policy = policy_path or (PROJECT_ROOT / "prompts" / "worker-policy.md")
     return f"""
 [dispatcher]
 state_dir = "./state"
@@ -584,7 +587,7 @@ run_dispatcher_validation = true
 [claude]
 binary = "{SHIM}"
 permission_mode = "auto"
-worker_policy_path = "{PROJECT_ROOT}/prompts/worker-policy.md"
+worker_policy_path = "{worker_policy}"
 fable_policy_path = "{PROJECT_ROOT}/prompts/fable-reviewer-policy.md"
 empty_mcp_config_path = "{PROJECT_ROOT}/config/empty-mcp.json"
 worker_result_schema_path = "{PROJECT_ROOT}/schemas/worker-result.schema.json"
@@ -618,7 +621,13 @@ def gate45(
     """An ephemeral project root with both manifests and both flags ON."""
     disp = guidance_artifacts["disp"]
 
-    def build(*, skills: bool = True, guidance: bool = True, guidance_overrides=None):
+    def build(
+        *,
+        skills: bool = True,
+        guidance: bool = True,
+        guidance_overrides=None,
+        policy_path: Path | None = None,
+    ):
         (disp / "config" / "approved-skills.json").write_text(
             json.dumps(_skills_manifest(plugin_tree), indent=1)
         )
@@ -631,7 +640,11 @@ def gate45(
             )
         )
         config_path = disp / "config" / "dispatcher.toml"
-        config_path.write_text(_config_text(target_repo, skills=skills, guidance=guidance))
+        config_path.write_text(
+            _config_text(
+                target_repo, skills=skills, guidance=guidance, policy_path=policy_path
+            )
+        )
         return Dispatcher(load_config(config_path))
 
     build.disp = disp  # type: ignore[attr-defined]
@@ -1292,3 +1305,95 @@ class TestProvenanceSeparationWired:
             if block.section in ("CORE_APPROVED_SKILLS", "CONTEXTUAL_SKILLS"):
                 assert "ENVELOPE PRECEDENCE" not in block.text
                 assert "ROOT-POLICY-ARTIFACT-SENTINEL" not in block.text
+
+
+# ---------------------------------------------------------------------------
+# BLOCKER B1 — the composed context must fit in one argv element
+# ---------------------------------------------------------------------------
+
+
+class TestTransportCeiling:
+    """The composed ``--append-system-prompt`` is ONE argv element (§14).
+
+    Linux caps a single argv element at 131,071 bytes (measured live, Lane G
+    claim ``I-0``); the dispatcher's V1 ceiling is 122,880 bytes of UTF-8. When
+    the composed context does not fit, the task is REFUSED — no Skill is
+    dropped, no guidance scope is dropped, nothing is truncated, and no worker
+    process is started.
+
+    The oversized component here is the dispatcher's own worker policy file,
+    which is operator-configurable and covered by neither projection cap. That
+    is exactly why the check measures the FINAL composed payload rather than
+    trusting a sum of per-component caps.
+    """
+
+    def _oversized_policy(self, tmp_path: Path) -> Path:
+        policy = tmp_path / "oversized-worker-policy.md"
+        body = "This throwaway policy line exists only to exceed the cap.\n"
+        policy.write_text("# Oversized throwaway worker policy\n" + body * 2400)
+        assert len(policy.read_bytes()) > 122_880
+        return policy
+
+    async def test_oversized_context_is_refused_with_a_typed_error(
+        self, gate45, payload, fake_env, tmp_path: Path
+    ):
+        dispatcher = gate45(policy_path=self._oversized_policy(tmp_path))
+        result = await dispatcher.dispatch_claude_task(payload)
+
+        assert result["error"] == "ContextTooLarge"
+        details = result["details"]
+        assert details["maximum_bytes"] == 122_880
+        assert details["actual_bytes"] > details["maximum_bytes"]
+        assert details["excess_bytes"] == (
+            details["actual_bytes"] - details["maximum_bytes"]
+        )
+        assert details["source"] == "preflight"
+        assert details["role"] == "implementer"
+
+    async def test_no_worker_process_is_started(
+        self, gate45, payload, fake_env, tmp_path: Path
+    ):
+        dispatcher = gate45(policy_path=self._oversized_policy(tmp_path))
+        await dispatcher.dispatch_claude_task(payload)
+        assert _invocations(fake_env) == []
+
+    async def test_the_full_selection_is_reported_not_narrowed(
+        self, gate45, payload, fake_env, tmp_path: Path
+    ):
+        """Refuse and hand back the selection, so Sol can narrow the task."""
+        dispatcher = gate45(policy_path=self._oversized_policy(tmp_path))
+        result = await dispatcher.dispatch_claude_task(payload)
+        details = result["details"]
+
+        # Every selected skill and every selected guidance scope is named.
+        assert details["skill_count"] == len(details["skill_ids"])
+        assert details["skill_count"] >= 1
+        assert details["guidance_scope_count"] == len(details["guidance_scope_ids"])
+        assert details["guidance_scope_count"] >= 1
+        assert "pg.root" in details["guidance_scope_ids"] or any(
+            sid.startswith("pg.") for sid in details["guidance_scope_ids"]
+        )
+
+    async def test_the_refusal_quotes_no_projected_content(
+        self, gate45, payload, fake_env, tmp_path: Path
+    ):
+        dispatcher = gate45(policy_path=self._oversized_policy(tmp_path))
+        result = await dispatcher.dispatch_claude_task(payload)
+        rendered = json.dumps(result)
+        for sentinel in (
+            "CORE-SKILL-SENTINEL",
+            "ROOT-SOURCE-ARTIFACT-SENTINEL",
+            "KAVYA-SOURCE-ARTIFACT-SENTINEL",
+            "ROOT-POLICY-ARTIFACT-SENTINEL",
+        ):
+            assert sentinel not in rendered
+
+    async def test_the_task_fails_closed_with_the_error_recorded(
+        self, gate45, payload, fake_env, tmp_path: Path
+    ):
+        dispatcher = gate45(policy_path=self._oversized_policy(tmp_path))
+        result = await dispatcher.dispatch_claude_task(payload)
+        assert "task_id" in result["details"]
+        record = dispatcher.store.load(result["details"]["task_id"])
+        assert record.state.value == "failed"
+        assert record.last_error["error"] == "ContextTooLarge"

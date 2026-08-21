@@ -1287,14 +1287,25 @@ class TestSkillsConfigSection:
                 "enabled": True,
                 "mode": "projected",
                 "fail_on_drift": True,
-                "max_projected_bytes": 120000,
+                "max_projected_bytes": 72000,
                 "manifest_path": "./config/approved-skills.json",
             },
             git_repo,
         )
         assert config.skills.enabled is True
-        assert config.skills.max_projected_bytes == 120000
+        assert config.skills.max_projected_bytes == 72000
         assert config.approved_skills_file == REAL_MANIFEST
+
+    def test_the_old_120000_cap_is_now_refused(self, git_repo):
+        """BLOCKER B1: 120,000 is above what one argv element can carry.
+
+        It used to load. Composed with the guidance cap and the dispatcher's own
+        policy text it reached 184,718 bytes, 41% above the measured 131,071-byte
+        Linux limit on a single argv element, so the worker never started. See
+        ``tests/unit/test_context_size_limit.py``.
+        """
+        with pytest.raises(ConfigurationError):
+            _config({"enabled": True, "max_projected_bytes": 120000}, git_repo)
 
     def test_native_mode_is_refused(self, git_repo):
         with pytest.raises(ConfigurationError) as exc:

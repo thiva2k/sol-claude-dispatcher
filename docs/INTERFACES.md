@@ -335,6 +335,31 @@ Gate 4.5 added eleven more. All are in `ERROR_CODES` and serialise through
 | `ProjectGuidanceProjectionChanged` | `DispatcherError` | a curated artifact under `config/guidance/` no longer matches its pinned hash |
 | `ProjectGuidanceResumeDrift` | `DispatcherError` | every hash verifies but the manifest was re-approved with different content; also raised on resume when guidance projection was switched off after dispatch (`details["reason"] == "project_guidance_disabled_after_dispatch"`) |
 | `UnapprovedProjectGuidanceFile` | `DispatcherError` | the DEFAULT-DENY verification scan found an instruction file that is neither approved nor excluded |
+| `ContextTooLarge` | `DispatcherError` | the composed `--append-system-prompt` value exceeds the 122,880-byte transport ceiling (`details["source"] == "preflight"`), or the kernel refused the invocation with `E2BIG` anyway (`details["source"] == "kernel_e2big"`, `details["errno"] == 7`) |
+
+**`ContextTooLarge` (BLOCKER B1).** `--append-system-prompt` is emitted inline
+as ONE argv element, and Linux caps a single argv element at **131,071 bytes**
+(`MAX_ARG_STRLEN`, measured by bisection on this host). The V1 ceiling is
+**122,880 bytes (120 KiB) of UTF-8**, measured on the FINAL composed value —
+never on characters, never on a sum of per-component caps. Measured shapes:
+intended first task 79,406 B (fits, substantial headroom); largest that
+launched live 128,992 B (nothing truncated); production worst case 142,006 B
+(**refused** — an intentionally unsupported composition under V1 inline
+transport); the ceiling this config file used to permit, 184,718 B (invalid,
+now rejected at config load).
+
+`details` carries bounded facts only: `actual_bytes`, `maximum_bytes`,
+`excess_bytes`, `measured_argv_element_limit_bytes`, `model`, `role`,
+`task_id`, `resumed`, `skill_ids` + `skill_count`, `guidance_scope_ids` +
+`guidance_scope_count`, `source`, and on the kernel path `errno`, `errno_name`
+and `total_argv_bytes`. It never quotes the payload, the projected guidance or
+the skill text.
+
+This is a **refusal**, not a degradation. The dispatcher does not drop a Skill,
+does not drop a guidance scope, and does not truncate to squeeze underneath the
+ceiling: the approved deterministic context is part of the task contract. The
+selection is reported back so Sol can narrow the task or wait for a transport
+upgrade. Do not "fix" this by making selection adaptive.
 
 **Error ordering when a source is edited (Sol ruling, 2026-08-20).** Editing one
 half of an approved alias pair is simultaneously an alias divergence and a hash

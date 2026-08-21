@@ -742,6 +742,10 @@ class Dispatcher:
                 session_id=session_id,
                 prompt=prompt,
                 append_system_prompt=worker_context.append_system_prompt,
+                # Diagnostics only (B1): named back to Sol if the composed
+                # context turns out to be too large to transport.
+                skill_ids=worker_context.skill_ids,
+                guidance_scope_ids=worker_context.guidance_scope_ids,
                 # The worktree does not exist yet: the Claude CLI creates it
                 # from --worktree (§12), so run 1 starts in the repository root
                 # and the worktree path is resolved afterwards, from
@@ -925,6 +929,8 @@ class Dispatcher:
                 resume_session_id=plan.session_id,
                 prompt=resume_prompt,
                 append_system_prompt=worker_context.append_system_prompt,
+                skill_ids=worker_context.skill_ids,
+                guidance_scope_ids=worker_context.guidance_scope_ids,
                 # Same worktree, no new one (§18). build_worker_invocation
                 # refuses to emit --worktree alongside --resume.
                 cwd=Path(plan.worktree_path),
@@ -1065,6 +1071,7 @@ class Dispatcher:
                 session_id=session_id,
                 prompt=review_prompt,
                 append_system_prompt=review_context.append_system_prompt,
+                guidance_scope_ids=review_context.guidance_scope_ids,
                 cwd=worktree,
             )
             invocation = self._with_run_spools(invocation, task_id, run_index)
