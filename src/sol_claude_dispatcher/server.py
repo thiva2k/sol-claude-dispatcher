@@ -40,6 +40,7 @@ surface stays trivially auditable.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -116,6 +117,7 @@ from .security import (
 from .sessions import new_session, resume_limit_response, resume_plan
 from .state import TaskStore, atomic_write_json, atomic_write_text
 from .validation import compare_claims_to_validation, run_validations
+from .waiting import WORKER_ACTIONABLE_STATES, RunRegistry, blocking_envelope
 from .worker_context import WorkerContext, WorkerContextComposer
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -125,6 +127,7 @@ __all__ = [
     "SERVER_INSTRUCTIONS",
     "TOOL_NAMES",
     "TOOL_DESCRIPTIONS",
+    "WORKER_ACTIONABLE_STATES",
     "Dispatcher",
     "build_dispatcher",
     "build_server",
@@ -134,6 +137,11 @@ __all__ = [
 ]
 
 #: §6 — the first thing Sol reads about this server.
+#:
+#: GATE 6 §8: the blocking paragraphs below are load-bearing. A correct
+#: server-side wait is still defeated if the model is told to poll, so the
+#: no-poll instruction is treated as part of the implementation and is pinned by
+#: literal assertions in ``tests/unit/test_blocking_contract.py``.
 SERVER_INSTRUCTIONS = """\
 Sol is the sole orchestrator and final reviewer.
 Use dispatch_claude_task for new implementation work.
@@ -145,7 +153,29 @@ Workers must never delegate recursively.
 This dispatcher is a deterministic execution and control layer. It makes no
 architectural decisions, and it never marks work approved. Implementation
 completion, review completion, and user approval are three distinct states and
-must not be collapsed.
+must not be collapsed. Fable's verdict is advisory: it informs Sol and never
+changes approval state.
+
+dispatch_claude_task and resume_claude_task block: the tool call stays pending
+server-side for the whole Claude run and returns only when the run reaches a
+state that requires a decision from Sol — awaiting_sol_review, timed_out,
+blocked, failed or policy_violation. review_task_with_fable blocks until Fable's
+review is complete. One call is one worker run, and its result already carries
+the final state, the worker's claims, the dispatcher's own observations and the
+validation results.
+
+Do NOT poll get_task after dispatch_claude_task or resume_claude_task. The
+result you already received is the authoritative outcome; calling get_task to
+find out whether the worker finished wastes tokens and ends the turn for no
+information.
+
+get_task is recovery and status tooling only. Call it when a tool call was
+interrupted before it returned, or to inspect a task this turn did not just
+run — never as a wait loop, and never in a retry loop against a running worker.
+
+If a dispatch or resume call is interrupted, the worker keeps running: the
+dispatcher owns it, not the tool call. Its state and evidence are still
+persisted, and get_task on that task id returns the authoritative result.
 """
 
 #: The complete tool surface. Four, deliberately (§7). Anything else belongs to
@@ -162,23 +192,36 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "Dispatch a new Claude implementation worker into an isolated git "
         "worktree. The dispatcher generates every identifier (task id, run id, "
         "session id, worktree name) and returns worker claims and dispatcher "
-        "observations separately. Completion is evidence, never approval."
+        "observations separately. Completion is evidence, never approval. "
+        "This call BLOCKS until the worker reaches a state requiring a decision "
+        "from Sol: awaiting_sol_review, timed_out, blocked, failed or "
+        "policy_violation. Do not poll get_task afterwards — the returned "
+        "payload is already the final state of this run."
     ),
     "resume_claude_task": (
         "Continue an existing task's worker conversation in the same session, "
         "model and worktree. Session identity comes from stored state, never "
-        "from the caller. Refuses past the configured resume cap."
+        "from the caller. Refuses past the configured resume cap. "
+        "This call BLOCKS until the resumed worker reaches a state requiring a "
+        "decision from Sol: awaiting_sol_review, timed_out, blocked, failed or "
+        "policy_violation. Do not poll get_task afterwards — the returned "
+        "payload is already the final state of this run."
     ),
     "review_task_with_fable": (
         "Run an independent, read-only Fable review of a task's recorded "
         "evidence in a fresh session. The verdict is advisory to Sol and never "
-        "changes approval state."
+        "changes approval state. This call BLOCKS until the review is complete "
+        "and returns it in one result. Do not poll get_task afterwards."
     ),
     "get_task": (
         "Read a task's authoritative state: envelope, status, model, worktree, "
         "session, resume count, run and validation history, latest worker "
         "result, latest Fable review, policy violations and timeout info. "
-        "Read-only."
+        "Read-only recovery and status tooling. It is not needed on the normal "
+        "path, because dispatch_claude_task and resume_claude_task already wait "
+        "for the worker. Use it when a tool call was interrupted before it "
+        "returned, or to inspect a task this turn did not just run. Never call "
+        "it in a loop to wait for a worker."
     ),
 }
 
@@ -396,6 +439,26 @@ def _dump(model: Any) -> Any:
     if model is None:
         return None
     return json.loads(model.model_dump_json())
+
+
+def _argument_digest(*parts: Any) -> str:
+    """Stable short digest of a tool call's arguments (GATE 6 §5).
+
+    Used only to key the in-flight run registry, never for security and never
+    persisted. Two calls digest the same exactly when their arguments are
+    identical, which is what makes "a reconnect retry attaches, a different
+    instruction does not" a mechanical rule rather than a judgement.
+    """
+    material = json.dumps(parts, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+def _resume_key(task_id: str, instruction: str, timeout_seconds: int | None) -> str:
+    return f"resume:{task_id}:{_argument_digest(instruction, timeout_seconds)}"
+
+
+def _review_key(task_id: str, focus: list[str] | None) -> str:
+    return f"review:{task_id}:{_argument_digest(list(focus or []))}"
 
 
 def attribute_changed_paths(
@@ -630,6 +693,11 @@ class Dispatcher:
     Holds no authoritative in-memory state: every tool reloads the task from
     disk through :class:`~sol_claude_dispatcher.state.TaskStore`, so a restarted
     server sees exactly what the previous one persisted (§27).
+
+    The one in-memory structure it does hold is :attr:`_runs`, the registry of
+    *in-flight* runs (GATE 6 §5). It is not authoritative state — everything it
+    tracks is also on disk — it exists so a cancelled MCP request cannot take a
+    running Claude worker down with it.
     """
 
     def __init__(self, config: Config) -> None:
@@ -640,34 +708,90 @@ class Dispatcher:
         #: read — while their feature flags are off, so a dispatcher configured
         #: exactly as it was before Gate 4.5 behaves exactly as it did.
         self.context = WorkerContextComposer(config)
+        #: GATE 6 §5. Runs are owned here, not by whoever is waiting on them.
+        self._runs = RunRegistry()
 
     # -- public tool surface ------------------------------------------------
     #
     # Each public method is the *whole* error contract: typed dispatcher errors
     # become concise structured payloads here (§29), so calling these directly
     # exercises exactly what an MCP client would receive.
+    #
+    # GATE 6 §2/§3/§4: the three tools that start a Claude process run their
+    # body as a dispatcher-owned task and await it through the registry's
+    # shield. The request stays pending for the whole run — that is the point —
+    # but the run does not belong to the request, so an MCP timeout or a dropped
+    # transport cannot kill a worker, release its repository lock, or strand a
+    # task in RUNNING with no evidence.
 
     async def dispatch_claude_task(
         self, request: dict[str, Any] | TaskRequest
     ) -> dict[str, Any]:
-        """§7.1. Dispatch a worker. Returns the result payload or an error payload."""
-        return await _guarded(lambda: self._dispatch(request))
+        """§7.1. Dispatch a worker and WAIT for it. Result payload or error payload.
+
+        Returns when the run reaches one of
+        :data:`~sol_claude_dispatcher.waiting.WORKER_ACTIONABLE_STATES`. No
+        polling is required, or wanted: see :data:`SERVER_INSTRUCTIONS`.
+
+        Each call gets its own registry key. Dispatch is deliberately **not**
+        deduplicated by request content: two dispatches are two tasks, and the
+        dispatcher must not guess that identically-worded requests are the same
+        piece of work. A retry issued while an earlier worker is still running
+        is refused by the repository lock with a retryable ``RepositoryBusy``
+        (§25) — which is exactly the "no second worker" guarantee, stated as a
+        refusal rather than as a silent alias.
+        """
+        return await self._runs.run(
+            f"dispatch:{new_run_id()}", lambda: _guarded(lambda: self._dispatch(request))
+        )
 
     async def resume_claude_task(
         self, task_id: str, instruction: str, timeout_seconds: int | None = None
     ) -> dict[str, Any]:
-        """§7.2. Continue a task's stored session."""
-        return await _guarded(lambda: self._resume(task_id, instruction, timeout_seconds))
+        """§7.2. Continue a task's stored session, and WAIT for the resumed run.
+
+        Keyed on the caller's own arguments, so a *duplicate* resume — the shape
+        a reconnect-and-retry produces — attaches to the run already in flight
+        and receives its result, instead of launching a second worker into the
+        same worktree. A resume carrying a *different* instruction is a
+        different key and contends on the repository lock as before.
+        """
+        return await self._runs.run(
+            _resume_key(task_id, instruction, timeout_seconds),
+            lambda: _guarded(lambda: self._resume(task_id, instruction, timeout_seconds)),
+        )
 
     async def review_task_with_fable(
         self, task_id: str, focus: list[str] | None = None
     ) -> dict[str, Any]:
-        """§7.3. Independent read-only review. Advisory."""
-        return await _guarded(lambda: self._review(task_id, focus))
+        """§7.3. Independent read-only review. Advisory. Blocks until it completes."""
+        return await self._runs.run(
+            _review_key(task_id, focus),
+            lambda: _guarded(lambda: self._review(task_id, focus)),
+        )
 
     async def get_task(self, task_id: str) -> dict[str, Any]:
-        """§7.4. Read-only aggregation of authoritative state."""
+        """§7.4. Read-only aggregation of authoritative state.
+
+        Recovery and status tooling. Never part of the normal dispatch path:
+        the three tools above already wait. Deliberately *not* routed through
+        the run registry — it starts nothing, so there is nothing to own.
+        """
         return await _guarded(lambda: self._get_task(task_id))
+
+    # -- in-process introspection (not an MCP tool, never registered) -------
+
+    def inflight_runs(self) -> tuple[str, ...]:
+        """Keys of the runs this dispatcher currently owns (GATE 6 §5).
+
+        For operators, shutdown handling and tests. It is not reachable over
+        MCP and must never become a fifth tool: §1 fixes the surface at four.
+        """
+        return self._runs.keys()
+
+    async def drain(self, timeout: float | None = None) -> None:
+        """Wait for every dispatcher-owned run to finish. Cancels nothing."""
+        await self._runs.drain(timeout)
 
     # -- tool 1: dispatch ---------------------------------------------------
 
@@ -1144,6 +1268,11 @@ class Dispatcher:
             # §7.3/§41: Fable never approves. The verdict informs Sol; it does
             # not move the task toward any approval state.
             "advisory": True,
+            # GATE 6 §4. ``worker_actionable`` is False here on purpose:
+            # FABLE_REVIEWED is not a worker outcome, and a review must never
+            # read as one. The call still waited server-side and still needs no
+            # polling.
+            "blocking": blocking_envelope(record.state),
         }
 
     # -- tool 4: get_task ---------------------------------------------------
@@ -1593,6 +1722,21 @@ class Dispatcher:
             primary_tree_divergence=primary_tree_divergence,
         )
 
+        if record.state not in WORKER_ACTIONABLE_STATES:  # pragma: no cover - invariant
+            # GATE 6 §2. A blocking call must end on a state Sol can act on.
+            # Landing anywhere else means ``_land_state`` grew a path that
+            # returns mid-lifecycle, which would silently reintroduce polling.
+            # Logged rather than raised: the state is already persisted, and
+            # turning a completed run into an error payload would destroy
+            # evidence to report a dispatcher bug. The payload says
+            # ``worker_actionable: false`` either way, so nothing is claimed
+            # that is not true.
+            logger.error(
+                "run for task %s ended in %s, which is not worker-actionable",
+                task_id,
+                record.state.value,
+            )
+
         _event(
             "run_complete",
             task_id=task_id,
@@ -1630,6 +1774,11 @@ class Dispatcher:
                 "divergence": primary_tree_divergence,
             },
             "last_error": record.last_error,
+            # GATE 6 §2/§3. Restated in-band, because the server instructions
+            # are read once at initialise time while this travels with every
+            # result: this call already waited, nothing needs polling, and the
+            # next decision is Sol's.
+            "blocking": blocking_envelope(record.state),
         }
 
     # -- evidence -----------------------------------------------------------

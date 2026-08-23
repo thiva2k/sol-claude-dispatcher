@@ -1297,6 +1297,94 @@ every drift error propagates.
 
 ---
 
+## 11b. GATE 6 — `waiting.py` and blocking tool semantics
+
+One module, no dependencies beyond `models`. `server` imports it; it imports
+nothing from `server`. It adds **no MCP tool**: the surface stays at four
+(`dispatch_claude_task`, `resume_claude_task`, `review_task_with_fable`,
+`get_task`) and a fifth watch/wait/poll/subscribe tool is prohibited.
+
+```python
+WORKER_ACTIONABLE_STATES: frozenset[TaskState]   # the five states below
+def blocking_envelope(state: TaskState) -> dict[str, Any]
+
+class RunRegistry:
+    def keys(self) -> tuple[str, ...]
+    def snapshot(self) -> tuple[asyncio.Task[dict[str, Any]], ...]
+    async def run(self, key: str,
+                  factory: Callable[[], Awaitable[dict[str, Any]]]) -> dict
+    async def drain(self, timeout: float | None = None) -> None
+```
+
+### The blocking contract
+
+`dispatch_claude_task`, `resume_claude_task` and `review_task_with_fable` keep
+the MCP request **pending server-side** for the whole Claude run and return only
+when the run reaches a state Sol must act on:
+
+```
+AWAITING_SOL_REVIEW · TIMED_OUT · BLOCKED · FAILED · POLICY_VIOLATION
+```
+
+That set is `WORKER_ACTIONABLE_STATES`. `FABLE_REVIEWED` and `REVIEW_COMPLETE`
+are deliberately **not** in it — they are outcomes of Sol's own actions, not of
+a worker run — and there is no `APPROVED` state to collapse anything into.
+
+No polling is required on the normal path, and the server instructions tell Sol
+so explicitly. `get_task` is recovery/status tooling only.
+
+Each of the three blocking results carries a `blocking` block:
+
+```json
+{"waited_server_side": true, "polling_required": false,
+ "worker_actionable": true, "sol_must_decide_next_action": true}
+```
+
+### Ownership: the worker is not the waiter's
+
+`Dispatcher.dispatch_claude_task` / `resume_claude_task` /
+`review_task_with_fable` do **not** await their bodies directly. Each runs its
+(already error-guarded) body through `RunRegistry.run(key, factory)`, which
+creates a dispatcher-owned `asyncio.Task` and awaits it through
+`asyncio.shield`. Consequences, all required:
+
+- cancelling the MCP request cancels **the wait only**;
+- the run keeps its `RepositoryLock`, finishes its Claude process, collects
+  evidence, and lands its state transition;
+- `get_task(task_id)` later returns the authoritative result;
+- a retry issued while the first worker is still running cannot start a second
+  one.
+
+`Dispatcher.inflight_runs()` and `Dispatcher.drain()` are in-process helpers for
+operators, shutdown and tests. They are **not** tools and must never be
+registered as one.
+
+### Keying
+
+| tool | key | duplicate behaviour |
+| --- | --- | --- |
+| `dispatch_claude_task` | `dispatch:<fresh run id>` | never aliased; a concurrent retry is refused by the repository lock with retryable `RepositoryBusy` |
+| `resume_claude_task` | `resume:<task_id>:<sha256(instruction, timeout)[:16]>` | an identical duplicate attaches to the in-flight run and receives the same result |
+| `review_task_with_fable` | `review:<task_id>:<sha256(focus)[:16]>` | same |
+
+Dispatch is not content-keyed on purpose: two dispatches are two tasks, and the
+dispatcher must not guess that identically-worded requests are one piece of
+work. Resume and review are keyed because their identity (`task_id`) is
+caller-supplied and the run is the same session, worktree and instruction.
+
+### Two timeouts, never conflated
+
+| | owner | effect |
+| --- | --- | --- |
+| **Claude execution timeout** | `envelope.execution.timeout_seconds`, clamped by `config.dispatcher.max_timeout_seconds`, enforced in `runner.run_worker` | real SIGTERM→SIGKILL, real `TIMED_OUT` transition, persisted, returned |
+| **MCP client/tool timeout** | the client | cancels the waiter only. The worker continues; state stays recoverable |
+
+An MCP timeout **must never** fabricate `FAILED` or `TIMED_OUT` worker state.
+`RunRegistry` therefore has no deadline of its own — adding a third, waiter-side
+timeout here would be exactly that conflation.
+
+---
+
 ## 12. Cross-wave conventions
 
 - **Time**: `models.utc_now()`. Serialise via pydantic; never `datetime.now()`.
