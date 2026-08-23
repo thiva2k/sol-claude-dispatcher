@@ -67,6 +67,26 @@ allowed_repository_roots = [
 # and record the dispatcher's own result alongside the worker's claims.
 run_dispatcher_validation = true
 
+# Fail-closed aggregate run budget, in seconds (GATE 6).
+#
+# A dispatch/resume/review MCP call stays pending for the whole run, so the
+# worker AND every validation command are paid for out of one MCP
+# tool_timeout_sec (10,800 s as commissioned — see
+# scripts/generate-codex-config.sh). This bounds what a task envelope may
+# declare:
+#
+#     execution.timeout_seconds + sum(validation[].timeout_seconds)
+#
+# An envelope over it is REFUSED before any worker starts, with
+# ValidationBudgetExceeded. Nothing is truncated, clamped or dropped to fit.
+#
+# 7,115 = 10,800 tool timeout - 3,600 full-length worker - 25 termination
+#         - 60 evidence (Lane J's measured headroom).
+#
+# The ceiling is 8,955 s (10,800 minus the 1,845 s of overhead no envelope
+# declares). A larger value is refused at load, not clamped.
+max_total_seconds = 7115
+
 [claude]
 # Resolved on PATH unless an absolute path is given.
 binary = "claude"

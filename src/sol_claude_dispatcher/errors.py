@@ -51,6 +51,7 @@ __all__ = [
     "UnapprovedProjectGuidanceFile",
     "ContextTooLarge",
     "ValidationFailed",
+    "ValidationBudgetExceeded",
     "WorktreeCreationFailed",
     "GitEvidenceCollectionFailed",
     "RecursionDetected",
@@ -396,6 +397,36 @@ class ValidationFailed(DispatcherError):
     code = "ValidationFailed"
 
 
+class ValidationBudgetExceeded(DispatcherError):
+    """The envelope declares more work than one MCP tool call can carry.
+
+    GATE 6, closing Lane K's FINDING K-1. ``models.ValidationSpec`` permits 32
+    commands of up to 3,600 s each, so an envelope may legally declare over
+    115,000 s of validation. Since Gate 6 the dispatch/resume/review tool call
+    stays pending for the whole run, and no ``tool_timeout_sec`` can cover that.
+
+    Raised **before any worker starts**, on every path that starts one. This is
+    a refusal, not a degradation: the dispatcher never truncates a declared
+    timeout, never drops a validation command to fit, and never clamps the
+    configured budget down. The caller is told exactly how much it asked for,
+    how much is available, and which validation commands make up the total, so
+    it can shrink the envelope deliberately.
+
+    Exceeding the budget is not the same as exceeding the tool timeout. The tool
+    timeout remains a *latency* bound — ``waiting.py`` has no timeout of its own
+    and a cancelled waiter never kills a worker. This error exists so an
+    envelope that would predictably outrun the transport is refused up front
+    rather than discovered halfway through validation.
+
+    ``details`` carries bounded facts only: the declared total, the budget, the
+    excess, and one entry per validation command giving its index, the basename
+    of its program and its declared timeout. Never argv arguments, never the
+    objective, never repository contents.
+    """
+
+    code = "ValidationBudgetExceeded"
+
+
 class RecursionDetected(DispatcherError):
     """A dispatch was attempted from inside a worker context (§22)."""
 
@@ -451,6 +482,7 @@ ERROR_CODES: frozenset[str] = frozenset(
         "UnapprovedProjectGuidanceFile",
         "ContextTooLarge",
         "ValidationFailed",
+        "ValidationBudgetExceeded",
         "WorktreeCreationFailed",
         "GitEvidenceCollectionFailed",
         "RecursionDetected",

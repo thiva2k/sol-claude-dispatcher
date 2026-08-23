@@ -43,7 +43,14 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .models import TaskEnvelope, ValidationCommand, ValidationResult, WorkerResult
+from .errors import ValidationBudgetExceeded
+from .models import (
+    TaskEnvelope,
+    TaskRequest,
+    ValidationCommand,
+    ValidationResult,
+    WorkerResult,
+)
 from .runner import StreamCapture
 from .security import SECRET_ENV_MARKERS
 
@@ -52,6 +59,9 @@ __all__ = [
     "run_validations",
     "compare_claims_to_validation",
     "validation_environment",
+    "validation_budget_facts",
+    "assert_validation_budget",
+    "BudgetPhase",
 ]
 
 #: Last-N bytes of each stream kept as evidence (§9: "bounded, e.g. last 4KB").
@@ -315,6 +325,144 @@ async def run_validations(
     for cmd in envelope.validation.commands:
         results.append(await run_validation_command(cmd, cwd, env=child_env))
     return results
+
+
+# ---------------------------------------------------------------------------
+# The fail-closed aggregate run budget (GATE 6 — closes FINDING K-1)
+# ---------------------------------------------------------------------------
+#
+# ``run_validations`` above executes every command in the envelope,
+# sequentially, each with its own timeout and no aggregate cap. Under Gate 6
+# blocking semantics all of that is paid for out of ONE MCP ``tool_timeout_sec``
+# together with the worker itself. ``ValidationSpec`` permits 32 commands of up
+# to 3,600 s, i.e. more than 32 hours — no tool timeout can cover it.
+#
+# The budget is checked BEFORE a worker starts, on every path that starts one,
+# and an envelope over it is REFUSED. Not truncated (a shortened timeout is a
+# different, silently weaker check), not trimmed (a dropped command is a check
+# that did not run), not clamped (the operator's policy would become a fiction).
+#
+# What the budget is NOT: a wait timeout. ``waiting.py`` still has none. This
+# bounds what may be *declared*, so the transport ceiling stays a latency bound
+# rather than becoming a correctness one.
+
+#: Which tool path is refusing. Recorded in the error so an operator can see
+#: whether the envelope was refused on first dispatch or only once a resume
+#: raised the effective execution timeout.
+BudgetPhase = str
+
+#: Program names are reported so a refusal can be acted on. Only the basename,
+#: and only this many characters of it — arguments are where credentials,
+#: hostnames and repository paths live, and none of them belong in an error.
+_MAX_PROGRAM_CHARS = 64
+
+
+def _program_name(argv: list[str]) -> str:
+    """The basename of a validation command's program, bounded.
+
+    ``argv[0]`` is a program, not caller prose: ``ValidationCommand`` already
+    refuses shell interpreters and null bytes. Everything after it is dropped.
+    """
+    return os.path.basename(argv[0])[:_MAX_PROGRAM_CHARS]
+
+
+def validation_budget_facts(
+    envelope: TaskEnvelope | TaskRequest,
+    config: Config,
+    *,
+    phase: BudgetPhase,
+    execution_timeout_seconds: int | None = None,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Measure what this envelope declares against the configured budget.
+
+    Pure and side-effect free — it reads, it does not adjust. The caller is
+    :func:`assert_validation_budget`; it is public because the same numbers are
+    worth asserting on in tests without having to provoke a refusal.
+
+    ``execution_timeout_seconds`` is the *effective* worker timeout for the run
+    about to start. The resume path supplies ``ResumePlan.timeout_seconds``,
+    which may legitimately be larger than the envelope's own value; everything
+    else omits it and the envelope's value is clamped exactly as
+    ``build_worker_invocation`` will clamp it.
+
+    Every value in the returned mapping is a number, an index, or a program
+    basename. Nothing here is derived from task text, argv arguments, worker
+    output or the environment.
+    """
+    declared_execution = (
+        execution_timeout_seconds
+        if execution_timeout_seconds is not None
+        else config.clamp_timeout(envelope.execution.timeout_seconds)
+    )
+    commands = envelope.validation.commands
+    validation_total = sum(cmd.timeout_seconds for cmd in commands)
+    declared_total = declared_execution + validation_total
+    budget = config.validation.max_total_seconds
+
+    facts: dict[str, Any] = {
+        "phase": phase,
+        "budget_seconds": budget,
+        "execution_timeout_seconds": declared_execution,
+        "validation_total_seconds": validation_total,
+        "validation_command_count": len(commands),
+        "declared_total_seconds": declared_total,
+        "excess_seconds": max(0, declared_total - budget),
+        "contributing_commands": [
+            {
+                "index": index,
+                "program": _program_name(list(cmd.argv)),
+                "timeout_seconds": cmd.timeout_seconds,
+            }
+            for index, cmd in enumerate(commands)
+        ],
+    }
+    if task_id is not None:
+        facts["task_id"] = task_id
+    return facts
+
+
+def assert_validation_budget(
+    envelope: TaskEnvelope | TaskRequest,
+    config: Config,
+    *,
+    phase: BudgetPhase,
+    execution_timeout_seconds: int | None = None,
+    task_id: str | None = None,
+) -> None:
+    """Refuse an envelope one MCP tool call cannot carry. Fail closed.
+
+    Called on the dispatch, resume and review paths before any lock is taken and
+    before any worker is launched, so a refusal costs nothing and changes
+    nothing: no task record, no state transition, no worktree, no evidence.
+
+    Raises:
+        ValidationBudgetExceeded: when
+            ``execution timeout + sum(validation timeouts)`` exceeds
+            ``[validation].max_total_seconds``. The envelope is left exactly as
+            it arrived.
+    """
+    facts = validation_budget_facts(
+        envelope,
+        config,
+        phase=phase,
+        execution_timeout_seconds=execution_timeout_seconds,
+        task_id=task_id,
+    )
+    if facts["excess_seconds"] == 0:
+        return
+
+    raise ValidationBudgetExceeded(
+        "This task declares more execution and validation time than one "
+        "dispatcher tool call can carry.",
+        details=facts,
+        remediation=(
+            "Lower execution.timeout_seconds, lower individual "
+            "validation[].timeout_seconds, or split the work across tasks. The "
+            "dispatcher will not shorten a validation timeout or drop a "
+            "validation command to make this fit."
+        ),
+    )
 
 
 def _claimed_argv(command: str) -> list[str] | None:

@@ -116,7 +116,11 @@ from .security import (
 )
 from .sessions import new_session, resume_limit_response, resume_plan
 from .state import TaskStore, atomic_write_json, atomic_write_text
-from .validation import compare_claims_to_validation, run_validations
+from .validation import (
+    assert_validation_budget,
+    compare_claims_to_validation,
+    run_validations,
+)
 from .waiting import WORKER_ACTIONABLE_STATES, RunRegistry, blocking_envelope
 from .worker_context import WorkerContext, WorkerContextComposer
 
@@ -800,6 +804,13 @@ class Dispatcher:
         assert_no_recursion(self.config)
 
         task_request = self._validate_request(request)
+
+        # GATE 6 (FINDING K-1): refuse a run the transport cannot carry BEFORE
+        # anything exists to clean up — no task id, no lock, no worktree, no
+        # worker. The check reads the request the caller sent and the clamp this
+        # config will apply; it never edits either.
+        assert_validation_budget(task_request, self.config, phase="dispatch")
+
         canonical_root = validate_repository_root(task_request.repository.root, self.config)
 
         dispatch_depth = _inherited_dispatch_depth()
@@ -1007,6 +1018,20 @@ class Dispatcher:
             _event("resume_refused", task_id=task_id, reason="resume_limit_reached")
             return resume_limit_response(exc)
 
+        # GATE 6 (FINDING K-1). A resume is the one path that can legitimately
+        # RAISE the effective worker timeout above what the envelope declared,
+        # so it is also the one path that could smuggle an over-budget run past
+        # a check done only at dispatch. The plan's already-clamped timeout is
+        # what this run will actually use, so that is what is budgeted — and no
+        # state has been mutated yet when it is refused.
+        assert_validation_budget(
+            envelope,
+            self.config,
+            phase="resume",
+            execution_timeout_seconds=plan.timeout_seconds,
+            task_id=task_id,
+        )
+
         canonical_root = validate_repository_root(envelope.repository.root, self.config)
 
         lock = RepositoryLock(canonical_root, self.config.locks_path)
@@ -1116,6 +1141,17 @@ class Dispatcher:
 
         envelope = self.store.load_envelope(task_id)
         record = self.store.load(task_id)
+
+        # GATE 6 (FINDING K-1). A Fable review starts a Claude process on the
+        # same MCP transport as a dispatch, so it is bounded by the same tool
+        # timeout and must obey the same budget. It runs no validation commands
+        # of its own, but the envelope's declared total is the honest measure of
+        # what this task was ever allowed to cost, and a budget lowered
+        # underneath a stored envelope must refuse here too rather than start a
+        # reviewer on a call that will be cancelled.
+        assert_validation_budget(
+            envelope, self.config, phase="review", task_id=task_id
+        )
 
         if not record.worktree_path:
             raise StateCorruption(

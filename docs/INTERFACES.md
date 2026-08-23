@@ -1385,6 +1385,71 @@ timeout here would be exactly that conflation.
 
 ---
 
+## 11c. GATE 6 — the fail-closed aggregate run budget
+
+Closes Lane K's FINDING K-1. Because a tool call now stays pending for the whole
+run, the worker *and* every validation command are paid for out of one MCP
+`tool_timeout_sec`. `ValidationSpec.commands` permits 32 commands of up to
+3,600 s each — over 115,000 s — which no tool timeout can cover.
+
+```python
+# config.py — derived constants, each bound to its source by tests
+TRANSPORT_TOOL_TIMEOUT_SECONDS   = 10_800   # applied tool_timeout_sec
+WORKER_TERMINATION_TAIL_SECONDS  = 25       # SIGTERM 5 + reap 10 + drain 10
+VALIDATION_COMMAND_TAIL_SECONDS  = 10       # SIGTERM 5 + drain 5, per command
+MAX_VALIDATION_COMMANDS          = 32       # models.ValidationSpec
+EVIDENCE_GIT_BUDGET_SECONDS      = 1_440    # 24 git calls at git._GIT_TIMEOUT_SECONDS
+MCP_TRANSPORT_BUDGET_SECONDS     = 60
+UNDECLARED_RUN_OVERHEAD_SECONDS  = 1_845    # 25 + 32x10 + 1440 + 60
+MAX_TOTAL_RUN_BUDGET_CEILING     = 8_955    # 10_800 - 1_845
+DEFAULT_TOTAL_RUN_BUDGET_SECONDS = 7_115    # 10_800 - 3_600 - 25 - 60 (Lane J)
+
+def required_tool_timeout_seconds(config: Config) -> int
+
+# validation.py
+BudgetPhase = str   # "dispatch" | "resume" | "review"
+
+def validation_budget_facts(envelope: TaskEnvelope | TaskRequest, config: Config, *,
+                            phase: BudgetPhase,
+                            execution_timeout_seconds: int | None = None,
+                            task_id: str | None = None) -> dict[str, Any]
+def assert_validation_budget(envelope: TaskEnvelope | TaskRequest, config: Config, *,
+                             phase: BudgetPhase,
+                             execution_timeout_seconds: int | None = None,
+                             task_id: str | None = None) -> None
+```
+
+`[validation].max_total_seconds` bounds
+`execution.timeout_seconds + Σ(validation[].timeout_seconds)`. A config above
+`MAX_TOTAL_RUN_BUDGET_CEILING` — or one whose `max_timeout_seconds` exceeds the
+budget outright — raises `ConfigurationError` at load. **Not clamped**, the same
+discipline as the B1 context ceiling.
+
+`assert_validation_budget` runs on all three paths that start a Claude process,
+before any lock is taken and before any state is written:
+
+| path | effective execution timeout | phase |
+| --- | --- | --- |
+| `_dispatch` | `config.clamp_timeout(request.execution.timeout_seconds)` | `"dispatch"` |
+| `_resume` | `ResumePlan.timeout_seconds` — a resume may legitimately *raise* it, which is the bypass vector | `"resume"` |
+| `_review` | the stored envelope's clamped value | `"review"` |
+
+Over budget raises `ValidationBudgetExceeded`. It is a **refusal**: no timeout is
+truncated, no command is dropped, nothing is clamped. `details` carries only
+numbers plus one `{index, program, timeout_seconds}` entry per command, where
+`program` is the bounded basename of `argv[0]` — never arguments, never task
+text.
+
+This bounds what may be *declared*. It is not a wait timeout, and `waiting.py`
+still has none: the transport ceiling stays a latency bound.
+
+Required tests: at budget accepted · one second over refused with no worker
+launched · refusal names the contributing commands · no truncation · no command
+dropping · config above transport capacity refused at load · resume cannot
+bypass · review shares the budget · `waiting.py` gains no timeout.
+
+---
+
 ## 12. Cross-wave conventions
 
 - **Time**: `models.utc_now()`. Serialise via pydantic; never `datetime.now()`.

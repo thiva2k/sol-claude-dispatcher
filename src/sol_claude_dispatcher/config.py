@@ -45,6 +45,16 @@ __all__ = [
     "MAX_PROJECTED_CONTEXT_BYTES",
     "MAX_PROJECTED_BYTES_CEILING",
     "MAX_GUIDANCE_BYTES_CEILING",
+    "TRANSPORT_TOOL_TIMEOUT_SECONDS",
+    "WORKER_TERMINATION_TAIL_SECONDS",
+    "VALIDATION_COMMAND_TAIL_SECONDS",
+    "MAX_VALIDATION_COMMANDS",
+    "EVIDENCE_GIT_BUDGET_SECONDS",
+    "MCP_TRANSPORT_BUDGET_SECONDS",
+    "UNDECLARED_RUN_OVERHEAD_SECONDS",
+    "MAX_TOTAL_RUN_BUDGET_CEILING",
+    "DEFAULT_TOTAL_RUN_BUDGET_SECONDS",
+    "required_tool_timeout_seconds",
     "ProjectGuidanceSettings",
     "load_config",
     "load_config_from_mapping",
@@ -158,8 +168,109 @@ class SecuritySettings(_StrictSection):
         return resolved
 
 
+# ---------------------------------------------------------------------------
+# Transport ceiling for ONE blocking MCP tool call (GATE 6, FINDING K-1)
+# ---------------------------------------------------------------------------
+#
+# Since Gate 6 a dispatch/resume/review tool call stays pending for the whole
+# worker run (``waiting.RunRegistry``). Everything the dispatcher does inside
+# that call is therefore paid for out of ONE MCP ``tool_timeout_sec``.
+#
+# The old ``scripts/generate-codex-config.sh`` sized that timeout as
+# ``max_timeout_seconds + 300`` = 3,900 s. Lane K measured what the call
+# actually costs and found 3,900 s covers the worker phase plus 275 s of
+# *nothing else*: a full-length worker followed by any real validation would
+# have had its waiter cancelled mid-validation. The margin was not too small —
+# it was the wrong shape. Every constant below is read from the code that
+# enforces it, named with its source, and bound to that source by
+# ``tests/unit/test_validation_budget.py`` so it cannot drift silently.
+#
+# NOTE ON DIRECTION OF IMPORT: this module must not import ``runner``,
+# ``validation``, ``git`` or ``models`` — they all import *this* one. The
+# numbers are therefore restated here with their citations, and the tests
+# assert equality against the real definitions.
+
+#: The MCP tool timeout applied to ``mcp_servers.sol_claude_dispatcher`` in
+#: ``~/.codex/config.toml`` (Lane K, Gate 6): 3 hours. It is a **latency**
+#: bound, not a correctness one — ``waiting.py`` has no timeout of its own, so
+#: exceeding it cancels the waiter while the run continues and persists its
+#: authoritative state for ``get_task`` recovery.
+TRANSPORT_TOOL_TIMEOUT_SECONDS = 10_800
+
+#: What a worker costs *after* its own timeout expires: 5 s SIGTERM grace
+#: (``runner.DEFAULT_GRACE_SECONDS``) + 10 s SIGKILL reap (``runner.py``
+#: ``timeout=10.0``) + 10 s pipe drain (``runner.py`` ``timeout=10.0``).
+WORKER_TERMINATION_TAIL_SECONDS = 25
+
+#: What each validation command costs after *its* timeout expires: 5 s SIGTERM
+#: grace + 5 s stream drain, both ``validation._GRACE_SECONDS``.
+VALIDATION_COMMAND_TAIL_SECONDS = 10
+
+#: ``models.ValidationSpec.commands`` is bounded at 32 entries. The overhead
+#: reserve below assumes the worst case, so the ceiling holds for every
+#: envelope shape rather than for the average one.
+MAX_VALIDATION_COMMANDS = 32
+
+#: Evidence and cleanup. Lane K counted 23 git invocations inside one blocking
+#: dispatch (repository identity, base commit, both primary-tree snapshots,
+#: worktree resolution, two ``collect_diff_evidence`` phases, ``write_full_diff``)
+#: and budgeted 24, each bounded by ``git._GIT_TIMEOUT_SECONDS`` = 60 s.
+EVIDENCE_GIT_BUDGET_SECONDS = 24 * 60
+
+#: Response serialisation and the write across the local stdio pipe.
+MCP_TRANSPORT_BUDGET_SECONDS = 60
+
+#: Everything the tool timeout pays for that no envelope declares. Subtracted
+#: once, so the budget below can be compared directly against the sum of the
+#: caller's own declared timeouts.
+#:
+#:     25 + 32 x 10 + 1,440 + 60 = 1,845 s
+UNDECLARED_RUN_OVERHEAD_SECONDS = (
+    WORKER_TERMINATION_TAIL_SECONDS
+    + MAX_VALIDATION_COMMANDS * VALIDATION_COMMAND_TAIL_SECONDS
+    + EVIDENCE_GIT_BUDGET_SECONDS
+    + MCP_TRANSPORT_BUDGET_SECONDS
+)
+
+#: The most ``execution.timeout_seconds + sum(validation[].timeout_seconds)``
+#: the transport can honour: ``10,800 - 1,845 = 8,955 s``. A config asking for
+#: more is refused at load, never clamped — the same discipline as the B1
+#: context ceiling above.
+MAX_TOTAL_RUN_BUDGET_CEILING = (
+    TRANSPORT_TOOL_TIMEOUT_SECONDS - UNDECLARED_RUN_OVERHEAD_SECONDS
+)
+
+#: The shipped budget: Lane J's independently measured headroom under a
+#: 10,800 s tool timeout,
+#:
+#:     10,800 - 3,600 (full-length worker) - 25 (termination) - 60 (evidence)
+#:     = 7,115 s
+#:
+#: Lane J derived that as the room left for validation *given* a worker at the
+#: 3,600 s clamp. Applying the same number to the SUM of execution and
+#: validation is strictly more conservative than Lane J's reading and is what
+#: this dispatcher enforces: a full-length worker keeps 3,515 s of validation,
+#: and the whole declared run plus every overhead term above lands at
+#: 7,115 + 1,845 = 8,960 s, 1,840 s inside the applied 10,800 s.
+#:
+#: It is a **default**, not the ceiling: an operator who wants the rest of the
+#: transport budget may raise it to :data:`MAX_TOTAL_RUN_BUDGET_CEILING`, and
+#: anything above that is refused at load.
+DEFAULT_TOTAL_RUN_BUDGET_SECONDS = 7_115
+
+
 class ValidationSettings(_StrictSection):
+    """Dispatcher validation policy, including the fail-closed run budget.
+
+    ``max_total_seconds`` bounds what a task envelope may *declare*, never what
+    the dispatcher waits for. It is checked before a worker starts, on every
+    path that starts one, and an envelope over it is refused with
+    :class:`~sol_claude_dispatcher.errors.ValidationBudgetExceeded` rather than
+    truncated, clamped, or trimmed by dropping validation commands.
+    """
+
     run_dispatcher_validation: bool = True
+    max_total_seconds: int = Field(default=DEFAULT_TOTAL_RUN_BUDGET_SECONDS, ge=1)
 
 
 class ClaudeSettings(_StrictSection):
@@ -519,6 +630,52 @@ class Config(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _run_budget_fits_the_transport(self) -> "Config":
+        """Refuse a run budget one MCP tool call cannot honour (FINDING K-1).
+
+        The blocking tools pay for the worker, its termination tail, every
+        validation command and its tail, evidence collection and the stdio
+        round trip out of a single ``tool_timeout_sec``. A budget above
+        :data:`MAX_TOTAL_RUN_BUDGET_CEILING` therefore describes a run the
+        transport provably cannot carry.
+
+        Refused, not clamped — same reason as B1 above: an operator who asks
+        for a larger budget must learn that their policy cannot be honoured,
+        rather than silently receiving a smaller one and discovering the
+        difference when a waiter is cancelled mid-validation.
+
+        Also refuses a ``max_timeout_seconds`` the budget cannot even seat: a
+        worker allowed to run longer than the whole declared budget would make
+        every envelope unsatisfiable, which is a misconfiguration, not a policy.
+        """
+        budget = self.validation.max_total_seconds
+        if budget > MAX_TOTAL_RUN_BUDGET_CEILING:
+            raise ValueError(
+                f"validation.max_total_seconds ({budget}) exceeds the "
+                f"{MAX_TOTAL_RUN_BUDGET_CEILING}-second ceiling one blocking MCP "
+                "tool call can honour. That ceiling is the applied "
+                f"{TRANSPORT_TOOL_TIMEOUT_SECONDS}-second tool_timeout_sec minus "
+                f"{UNDECLARED_RUN_OVERHEAD_SECONDS} seconds of overhead no "
+                f"envelope declares ({WORKER_TERMINATION_TAIL_SECONDS} worker "
+                f"termination + {MAX_VALIDATION_COMMANDS} x "
+                f"{VALIDATION_COMMAND_TAIL_SECONDS} validation termination + "
+                f"{EVIDENCE_GIT_BUDGET_SECONDS} evidence + "
+                f"{MCP_TRANSPORT_BUDGET_SECONDS} transport). Lower "
+                "validation.max_total_seconds. It is not clamped down for you "
+                "on purpose"
+            )
+        if self.dispatcher.max_timeout_seconds > budget:
+            raise ValueError(
+                f"dispatcher.max_timeout_seconds ({self.dispatcher.max_timeout_seconds}) "
+                f"exceeds validation.max_total_seconds ({budget}): a worker "
+                "would be permitted to consume the entire declared run budget "
+                "before a single validation command ran, so no envelope using "
+                "the ceiling could ever be accepted. Raise the budget or lower "
+                "the worker ceiling"
+            )
+        return self
+
     # -- derived paths ----------------------------------------------------
 
     def _resolve(self, value: str) -> Path:
@@ -586,6 +743,40 @@ class Config(BaseModel):
     def clamp_timeout(self, requested: int) -> int:
         """Clamp a requested worker timeout to the configured maximum (§20)."""
         return min(requested, self.dispatcher.max_timeout_seconds)
+
+
+def required_tool_timeout_seconds(config: Config) -> int:
+    """The MCP ``tool_timeout_sec`` one blocking tool call actually needs.
+
+    ``scripts/generate-codex-config.sh`` prints this. It is deliberately *not*
+    ``max_timeout_seconds + <margin>``: since Gate 6 the tool call also pays for
+    the validation phase, the evidence phase and the stdio round trip, none of
+    which a margin on the worker ceiling covers.
+
+        validation.max_total_seconds        the whole declared run
+      + WORKER_TERMINATION_TAIL_SECONDS     25
+      + MAX_VALIDATION_COMMANDS x VALIDATION_COMMAND_TAIL_SECONDS   320
+      + EVIDENCE_GIT_BUDGET_SECONDS         1,440
+      + MCP_TRANSPORT_BUDGET_SECONDS        60
+
+    On the shipped configuration that is ``7,115 + 1,845 = 8,960`` s, against
+    an applied ceiling of 10,800 s. Because
+    :data:`MAX_TOTAL_RUN_BUDGET_CEILING` bounds the budget, the result can
+    never exceed :data:`TRANSPORT_TOOL_TIMEOUT_SECONDS`.
+    """
+    required = config.validation.max_total_seconds + UNDECLARED_RUN_OVERHEAD_SECONDS
+    if required > TRANSPORT_TOOL_TIMEOUT_SECONDS:  # pragma: no cover - load-time guard
+        raise ConfigurationError(
+            "The configured run budget needs a longer MCP tool timeout than the "
+            "one this dispatcher is commissioned for.",
+            details={
+                "required_tool_timeout_seconds": required,
+                "applied_tool_timeout_seconds": TRANSPORT_TOOL_TIMEOUT_SECONDS,
+                "max_total_seconds": config.validation.max_total_seconds,
+            },
+            remediation="Lower [validation].max_total_seconds.",
+        )
+    return required
 
 
 # ---------------------------------------------------------------------------
