@@ -80,12 +80,21 @@ run_dispatcher_validation = true
 # An envelope over it is REFUSED before any worker starts, with
 # ValidationBudgetExceeded. Nothing is truncated, clamped or dropped to fit.
 #
-# 7,115 = 10,800 tool timeout - 3,600 full-length worker - 25 termination
-#         - 60 evidence (Lane J's measured headroom).
+# 7,200 = 3,600 maximum worker execution + 3,600 maximum declared validation
+#         (Sol-approved production policy, Lane N 2026-08-23). The derived
+#         requirement on the MCP tool timeout is:
+#
+#             7,200 declared run budget
+#           +    25 worker termination tail
+#           +   320 validation command tails (32 x 10)
+#           + 1,440 git/evidence budget
+#           +    60 MCP transport
+#           = 9,045 seconds required, against the commissioned 10,800 s
+#             tool_timeout_sec (1,755 s headroom).
 #
 # The ceiling is 8,955 s (10,800 minus the 1,845 s of overhead no envelope
 # declares). A larger value is refused at load, not clamped.
-max_total_seconds = 7115
+max_total_seconds = 7200
 
 [claude]
 # Resolved on PATH unless an absolute path is given.

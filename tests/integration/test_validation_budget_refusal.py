@@ -24,9 +24,10 @@ from sol_claude_dispatcher.models import TaskState
 from sol_claude_dispatcher.server import Dispatcher
 
 #: A budget small enough that the fixture config's 120 s worker ceiling is a
-#: meaningful share of it. The real shipped budget (7,115 s) is pinned in the
-#: unit tests; here the boundary needs to be reachable without declaring
-#: hour-long validation commands.
+#: meaningful share of it. The real shipped budget (7,200 s = 3,600 worker +
+#: 3,600 validation, Sol-approved) is pinned in the unit tests; here the
+#: boundary needs to be reachable without declaring hour-long validation
+#: commands.
 TIGHT_BUDGET = 200
 
 
@@ -264,7 +265,7 @@ async def test_the_default_budget_refuses_lane_ks_structural_worst_case(
 
     assert result["error"] == "ValidationBudgetExceeded"
     assert result["details"]["validation_total_seconds"] == 115_200
-    assert result["details"]["budget_seconds"] == 7_115
+    assert result["details"]["budget_seconds"] == 7_200
     assert worker_invocations() == []
 
 
@@ -274,6 +275,37 @@ async def test_the_default_budget_accepts_an_ordinary_envelope(
     request = _with_validation(request_payload, 60, 600, 600)
     result = await dispatcher.dispatch_claude_task(request)
     assert "error" not in result, result
+
+
+async def test_the_governed_3600_worker_plus_3600_validation_shape_is_accepted_end_to_end(
+    integration_config_file: Path,
+    tmp_path: Path,
+    request_payload: dict,
+    fake_env,
+    worker_invocations,
+):
+    """The specific case that motivated the 7,115 -> 7,200 default correction,
+
+    proven through the real dispatch path (not just ``assert_validation_budget``
+    directly): a worker allowed the full 3,600 s clamp, followed by an
+    aggregate validation phase declaring another 3,600 s. Under the old 7,115 s
+    default this was refused by 85 s; it is Sol-approved production policy and
+    must be accepted now.
+    """
+    text = integration_config_file.read_text()
+    patched = text.replace("max_timeout_seconds = 120", "max_timeout_seconds = 3600")
+    assert patched != text, "the fixture config no longer sets max_timeout_seconds"
+    governed_config_file = tmp_path / "governed.toml"
+    governed_config_file.write_text(patched)
+    governed = Dispatcher(load_config(governed_config_file))
+
+    assert governed.config.validation.max_total_seconds == 7_200
+
+    request = _with_validation(request_payload, 3_600, 3_600)
+    result = await governed.dispatch_claude_task(request)
+
+    assert "error" not in result, result
+    assert len(worker_invocations()) == 1
 
 
 def test_the_refusal_happens_before_the_repository_lock_is_taken():

@@ -240,23 +240,32 @@ MAX_TOTAL_RUN_BUDGET_CEILING = (
     TRANSPORT_TOOL_TIMEOUT_SECONDS - UNDECLARED_RUN_OVERHEAD_SECONDS
 )
 
-#: The shipped budget: Lane J's independently measured headroom under a
-#: 10,800 s tool timeout,
+#: The shipped budget: Sol-approved production policy (Lane N, 2026-08-23),
+#: superseding Lane L's more conservative 7,115 s default.
 #:
-#:     10,800 - 3,600 (full-length worker) - 25 (termination) - 60 (evidence)
-#:     = 7,115 s
+#:     3,600  maximum worker execution
+#:   + 3,600  maximum declared validation
+#:   = 7,200  declared run budget          <- this constant
 #:
-#: Lane J derived that as the room left for validation *given* a worker at the
-#: 3,600 s clamp. Applying the same number to the SUM of execution and
-#: validation is strictly more conservative than Lane J's reading and is what
-#: this dispatcher enforces: a full-length worker keeps 3,515 s of validation,
-#: and the whole declared run plus every overhead term above lands at
-#: 7,115 + 1,845 = 8,960 s, 1,840 s inside the applied 10,800 s.
+#: This is a deliberate governed sizing shape — a full-length worker followed
+#: by a full-length aggregate validation phase — not an arbitrary bump. Lane
+#: L's 7,115 s default refused exactly that shape by 85 s; this one accepts it
+#: while remaining well inside what the transport can honour:
+#:
+#:     7,200  declared run budget
+#:   +    25  worker termination tail
+#:   +   320  validation command tails (32 x 10)
+#:   + 1,440  git/evidence budget
+#:   +    60  MCP transport
+#:   = 9,045  seconds required, against an applied 10,800 s tool_timeout_sec
+#:            (1,755 s headroom)
 #:
 #: It is a **default**, not the ceiling: an operator who wants the rest of the
-#: transport budget may raise it to :data:`MAX_TOTAL_RUN_BUDGET_CEILING`, and
-#: anything above that is refused at load.
-DEFAULT_TOTAL_RUN_BUDGET_SECONDS = 7_115
+#: transport budget may raise it to :data:`MAX_TOTAL_RUN_BUDGET_CEILING`
+#: (8,955 s, unchanged by this correction — the overhead terms above are fixed
+#: costs independent of the declared budget), and anything above that is
+#: refused at load.
+DEFAULT_TOTAL_RUN_BUDGET_SECONDS = 7_200
 
 
 class ValidationSettings(_StrictSection):
@@ -759,8 +768,8 @@ def required_tool_timeout_seconds(config: Config) -> int:
       + EVIDENCE_GIT_BUDGET_SECONDS         1,440
       + MCP_TRANSPORT_BUDGET_SECONDS        60
 
-    On the shipped configuration that is ``7,115 + 1,845 = 8,960`` s, against
-    an applied ceiling of 10,800 s. Because
+    On the shipped configuration that is ``7,200 + 1,845 = 9,045`` s, against
+    an applied ceiling of 10,800 s (1,755 s headroom). Because
     :data:`MAX_TOTAL_RUN_BUDGET_CEILING` bounds the budget, the result can
     never exceed :data:`TRANSPORT_TOOL_TIMEOUT_SECONDS`.
     """

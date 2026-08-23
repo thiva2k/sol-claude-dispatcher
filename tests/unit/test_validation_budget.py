@@ -121,17 +121,28 @@ def test_the_applied_transport_timeout_is_lane_ks_10800():
     assert TRANSPORT_TOOL_TIMEOUT_SECONDS == 10_800
 
 
-def test_default_budget_is_lane_js_measured_headroom_under_10800():
-    """``10,800 - 3,600 worker - 25 termination - 60 evidence = 7,115``."""
-    assert DEFAULT_TOTAL_RUN_BUDGET_SECONDS == 7_115
-    assert (
-        DEFAULT_TOTAL_RUN_BUDGET_SECONDS
-        == TRANSPORT_TOOL_TIMEOUT_SECONDS - 3_600 - 25 - 60
-    )
+def test_default_budget_is_the_governed_worker_plus_validation_shape():
+    """Sol-approved production policy (Lane N, 2026-08-23):
+
+        3,600  maximum worker execution
+      + 3,600  maximum declared validation
+      = 7,200  declared run budget          <- validation.max_total_seconds
+
+    This supersedes Lane L's conservative 7,115 s default, which refused
+    Lane K's own governed sizing shape (a full-length worker plus a
+    full-length aggregate validation phase) by 85 s.
+    """
+    assert DEFAULT_TOTAL_RUN_BUDGET_SECONDS == 7_200
+    assert DEFAULT_TOTAL_RUN_BUDGET_SECONDS == 3_600 + 3_600
 
 
 def test_the_ceiling_is_exactly_what_the_transport_can_honour():
-    """Everything the tool timeout must also pay for, subtracted once."""
+    """Everything the tool timeout must also pay for, subtracted once.
+
+    Unaffected by the 7,115 -> 7,200 default change: the overhead terms are
+    all fixed costs independent of the declared budget, so the ceiling is
+    recomputed from them and lands on the same 8,955 s as before.
+    """
     overhead = (
         WORKER_TERMINATION_TAIL_SECONDS
         + MAX_VALIDATION_COMMANDS * VALIDATION_COMMAND_TAIL_SECONDS
@@ -145,12 +156,15 @@ def test_the_ceiling_is_exactly_what_the_transport_can_honour():
 
 def test_the_default_budget_is_below_the_ceiling_it_is_checked_against():
     assert DEFAULT_TOTAL_RUN_BUDGET_SECONDS < MAX_TOTAL_RUN_BUDGET_CEILING
+    assert MAX_TOTAL_RUN_BUDGET_CEILING - DEFAULT_TOTAL_RUN_BUDGET_SECONDS == 1_755
 
 
 def test_required_tool_timeout_fits_under_the_applied_transport_timeout(config):
+    """7,200 + 1,845 = 9,045 s required against a 10,800 s applied ceiling."""
     required = required_tool_timeout_seconds(config)
-    assert required == DEFAULT_TOTAL_RUN_BUDGET_SECONDS + 1_845 == 8_960
+    assert required == DEFAULT_TOTAL_RUN_BUDGET_SECONDS + 1_845 == 9_045
     assert required <= TRANSPORT_TOOL_TIMEOUT_SECONDS
+    assert TRANSPORT_TOOL_TIMEOUT_SECONDS - required == 1_755
 
 
 def test_required_tool_timeout_is_never_the_stale_plus_300_shape(config):
@@ -236,15 +250,51 @@ def test_an_envelope_exactly_at_budget_is_accepted(config, git_repo: Path):
 
 
 def test_one_second_over_budget_is_refused(config, git_repo: Path):
+    """``ValidationCommand.timeout_seconds`` itself caps at 3,600 s per command,
+
+    so the one-second excess is split across two commands rather than declared
+    on a single one.
+    """
     budget = config.validation.max_total_seconds
+    excess_total = budget - 3_600 + 1
     request = _request(
-        git_repo, execution=3_600, validation=_commands(budget - 3_600 + 1)
+        git_repo, execution=3_600, validation=_commands(3_600, excess_total - 3_600)
     )
     with pytest.raises(ValidationBudgetExceeded) as exc:
         assert_validation_budget(request, config, phase="dispatch")
     assert exc.value.details["excess_seconds"] == 1
     assert exc.value.details["budget_seconds"] == budget
     assert exc.value.details["declared_total_seconds"] == budget + 1
+
+
+def test_exactly_7200_seconds_declared_is_accepted(config, git_repo: Path):
+    """Pins the shipped default itself, independent of ``config.validation``."""
+    assert config.validation.max_total_seconds == 7_200
+    request = _request(git_repo, execution=3_600, validation=_commands(3_600))
+    assert_validation_budget(request, config, phase="dispatch")
+
+
+def test_exactly_7201_seconds_declared_is_refused(config, git_repo: Path):
+    """3,600 (worker) + 3,600 + 1 (validation, split across two commands)."""
+    request = _request(git_repo, execution=3_600, validation=_commands(3_600, 1))
+    with pytest.raises(ValidationBudgetExceeded) as exc:
+        assert_validation_budget(request, config, phase="dispatch")
+    assert exc.value.details["excess_seconds"] == 1
+    assert exc.value.details["declared_total_seconds"] == 7_201
+
+
+def test_the_governed_3600_worker_plus_3600_validation_shape_is_accepted(
+    config, git_repo: Path
+):
+    """The specific case that motivated the 7,115 -> 7,200 correction.
+
+    Lane K's governed sizing shape: a full-length (3,600 s) worker followed
+    by a full-length (3,600 s) aggregate validation phase. Under the old
+    7,115 s default this was refused by 85 s; it is Sol-approved production
+    policy and must be accepted now.
+    """
+    request = _request(git_repo, execution=3_600, validation=_commands(3_600))
+    assert_validation_budget(request, config, phase="dispatch")
 
 
 def test_the_structural_worst_case_lane_k_found_is_refused(config, git_repo: Path):

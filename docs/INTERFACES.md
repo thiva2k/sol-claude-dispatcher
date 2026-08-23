@@ -1402,7 +1402,8 @@ EVIDENCE_GIT_BUDGET_SECONDS      = 1_440    # 24 git calls at git._GIT_TIMEOUT_S
 MCP_TRANSPORT_BUDGET_SECONDS     = 60
 UNDECLARED_RUN_OVERHEAD_SECONDS  = 1_845    # 25 + 32x10 + 1440 + 60
 MAX_TOTAL_RUN_BUDGET_CEILING     = 8_955    # 10_800 - 1_845
-DEFAULT_TOTAL_RUN_BUDGET_SECONDS = 7_115    # 10_800 - 3_600 - 25 - 60 (Lane J)
+DEFAULT_TOTAL_RUN_BUDGET_SECONDS = 7_200    # 3_600 worker + 3_600 validation
+                                             # (Sol-approved policy, Lane N)
 
 def required_tool_timeout_seconds(config: Config) -> int
 
