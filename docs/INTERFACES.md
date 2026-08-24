@@ -276,6 +276,8 @@ DispatcherObservations:
     scope_valid: bool; out_of_scope_paths: list[str]; forbidden_paths_touched: list[str]
     diff_check_passed: bool
     worker_result_parsed: bool; worker_result_error: str | None
+    api_error_status: int | None     # B3: from the CLI's OWN result envelope
+    terminal_reason: str | None      # B3: ditto, capped at 64 chars
     primary_worktree_clean: bool | None    # literal: no uncommitted changes NOW
     primary_tree_unchanged: bool | None    # the non-interference VERDICT
                                            # (post fingerprint == pre); None
@@ -315,7 +317,8 @@ Subclasses: `InvalidRepository`, `RepositoryNotAllowed`, `RepositoryBusy`
 (retryable), `WorktreeCreationFailed`, `InvalidTaskEnvelope`,
 `InvalidStateTransition`, `TaskNotFound`, `StateCorruption`,
 `ClaudeBinaryNotFound`, `ClaudeExecutionFailed`,
-`ClaudeStructuredOutputInvalid`, `ClaudeTimedOut`, `ResumeLimitReached`,
+`ClaudeStructuredOutputInvalid`, `ClaudeProviderLimit` (retryable),
+`ClaudeTimedOut`, `ResumeLimitReached`,
 `PolicyViolation`, `ValidationFailed`, `GitEvidenceCollectionFailed`,
 `RecursionDetected`, `ConfigurationError`, `InternalDispatcherError`.
 
@@ -1027,6 +1030,44 @@ result: the run is recorded with `worker_result_parsed=False` and a populated
 Required tests: valid; invalid JSON; valid JSON wrong schema; missing required
 field; extra field; `result`-as-string double-encoded; empty stdout; non-object
 top level.
+
+### B3 — the five outcomes, and what decides each
+
+"Nothing parseable came back" has five causes and they are not
+interchangeable. Production task `c5e385c9` proved the cost of collapsing them:
+an HTTP 429 weekly account limit was reported as
+`ClaudeStructuredOutputInvalid`, i.e. a model-output defect.
+
+| outcome | error | decided from |
+|---|---|---|
+| valid structured response | — | a parseable, schema-valid payload |
+| structured-output / schema failure | `ClaudeStructuredOutputInvalid` | `results.extract_structured_payload` / `model_validate` |
+| execution / process failure | `ClaudeExecutionFailed` | `runner.cli_failure`: non-zero exit **and** empty stdout, or a non-limit API error |
+| timeout | `ClaudeTimedOut` | `WorkerRun.timed_out` — process control |
+| provider usage / rate limit | `ClaudeProviderLimit` (retryable) | `runner.provider_failure`: `api_error_status` / `terminal_reason` from the CLI's own result envelope |
+
+`runner.envelope_facts(run)` is the single door onto envelope evidence. It
+returns `None` unless the run started, was not killed, and produced the CLI's
+**own** result object — a top-level payload carrying `status`+`summary` or
+`verdict` is model output and is vetoed outright, however many envelope fields
+it apes. Only whitelisted top-level scalars come back; `structured_output`
+never does. **Nothing the model wrote can produce a provider-limit verdict**, and
+a test proves that a worker writing "429" / "rate limit" into its summary,
+its prose result and its payload still completes normally.
+
+Precedence in `_land_state`: policy violation → timeout → provider → unusable
+worker report → exit code → the worker's own status. A killed run is a timeout
+even if a 429 envelope sits in its partial stdout; a limited run is never an
+implementation even though its envelope says `subtype: "success"`.
+
+`ClaudeProviderLimit.details` is bounded and redacted: the trusted envelope
+signals, the exit code, the token counters that expose a zero-work run, and at
+most 200 redacted characters of the provider's own message (which usually names
+the reset time). Never the prompt, never argv, never the raw envelope.
+
+Classification is per **run**, read from that run's in-memory `WorkerRun`. It
+never searches the task directory, so a resumed run is never classified from an
+earlier run's envelope.
 
 ---
 

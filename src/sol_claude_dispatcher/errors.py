@@ -35,6 +35,7 @@ __all__ = [
     "ClaudeBinaryNotFound",
     "ClaudeExecutionFailed",
     "ClaudeStructuredOutputInvalid",
+    "ClaudeProviderLimit",
     "ClaudeTimedOut",
     "ResumeLimitReached",
     "PolicyViolation",
@@ -229,9 +230,50 @@ class ClaudeStructuredOutputInvalid(DispatcherError):
     """Claude's stdout was not valid JSON, or did not match the worker schema.
 
     §15: parse the real JSON result. Never regex-scrape prose to recover.
+
+    This is a statement about **model output**, and it must stay that narrow. A
+    run the provider refused (:class:`ClaudeProviderLimit`), a CLI that never
+    produced anything (:class:`ClaudeExecutionFailed`) and a run the dispatcher
+    killed (:class:`ClaudeTimedOut`) all also arrive with nothing parseable, and
+    reporting any of them here sends the operator to the wrong layer.
     """
 
     code = "ClaudeStructuredOutputInvalid"
+
+
+class ClaudeProviderLimit(DispatcherError):
+    """The provider refused the run with a usage or rate limit (B3).
+
+    Production task ``c5e385c9`` died on an HTTP 429 weekly account limit. The
+    CLI wrapped the provider's prose in its ordinary ``--output-format json``
+    envelope, **exited 0**, and stated the cause in three machine-readable
+    envelope fields — ``is_error: true``, ``terminal_reason: "api_error"``,
+    ``api_error_status: 429``. Nothing read them, so the empty structured
+    payload was reported as ``ClaudeStructuredOutputInvalid``: a verdict that is
+    literally true and diagnostically wrong. It says "the model emitted a bad
+    schema" about an account that had run out of quota, and an operator acting
+    on it goes looking at prompts and schemas instead of at billing or the
+    clock.
+
+    So this is its own branch of the taxonomy. It is decided **only** from
+    trusted CLI-envelope and process evidence (``runner.envelope_facts``); text
+    the model wrote — its summary, its prose result, its structured payload —
+    can never reach this classification, however many times it says "429".
+
+    ``retryable`` is True in the precise sense §29 gives the word: the identical
+    request may succeed later, unchanged, once the limit window resets. It is
+    *not* a licence to retry automatically — the dispatcher never does — and the
+    task still lands in a failure state with its session, worktree and evidence
+    preserved so Sol can decide when to resume.
+
+    ``details`` carries bounded facts only: the trusted envelope signals, the
+    exit status, the token counts that expose a zero-work run, and a short
+    redacted excerpt of the provider's own message (which usually names the
+    reset time). Never the prompt, never argv, never the raw envelope.
+    """
+
+    code = "ClaudeProviderLimit"
+    retryable = True
 
 
 class ClaudeTimedOut(DispatcherError):
@@ -490,6 +532,7 @@ ERROR_CODES: frozenset[str] = frozenset(
         "ClaudeBinaryNotFound",
         "ClaudeExecutionFailed",
         "ClaudeStructuredOutputInvalid",
+        "ClaudeProviderLimit",
         "ClaudeTimedOut",
         "ResumeLimitReached",
         "PolicyViolation",

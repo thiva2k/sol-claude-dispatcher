@@ -164,6 +164,8 @@ def build_dispatcher_observations(
     scope_check: "ScopeCheck",
     worker_result: WorkerResult | None,
     worker_result_error: str | None = None,
+    api_error_status: int | None = None,
+    terminal_reason: str | None = None,
     worktree_head_commit: str | None = None,
     primary_worktree_clean: bool | None = None,
     primary_tree_unchanged: bool | None = None,
@@ -171,7 +173,8 @@ def build_dispatcher_observations(
     """Assemble the dispatcher's *measured* evidence for one run (§16).
 
     Every field here comes from process control (``duration_ms``,
-    ``exit_code``, ``timed_out``), git inspection (``diff_evidence``,
+    ``exit_code``, ``timed_out``, ``api_error_status``, ``terminal_reason``),
+    git inspection (``diff_evidence``,
     ``primary_worktree_clean``, ``primary_tree_unchanged``,
     ``worktree_head_commit``) or scope
     checking (``scope_check``) — never from parsed worker output.
@@ -203,6 +206,12 @@ def build_dispatcher_observations(
         diff_check_passed=diff_evidence.diff_check_passed,
         worker_result_parsed=worker_result is not None,
         worker_result_error=worker_result_error,
+        # B3: read by ``runner.envelope_facts`` from whitelisted top-level keys
+        # of the CLI's own result envelope. Process/provider evidence, never a
+        # worker claim — a model that writes "429" into its output cannot put
+        # anything here.
+        api_error_status=api_error_status,
+        terminal_reason=terminal_reason,
         # B2: measured by git INSIDE the worktree, before any evidence was
         # collected. Never derived from anything the worker said.
         worktree_head_commit=worktree_head_commit,

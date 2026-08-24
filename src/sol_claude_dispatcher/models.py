@@ -926,6 +926,17 @@ class DispatcherObservations(StrictModel):
     worker_result_parsed: bool = False
     worker_result_error: str | None = Field(default=None, max_length=_MAX_TEXT)
 
+    #: B3. The two trusted signals from the CLI's own result envelope, recorded
+    #: so the classification of this run is auditable from the persisted record
+    #: rather than only from a log line. ``api_error_status: 429`` with
+    #: ``terminal_reason: "api_error"`` is a provider usage limit — *not* a
+    #: model-output defect, which is how production task ``c5e385c9`` was
+    #: mis-reported. Read from whitelisted top-level envelope keys only; nothing
+    #: the model wrote can reach either field. ``None`` means the envelope did
+    #: not carry the signal (the ordinary case) or predates this field.
+    api_error_status: int | None = None
+    terminal_reason: str | None = Field(default=None, max_length=64)
+
     #: The commit the isolated worktree was actually on when this run's
     #: evidence was collected (B2), measured by ``git rev-parse HEAD`` **inside
     #: the worktree**. Equal to :attr:`base_commit` for every run that was

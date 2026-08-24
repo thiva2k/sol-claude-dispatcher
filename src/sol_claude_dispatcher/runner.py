@@ -63,6 +63,7 @@ from .config import (
 from .errors import (
     ClaudeBinaryNotFound,
     ClaudeExecutionFailed,
+    ClaudeProviderLimit,
     ConfigurationError,
     ContextTooLarge,
     InternalDispatcherError,
@@ -76,7 +77,13 @@ __all__ = [
     "StreamCapture",
     "run_worker",
     "cli_failure",
+    "envelope_facts",
+    "provider_failure",
     "STDERR_TAIL_CHARS",
+    "PROVIDER_LIMIT_STATUSES",
+    "PROVIDER_LIMIT_TERMINAL_REASONS",
+    "PROVIDER_API_ERROR_TERMINAL_REASONS",
+    "PROVIDER_MESSAGE_CHARS",
     "build_argv",
     "build_worker_invocation",
     "build_fable_invocation",
@@ -365,6 +372,247 @@ def cli_failure(run: WorkerRun, *, binary: str, role: str) -> ClaudeExecutionFai
         remediation=(
             "Run ./scripts/doctor.sh (or the binary's own --version) — a broken, "
             "partially installed, or mis-pathed CLI reports the cause on stderr."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# B3: provider usage-limit / API-error classification
+#
+# Production task ``c5e385c9`` hit an HTTP 429 weekly account limit. The CLI
+# wrapped the provider's prose in its ordinary ``--output-format json``
+# envelope, exited **0**, and named the cause in three machine-readable fields.
+# ``cli_failure`` above cannot see it — it requires a non-zero exit — so the
+# empty structured payload fell through to ``ClaudeStructuredOutputInvalid``,
+# which blames the model's schema for the account's quota.
+#
+# The rule this section implements: classify from the CLI's own result envelope
+# and from process control, and from nothing else. Everything the *model* wrote
+# — its summary, its prose ``result``, its structured payload — is untrusted
+# input that must never be able to manufacture this verdict.
+# ---------------------------------------------------------------------------
+
+#: HTTP statuses that mean the provider *refused* the run against a limit,
+#: rather than failing at it. 429 is the measured production case; the set
+#: exists so a future limit status is a one-line change rather than a re-think.
+PROVIDER_LIMIT_STATUSES: frozenset[int] = frozenset({429})
+
+#: ``terminal_reason`` values that state a limit outright. The installed CLI
+#: reported the 429 as the generic ``api_error`` (with the status alongside),
+#: so these are forward compatibility, not the observed shape. Exact matches on
+#: a trusted envelope field — never substring searches over prose.
+PROVIDER_LIMIT_TERMINAL_REASONS: frozenset[str] = frozenset(
+    {"usage_limit", "rate_limit", "quota_exceeded"}
+)
+
+#: ``terminal_reason`` values that say the run ended inside the provider API.
+#: Enough on their own to rule out "the model emitted a bad schema", even when
+#: no status accompanies them.
+PROVIDER_API_ERROR_TERMINAL_REASONS: frozenset[str] = frozenset({"api_error"})
+
+#: How much of the provider's own message is quoted back. It usually names the
+#: reset time ("resets Aug 23, 4pm (UTC)"), which is the single most actionable
+#: fact an operator gets — but it is provider prose, so it is redacted,
+#: whitespace-collapsed and hard-capped. DIAGNOSTIC ONLY: nothing in this
+#: module ever reads it to decide anything.
+PROVIDER_MESSAGE_CHARS: int = 200
+
+_TERMINAL_REASON_CHARS: int = 64
+_SUBTYPE_CHARS: int = 64
+
+#: Token counters copied into the diagnostic. They are what make a usage-limit
+#: run recognisable as one: a well-formed envelope with no work behind it.
+_REPORTED_USAGE_KEYS: tuple[str, ...] = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
+#: Keys only the CLI's result envelope carries. Used to recognise an envelope
+#: when it does not self-identify with ``type: "result"``, so that a bare JSON
+#: object a model happened to print cannot be mistaken for one.
+_ENVELOPE_MARKER_KEYS: frozenset[str] = frozenset(
+    {
+        "session_id",
+        "duration_ms",
+        "duration_api_ms",
+        "num_turns",
+        "total_cost_usd",
+        "subtype",
+        "usage",
+        "modelUsage",
+        "permission_denials",
+    }
+)
+_MIN_ENVELOPE_MARKERS: int = 2
+
+
+def _envelope_int(value: object) -> int | None:
+    """An integer from a trusted envelope field, or ``None``. Booleans are not
+    integers here: ``is_error: true`` must never read as a status code."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _envelope_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _envelope_token(value: object, limit: int) -> str | None:
+    """A short, single-line excerpt of a trusted envelope string field."""
+    if not isinstance(value, str):
+        return None
+    return " ".join(value.split())[:limit] or None
+
+
+def _provider_message(value: object) -> str | None:
+    """Redact first, then collapse, then cap (§28, §29).
+
+    Order matters: truncating before redacting could leave the head of a
+    secret-shaped value standing in the payload.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return " ".join(redact(value).split())[:PROVIDER_MESSAGE_CHARS] or None
+
+
+def envelope_facts(run: WorkerRun) -> dict[str, object] | None:
+    """The trusted facts in the CLI's result envelope, or ``None``.
+
+    ``None`` means *there is no envelope worth trusting* — the run never
+    started, the dispatcher killed it, stdout was not JSON, or what parsed is
+    not the CLI's envelope. Every one of those has its own reporting path, and
+    guessing from what is there instead would be exactly the defect B3 exists
+    to close.
+
+    Two gates keep model output on the far side of the boundary:
+
+    * **The payload veto.** A top-level object that carries ``status`` +
+      ``summary`` or ``verdict`` is a worker result or a review — i.e. model
+      output — even if it also sets ``api_error_status``. It is refused outright
+      rather than mined for signals.
+    * **Envelope identification.** What remains must self-identify as
+      ``type: "result"`` or carry at least two keys only the CLI emits.
+
+    Only whitelisted top-level scalars are returned. ``structured_output`` and
+    the nested per-model accounting never cross this door, so no caller can
+    accidentally classify from something the model wrote.
+    """
+    if run.start_failed or run.timed_out:
+        return None
+
+    text = run.stdout_for_parsing
+    if not text.strip():
+        return None
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    # The payload veto (see above).
+    if ("status" in parsed and "summary" in parsed) or "verdict" in parsed:
+        return None
+
+    if parsed.get("type") != "result":
+        markers = sum(1 for key in _ENVELOPE_MARKER_KEYS if key in parsed)
+        if markers < _MIN_ENVELOPE_MARKERS:
+            return None
+
+    raw_usage = parsed.get("usage")
+    usage = raw_usage if isinstance(raw_usage, dict) else {}
+    return {
+        "is_error": parsed.get("is_error") is True,
+        "api_error_status": _envelope_int(parsed.get("api_error_status")),
+        "terminal_reason": _envelope_token(
+            parsed.get("terminal_reason"), _TERMINAL_REASON_CHARS
+        ),
+        "subtype": _envelope_token(parsed.get("subtype"), _SUBTYPE_CHARS),
+        "num_turns": _envelope_int(parsed.get("num_turns")),
+        "total_cost_usd": _envelope_float(parsed.get("total_cost_usd")),
+        "usage": {key: _envelope_int(usage.get(key)) for key in _REPORTED_USAGE_KEYS},
+        "provider_message": _provider_message(parsed.get("result")),
+    }
+
+
+def provider_failure(
+    run: WorkerRun, *, binary: str, role: str
+) -> ClaudeProviderLimit | ClaudeExecutionFailed | None:
+    """Diagnose a run the *provider* ended, from the envelope it ended with (B3).
+
+    Returns:
+        * :class:`ClaudeProviderLimit` when the envelope reports a usage or rate
+          limit — HTTP 429, or a ``terminal_reason`` that names a limit.
+        * :class:`ClaudeExecutionFailed` when the envelope reports some other
+          API error. A 500 is not a limit, but it is not a model-output defect
+          either, and calling it one is the same misdiagnosis in a different
+          coat.
+        * ``None`` for everything else, including every timed-out run and every
+          run that produced no trustworthy envelope. A timeout is a timeout: it
+          is decided by process control, upstream of this function, and a
+          complete 429 envelope sitting in a killed run's partial stdout does
+          not change that.
+
+    The exit code is *recorded* but never *required*: the production case exits
+    0, which is precisely why ``cli_failure`` could not see it.
+    """
+    facts = envelope_facts(run)
+    if facts is None:
+        return None
+
+    status = facts["api_error_status"]
+    terminal_reason = facts["terminal_reason"]
+
+    is_limit = (
+        status in PROVIDER_LIMIT_STATUSES
+        or terminal_reason in PROVIDER_LIMIT_TERMINAL_REASONS
+    )
+    is_api_error = (
+        status is not None or terminal_reason in PROVIDER_API_ERROR_TERMINAL_REASONS
+    )
+    if not is_limit and not is_api_error:
+        return None
+
+    details: dict[str, object] = {
+        "binary": binary,
+        "role": role,
+        "reason": "provider_usage_limit" if is_limit else "provider_api_error",
+        "exit_code": run.exit_code,
+        **facts,
+    }
+
+    if is_limit:
+        return ClaudeProviderLimit(
+            "The provider refused this run against a usage or rate limit: the "
+            "run ended on the account's quota, not on anything the model or the "
+            "task did.",
+            details=details,
+            remediation=(
+                "Wait for the limit window to reset — the provider message names "
+                "it when it can — or dispatch against an account with remaining "
+                "quota, then resume. The session, the worktree and all evidence "
+                "are preserved; the dispatcher never retries this on its own."
+            ),
+        )
+    return ClaudeExecutionFailed(
+        "The Claude CLI reported a provider API error and produced no model "
+        "result: the run failed upstream of the model's output.",
+        details=details,
+        remediation=(
+            "This is a provider-side fault, not a bad worker result. Check the "
+            "provider's status, then resume the task — session, worktree and "
+            "evidence are preserved."
         ),
     )
 

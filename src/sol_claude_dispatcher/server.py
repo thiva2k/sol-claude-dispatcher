@@ -107,7 +107,9 @@ from .runner import (
     build_fable_invocation,
     build_worker_invocation,
     cli_failure,
+    envelope_facts,
     fable_policy_text,
+    provider_failure,
     run_worker,
     worker_policy_text,
 )
@@ -1396,6 +1398,17 @@ class Dispatcher:
                 worker_context=review_context,
             )
 
+            # B3: the provider may have refused the review outright — a 429
+            # usage limit arrives as a well-formed envelope, with exit 0 and no
+            # payload. Checked before the parser, which would otherwise call an
+            # exhausted quota a malformed review.
+            provider_error = provider_failure(
+                worker_run, binary=self.config.claude.binary, role="reviewer"
+            )
+            if provider_error is not None:
+                provider_error.details["task_id"] = task_id
+                raise provider_error
+
             # DEFECT-L2-02: a reviewer CLI that exited non-zero without writing
             # anything failed as a *process*. Raise that, with its stderr tail,
             # rather than letting the parser report the empty stdout as invalid
@@ -2012,6 +2025,11 @@ class Dispatcher:
         # --- what the worker CLAIMED (§16) --------------------------------
         worker_result: WorkerResult | None = None
         worker_result_error: str | None = None
+        # B3: the trusted half of the CLI's own result envelope, read once.
+        # ``None`` when there is no envelope worth trusting (never started,
+        # killed, not JSON, or not the CLI's own object). Nothing the model
+        # wrote reaches this dict — see ``runner.envelope_facts``.
+        cli_envelope = envelope_facts(worker_run) or {}
         if worker_run.timed_out:
             worker_result_error = (
                 "worker timed out before emitting structured output; partial "
@@ -2019,6 +2037,19 @@ class Dispatcher:
             )
         elif worker_run.start_failed:
             worker_result_error = "worker process could not be started"
+        elif (provider_error := provider_failure(
+            worker_run, binary=self.config.claude.binary, role="implementer"
+        )) is not None:
+            # B3: the provider ended this run — an HTTP 429 usage limit, or
+            # another API error — and said so in its own envelope. The payload
+            # of a run that died upstream of the model is not a worker result,
+            # so it is not parsed and not stored as one; the trusted envelope
+            # facts are recorded instead. Deliberately ahead of the parser: the
+            # CLI exits 0 here, so nothing else would notice.
+            worker_result_error = (
+                f"{provider_error.code}: {provider_error.message} "
+                f"{json.dumps(provider_error.details, default=str)}"
+            )
         elif (cli_error := cli_failure(
             worker_run, binary=self.config.claude.binary, role="implementer"
         )) is not None:
@@ -2113,6 +2144,12 @@ class Dispatcher:
             scope_check=scope,
             worker_result=worker_result,
             worker_result_error=worker_result_error,
+            # B3: the trusted envelope signals for THIS run. ``cli_envelope``
+            # is derived from this run's own ``WorkerRun`` object, never by
+            # searching the task directory, so a resumed run is never
+            # classified from an earlier run's envelope.
+            api_error_status=cli_envelope.get("api_error_status"),
+            terminal_reason=cli_envelope.get("terminal_reason"),
             # B2: measured by git inside the worktree, before any of the
             # evidence above was collected. Equal to ``base_commit`` on every
             # run that gets this far, by construction — the run is refused
@@ -2459,8 +2496,16 @@ class Dispatcher:
         a policy violation whatever else happened, and the evidence is kept
         rather than deleted. That covers two independent measurements — a change
         outside the declared scope inside the worktree, and any change at all to
-        the *primary* tree (P1-5). A timeout is next (§20), then an unusable
-        worker report, then the process outcome, then the worker's own status.
+        the *primary* tree (P1-5). A timeout is next (§20), then a run the
+        provider itself ended (B3), then an unusable worker report, then the
+        process outcome, then the worker's own status.
+
+        The timeout branch stays ahead of the provider branch on purpose: a run
+        the dispatcher killed is a timeout, and a 429 envelope sitting in its
+        partial stdout does not turn it into a provider limit. The provider
+        branch stays ahead of everything after it for the mirror-image reason:
+        a limited run produced no work, so neither its exit code nor its
+        envelope's ``subtype: "success"`` says anything about the task.
 
         A primary-tree divergence never falls through to
         ``AWAITING_SOL_REVIEW``: the worker escaped its isolation, and that is a
@@ -2531,6 +2576,25 @@ class Dispatcher:
                 TaskState.TIMED_OUT,
                 reason="timeout",
                 last_error=error.to_payload(),
+                **updates,
+            )
+
+        # B3: a run the *provider* ended. Checked ahead of every remaining
+        # branch — including the worker's own report — because a usage limit
+        # returns a well-formed envelope with exit 0 and no work behind it, and
+        # every downstream reading of that is vacuous. A limited run is never
+        # an implementation, however complete its envelope looks; Gate 4.5
+        # refuses to score one for the same reason.
+        provider_error = provider_failure(
+            worker_run, binary=self.config.claude.binary, role="implementer"
+        )
+        if provider_error is not None:
+            provider_error.details["task_id"] = task_id
+            return self.store.transition(
+                task_id,
+                TaskState.FAILED,
+                reason=str(provider_error.details["reason"]),
+                last_error=provider_error.to_payload(),
                 **updates,
             )
 
