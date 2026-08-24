@@ -179,6 +179,12 @@ result you already received is the authoritative outcome; calling get_task to
 find out whether the worker finished wastes tokens and ends the turn for no
 information.
 
+Do not call get_task while a dispatch, resume or review call is still pending
+either. If the runtime hands you a background-task handle, or reports the call
+as "still running", that is not permission to poll: it is the runtime waiting on
+your behalf. Stay idle, and continue the goal when the result arrives. Do not
+start a second worker because the first call has not returned yet.
+
 get_task is recovery and status tooling only. Call it when a tool call was
 interrupted before it returned, or to inspect a task this turn did not just
 run — never as a wait loop, and never in a retry loop against a running worker.
@@ -205,7 +211,8 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "observations separately. Completion is evidence, never approval. "
         "This call BLOCKS until the worker reaches a state requiring a decision "
         "from Sol: awaiting_sol_review, timed_out, blocked, failed or "
-        "policy_violation. Do not poll get_task afterwards — the returned "
+        "policy_violation. Do not call get_task while this call is pending. "
+        "Do not poll get_task afterwards — the returned "
         "payload is already the final state of this run."
     ),
     "resume_claude_task": (
@@ -214,14 +221,16 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "from the caller. Refuses past the configured resume cap. "
         "This call BLOCKS until the resumed worker reaches a state requiring a "
         "decision from Sol: awaiting_sol_review, timed_out, blocked, failed or "
-        "policy_violation. Do not poll get_task afterwards — the returned "
+        "policy_violation. Do not call get_task while this call is pending. "
+        "Do not poll get_task afterwards — the returned "
         "payload is already the final state of this run."
     ),
     "review_task_with_fable": (
         "Run an independent, read-only Fable review of a task's recorded "
         "evidence in a fresh session. The verdict is advisory to Sol and never "
         "changes approval state. This call BLOCKS until the review is complete "
-        "and returns it in one result. Do not poll get_task afterwards."
+        "and returns it in one result. No polling is required while it is "
+        "pending. Do not poll get_task afterwards."
     ),
     "get_task": (
         "Read a task's authoritative state: envelope, status, model, worktree, "
@@ -231,7 +240,8 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "path, because dispatch_claude_task and resume_claude_task already wait "
         "for the worker. Use it when a tool call was interrupted before it "
         "returned, or to inspect a task this turn did not just run. Never call "
-        "it in a loop to wait for a worker."
+        "it in a loop to wait for a worker, and never use it to poll an active "
+        "dispatch, resume or review."
     ),
 }
 
