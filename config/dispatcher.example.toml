@@ -4,6 +4,21 @@
 # unknown key, a missing required section, a nonexistent repository root, or
 # the untouched "/CONFIGURE/ME" placeholder below will all refuse to load.
 # That is intentional — an unconfigured dispatcher must not dispatch.
+#
+# CONFIGURATION AUTHORITY (B4). config/dispatcher.toml is the CANONICAL
+# production configuration, and the registered MCP server loads it and nothing
+# else. `sol-claude-dispatcher` refuses to start when SOL_DISPATCHER_CONFIG
+# names any other file (typed ConfigAuthorityViolation, exit 2, before any MCP
+# server exists), so widening [security].allowed_repository_roots requires a
+# deliberate, persistent edit to THIS file — never an environment override on a
+# single process. SOL_DISPATCHER_CONFIG is a test/development selector only; to
+# serve a throwaway config over real stdio, use
+#     python -m sol_claude_dispatcher.dev_server /tmp/throwaway.toml
+# which takes its path on argv, reads no environment, is not a console script,
+# is not registered with Codex, and refuses this file and any config reaching a
+# production repository. It is a fail-closed configuration-authority boundary,
+# NOT an OS sandbox: see docs/SECURITY.md for exactly what it does and does not
+# prevent.
 
 [dispatcher]
 state_dir = "./state"

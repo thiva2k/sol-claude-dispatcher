@@ -111,6 +111,38 @@ section, a repository root that does not exist, or `/` as a root will all
 stop it from starting. That is deliberate: an unconfigured dispatcher must
 not dispatch.
 
+### Which configuration production runs (B4)
+
+`config/dispatcher.toml` is the **canonical production configuration**, and the
+registered MCP server loads it and nothing else. `sol-claude-dispatcher` — the
+console script Codex launches — refuses to start when `SOL_DISPATCHER_CONFIG`
+names any other file, with a typed `ConfigAuthorityViolation` and exit code 2,
+before an MCP server exists. Comparison is by full `realpath`, so no symlink or
+`..` spelling gets another file past it.
+
+Changing what production is authorised for — `[security].allowed_repository_roots`
+above all — therefore requires a **deliberate, persistent edit to that file**.
+It cannot be done with an environment variable on a single process.
+
+`SOL_DISPATCHER_CONFIG` is a **test/development** selector only. To run a real
+stdio server against a throwaway configuration:
+
+```bash
+python -m sol_claude_dispatcher.dev_server /tmp/throwaway.toml
+```
+
+That harness takes its path on **argv** (it reads no environment), is not
+installed as a console script, is not registered with Codex, and refuses both
+the canonical production config and any config reaching a production
+repository. Tests should prefer `load_config(path)`, `build_dispatcher(path)`
+or `build_server(path)` directly.
+
+This is a fail-closed **configuration-authority** boundary, not an OS sandbox.
+It stops an ambient environment variable from silently redirecting the
+production server. It does not stop someone who can edit the canonical file,
+replace the installed package, or change `~/.codex/config.toml` — and it is not
+meant to.
+
 ## Quickstart
 
 ```bash

@@ -57,10 +57,11 @@
 #
 # This project's own repository is used ONLY as the target of a rejection
 # check (a pure, read-only `git rev-parse` under the hood) and ONLY as the
-# cwd for the MCP server subprocess launched with an EPHEMERAL config
-# (SOL_DISPATCHER_CONFIG env var, never the project's config/dispatcher.toml
-# default). The production config file is never read, written, or pointed at
-# by anything in this script — see the REAL_CONFIG guard below.
+# cwd for the MCP server subprocess launched with an EPHEMERAL config (passed
+# on argv to the TEST/DEVELOPMENT harness `sol_claude_dispatcher.dev_server`,
+# never to the production entrypoint and never through an environment
+# variable — B4). The production config file is never read, written, or
+# pointed at by anything in this script — see the REAL_CONFIG guard below.
 
 set -euo pipefail
 
@@ -495,13 +496,17 @@ async def mcp_phase() -> None:
     section("MCP phase: real stdio server process, all four tools")
 
     env = dict(os.environ)
-    env["SOL_DISPATCHER_CONFIG"] = CONFIG_PATH
     env.pop("SOL_WORKER", None)
     env.pop("SOL_DISPATCH_DEPTH", None)
+    # B4: the ephemeral config is handed to the TEST/DEVELOPMENT stdio harness
+    # on ARGV. The production entrypoint refuses a config chosen by its
+    # environment, and the harness refuses the canonical production config and
+    # any config reaching a production repository.
+    env.pop("SOL_DISPATCHER_CONFIG", None)
 
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-c", "from sol_claude_dispatcher.server import main; main()"],
+        args=["-m", "sol_claude_dispatcher.dev_server", CONFIG_PATH],
         env=env,
         cwd=PROJECT_ROOT,
     )

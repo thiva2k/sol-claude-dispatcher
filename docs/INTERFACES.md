@@ -1159,10 +1159,49 @@ async def dispatch_claude_task(...) -> dict: ...
 server.run(transport="stdio")        # or: await server.run_stdio_async()
 ```
 
-`main()` must, in order: call `security.assert_no_recursion(config)`; load
-config (path from `SOL_DISPATCHER_CONFIG` env var or the default
-`config/dispatcher.toml`); configure logging to **stderr or a file, never
+`main()` must, in order: call
+`config_authority.assert_production_config_authority()`; call
+`security.assert_no_recursion(config)`; load the **canonical**
+`config/dispatcher.toml`; configure logging to **stderr or a file, never
 stdout**; build the server; run stdio.
+
+### Configuration authority (B4)
+
+`main()` is the PRODUCTION entrypoint — the `sol-claude-dispatcher` console
+script registered as `sol_claude_dispatcher` in `~/.codex/config.toml`. It
+loads the canonical `config/dispatcher.toml` and nothing else.
+
+`SOL_DISPATCHER_CONFIG` **selects nothing.** It used to sit in
+`resolve_config_path`'s precedence chain, which meant a process-local Codex
+environment (`codex exec -c 'mcp_servers.…env_vars=["SOL_DISPATCHER_CONFIG"]'`)
+could point the registered production server at another TOML with a wider
+`security.allowed_repository_roots` — changing the production repository
+authorization boundary for one process without touching any file on disk.
+
+Now:
+
+| entrypoint | config source | environment |
+|---|---|---|
+| `server:main` (console script, registered with Codex) | canonical `config/dispatcher.toml`, always | read **only** to refuse: a `SOL_DISPATCHER_CONFIG` that does not `realpath` to the canonical file raises `ConfigAuthorityViolation` and the process exits 2 before any MCP server exists |
+| `dev_server:main` (`python -m sol_claude_dispatcher.dev_server <config>`) | required **argv** argument | never read |
+| `build_server(path)` / `build_dispatcher(path)` / `load_config(path)` | explicit argument | never read |
+
+`resolve_config_path(path=None)` is now "explicit argument, else canonical" —
+no environment branch at all. Paths are compared after full `realpath`
+resolution, so no symlink or `..` spelling lets another file masquerade as the
+canonical config; an override that resolves to the *same* file is accepted and
+changes nothing.
+
+The disposable harness additionally refuses the canonical production config and
+any config declaring a repository root that is, contains, or lies inside a root
+the canonical config authorises.
+
+This is a **fail-closed configuration-authority boundary, not an OS sandbox.**
+It stops an ambient environment variable from silently redirecting the
+registered production server. It does not stop anyone who can write to
+`config/dispatcher.toml`, replace the installed package, or edit
+`~/.codex/config.toml` — those are deliberate, persistent, reviewable acts,
+which is the bar this raises the environment override up to.
 
 ### Exactly four tools
 

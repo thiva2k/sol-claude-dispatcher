@@ -239,6 +239,7 @@ returned as `{"error": <code>, "message": ..., "retryable": bool,
 | `ValidationFailed` | no | A trusted dispatcher validation command failed | Check `runs/<n>/validation.json` |
 | `RecursionDetected` | no | `SOL_WORKER=1` was present at startup/dispatch, or depth exceeded the max | Should never happen outside a bug; if it does, something is invoking the dispatcher from inside a worker |
 | `ConfigurationError` | no | Config missing, malformed, or semantically invalid | Fail-closed by design; fix the named key |
+| `ConfigAuthorityViolation` | no | Something tried to choose the configuration the **production** server runs: `SOL_DISPATCHER_CONFIG` named a file other than the canonical `config/dispatcher.toml`, or the test/development harness was handed the canonical config or one reaching a production repository | Never reaches Sol as a tool result — it is a *startup* refusal (exit 2, structured payload on stderr) and no MCP server is created. Unset `SOL_DISPATCHER_CONFIG` to start production. To widen `[security].allowed_repository_roots`, edit the canonical file deliberately; there is no environment path to it. To run a throwaway config, use `python -m sol_claude_dispatcher.dev_server <config>` |
 | `InternalDispatcherError` | no | Unexpected internal fault | Traceback is in the stderr log only, never in the response Sol sees |
 
 `ResumeLimitReached` is raised internally by `sessions.assert_resume_allowed()`

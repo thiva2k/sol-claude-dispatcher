@@ -54,7 +54,13 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING, cast
 from pydantic import ValidationError
 
 from . import __version__
-from .config import Config, DEFAULT_CONFIG_FILENAME, load_config
+from .config import Config, load_config
+from .config_authority import (
+    CONFIG_ENV_VAR,
+    DEFAULT_CONFIG_PATH,
+    assert_production_config_authority,
+    canonical_production_config_path,
+)
 from .errors import (
     ClaudeExecutionFailed,
     ClaudeStructuredOutputInvalid,
@@ -143,6 +149,10 @@ __all__ = [
     "build_server",
     "configure_logging",
     "resolve_config_path",
+    "canonical_production_config_path",
+    "assert_production_config_authority",
+    "CONFIG_ENV_VAR",
+    "DEFAULT_CONFIG_PATH",
     "main",
 ]
 
@@ -245,11 +255,11 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     ),
 }
 
-#: Environment variable naming the config file for ``main()``.
-CONFIG_ENV_VAR = "SOL_DISPATCHER_CONFIG"
-
-#: Where ``main()`` looks when :data:`CONFIG_ENV_VAR` is unset.
-DEFAULT_CONFIG_PATH = Path("config") / DEFAULT_CONFIG_FILENAME
+#: B4. ``CONFIG_ENV_VAR`` and ``DEFAULT_CONFIG_PATH`` are re-exported from
+#: :mod:`sol_claude_dispatcher.config_authority`, which now owns both. The
+#: variable is a TEST/DEVELOPMENT selector for the disposable stdio harness; it
+#: chooses nothing on the production path, where it is read only in order to
+#: refuse startup. See that module for the whole boundary.
 
 #: ``security.assert_no_recursion`` ignores its ``config`` argument (the check
 #: is unconditional). Startup runs it *before* config loading so a dispatcher
@@ -2757,13 +2767,23 @@ async def _guarded(call: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, A
 
 
 def resolve_config_path(config_path: str | os.PathLike[str] | None = None) -> Path:
-    """Config path precedence: explicit argument, env var, project default."""
+    """Config path precedence: explicit argument, else the canonical config.
+
+    B4. There is deliberately no environment branch here. ``SOL_DISPATCHER_CONFIG``
+    used to sit in the middle of this precedence chain, which made the
+    registered production server's repository allowlist changeable by a
+    process-local environment (see
+    :mod:`sol_claude_dispatcher.config_authority`). The environment is now read
+    in exactly one place, for exactly one purpose — to *refuse* startup — and
+    selects nothing anywhere.
+
+    Tests and the disposable harness pass ``config_path`` explicitly; that is
+    the supported way to run against a temporary configuration, and it still
+    works unchanged.
+    """
     if config_path is not None:
         return Path(config_path)
-    from_env = os.environ.get(CONFIG_ENV_VAR)
-    if from_env:
-        return Path(from_env)
-    return Path(__file__).resolve().parents[2] / DEFAULT_CONFIG_PATH
+    return canonical_production_config_path()
 
 
 def build_dispatcher(config_path: str | os.PathLike[str] | None = None) -> Dispatcher:
@@ -2825,9 +2845,24 @@ def build_server(config_path: str | os.PathLike[str] | None = None) -> "MCPServe
 
 
 def main() -> None:
-    """Console-script entrypoint: build the server and run it over stdio."""
+    """PRODUCTION console-script entrypoint: canonical config, stdio transport.
+
+    This is the command registered as ``sol_claude_dispatcher`` in
+    ``~/.codex/config.toml``. B4: it loads the canonical production
+    configuration and refuses to start under one the environment chose, so
+    widening ``security.allowed_repository_roots`` requires a deliberate,
+    persistent edit to the canonical file rather than a process-local variable.
+
+    To run a temporary configuration, use
+    ``python -m sol_claude_dispatcher.dev_server <config>`` (test/development
+    only, refuses the production boundary) or call ``build_server(path)``.
+    """
     try:
-        server = build_server()
+        # The environment is consulted here and nowhere else, and only to
+        # refuse. The path handed to build_server is the canonical one on every
+        # path through this function.
+        canonical = assert_production_config_authority()
+        server = build_server(canonical)
     except DispatcherError as exc:
         # Startup diagnostics go to stderr; stdout is the transport (§28).
         print(json.dumps(exc.to_payload()), file=sys.stderr)

@@ -265,12 +265,19 @@ async def test_stdio_handshake_lists_the_four_tools(integration_config_file):
     from mcp.client.stdio import stdio_client
 
     env = dict(os.environ)
-    env["SOL_DISPATCHER_CONFIG"] = str(integration_config_file)
     env.pop("SOL_WORKER", None)
+    # B4: a temporary config is served by the test/development harness, which
+    # takes its path on ARGV. The production entrypoint refuses a config chosen
+    # by its environment — see tests/unit/test_config_authority.py.
+    env.pop("SOL_DISPATCHER_CONFIG", None)
 
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-c", "from sol_claude_dispatcher.server import main; main()"],
+        args=[
+            "-m",
+            "sol_claude_dispatcher.dev_server",
+            str(integration_config_file),
+        ],
         env=env,
         cwd=str(PROJECT_ROOT),
     )

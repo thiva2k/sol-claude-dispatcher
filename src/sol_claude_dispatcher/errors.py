@@ -58,6 +58,7 @@ __all__ = [
     "GitEvidenceCollectionFailed",
     "RecursionDetected",
     "ConfigurationError",
+    "ConfigAuthorityViolation",
     "StateCorruption",
     "ERROR_CODES",
 ]
@@ -510,6 +511,27 @@ class ConfigurationError(DispatcherError):
     code = "ConfigurationError"
 
 
+class ConfigAuthorityViolation(ConfigurationError):
+    """Something tried to choose the config the PRODUCTION server runs (B4).
+
+    The registered production MCP server loads the canonical
+    ``config/dispatcher.toml`` and nothing else. A ``SOL_DISPATCHER_CONFIG``
+    naming any other file is **refused at startup**, not ignored: an operator
+    or a process that believes it selected another configuration must not
+    receive a server quietly running under different assumptions — in
+    particular, a different ``security.allowed_repository_roots``.
+
+    Also raised by the test/development stdio harness when the disposable
+    config it was handed touches the production boundary at all.
+
+    A subclass of :class:`ConfigurationError` so every existing fail-closed
+    handler already covers it, with its own code so the refusal is
+    machine-distinguishable from an ordinary malformed-config error.
+    """
+
+    code = "ConfigAuthorityViolation"
+
+
 class InternalDispatcherError(DispatcherError):
     """Unexpected internal fault. Traceback goes to logs, never to Sol."""
 
@@ -555,5 +577,6 @@ ERROR_CODES: frozenset[str] = frozenset(
         "GitEvidenceCollectionFailed",
         "RecursionDetected",
         "ConfigurationError",
+        "ConfigAuthorityViolation",
     }
 )

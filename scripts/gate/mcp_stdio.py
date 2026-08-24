@@ -44,11 +44,15 @@ class StdioClient:
 
     def __init__(self, config_path: Path, cwd: Path, label: str) -> None:
         self.label = label
-        env = clean_child_env({"SOL_DISPATCHER_CONFIG": str(config_path)})
-        env["PYTHONPATH"] = str(DISPATCHER_REPO / "src")
+        # B4: the disposable config is passed on ARGV to the test/development
+        # harness, never through SOL_DISPATCHER_CONFIG to the production
+        # entrypoint. The harness refuses the canonical production config and
+        # any config reaching a production repository.
+        env = clean_child_env()
+        env["PYTHONPATH"]= str(DISPATCHER_REPO / "src")
         self.proc = subprocess.Popen(  # noqa: S603 - argv list, no shell
             [str(DISPATCHER_REPO / ".venv" / "bin" / "python"), "-m",
-             "sol_claude_dispatcher.server"],
+             "sol_claude_dispatcher.dev_server", str(config_path)],
             cwd=str(cwd),
             env=env,
             stdin=subprocess.PIPE,
