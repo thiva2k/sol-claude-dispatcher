@@ -3,9 +3,20 @@
 Every function here shells out with ``subprocess`` using **argv lists**, never
 ``shell=True``, and never interpolates user text into a command.
 
-This module reads and reports. It does not commit, merge, push, rebase, reset,
-or delete worktrees, and it never applies a worktree's changes to the primary
-tree (§12). Evidence is preserved for Sol, including after a failure.
+This module reads and reports, and creates exactly one thing: the task's own
+isolated worktree, at an exact commit (:func:`create_worktree`, B2). It does
+not commit, merge, push, rebase, reset, fetch, prune, unlock or delete
+worktrees, and it never applies a worktree's changes to the primary tree (§12).
+Evidence is preserved for Sol, including after a failure.
+
+Why creation moved here (B2). ``claude --worktree <name>`` takes a name and
+**no start-point**, so delegating creation to the CLI delegated the choice of
+base commit with it. In production the CLI based all three dispatcher worktrees
+on ``origin/main`` while the recorded bases were the local checkout and a
+feature branch, and every diff, scope decision and ``evidence/diff.patch`` was
+computed against a commit the tree was never on. The dispatcher now creates the
+tree itself, at the SHA the envelope froze, and verifies it before a worker
+starts.
 
 Note on concurrency: every public function here has a **synchronous**
 signature per ``docs/INTERFACES.md`` §5 (none of them are ``async def``), so
@@ -19,6 +30,9 @@ Contract (authoritative, see ``docs/INTERFACES.md``)::
     def resolve_base_commit(repo: Path, base_ref: str) -> str
     def create_worktree_name(task_id: str) -> str
     def worktree_path_for(repo: Path, worktree_name: str) -> Path | None
+    def resolve_worktree(repo: Path, worktree_name: str) -> WorktreeRef | None
+    def worktree_head(worktree: Path) -> str
+    def create_worktree(repo, *, worktree_name, path, start_commit) -> WorktreeRef
     def collect_diff_evidence(worktree: Path, base_commit: str) -> DiffEvidence
     def check_scope(changed_paths, scope) -> ScopeCheck
     def is_git_repository(path: Path) -> bool
@@ -45,7 +59,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .errors import GitEvidenceCollectionFailed, InvalidRepository
+from .errors import (
+    GitEvidenceCollectionFailed,
+    InvalidRepository,
+    WorktreeCreationFailed,
+)
 from .models import ScopeSpec, worktree_name_for
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -54,13 +72,17 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "DiffEvidence",
     "ScopeCheck",
+    "WorktreeRef",
     "is_git_repository",
     "git_top_level",
     "git_top_level_or_none",
     "collect_repository_identity",
     "resolve_base_commit",
     "create_worktree_name",
+    "create_worktree",
     "worktree_path_for",
+    "resolve_worktree",
+    "worktree_head",
     "collect_diff_evidence",
     "write_full_diff",
     "check_scope",
@@ -89,6 +111,13 @@ _GIT_ENV_REDIRECTS: tuple[str, ...] = (
     "GIT_CEILING_DIRECTORIES",
     "GIT_NAMESPACE",
 )
+
+#: ``git worktree add`` checks out a whole tree, so it is the one command here
+#: that is not small and bounded: on a large monorepo it is a real checkout.
+#: Generous enough for that, and still a hard ceiling — it runs once per
+#: dispatch, before any worker starts, so its worst case is additive to the
+#: transport budget rather than multiplied by anything.
+_WORKTREE_ADD_TIMEOUT_SECONDS = 300
 
 #: Longest stderr excerpt copied into an error payload (§29: no dumps).
 _STDERR_EXCERPT = 400
@@ -390,26 +419,227 @@ def create_worktree_name(task_id: str) -> str:
     return worktree_name_for(task_id)
 
 
-def worktree_path_for(repo: Path, worktree_name: str) -> Path | None:
-    """Locate the worktree Claude created, via ``git worktree list --porcelain``.
+@dataclass(frozen=True)
+class WorktreeRef:
+    """One registered worktree, as git reports it (B2).
 
-    ``None`` means git answered successfully and no worktree with that name
-    exists. If git itself could not be consulted, this raises
-    :class:`GitEvidenceCollectionFailed` rather than returning ``None`` — the
-    two are different facts and the caller must not conflate "the worker did
-    not create a worktree" with "we could not look".
+    ``head_commit`` is the fact the old implementation threw away:
+    ``git worktree list --porcelain`` prints ``HEAD <sha>`` directly beneath
+    the ``worktree <path>`` line that was matched on, and nothing read it. The
+    dispatcher therefore recorded a base commit it had resolved itself, while
+    the tree it measured was on some other commit entirely, and no code
+    anywhere compared the two.
+    """
+
+    path: Path
+    head_commit: str  # full 40-hex SHA
+    branch: str | None  # refs/heads/..., or None when detached
+
+
+def _worktree_records(repo: Path) -> list[dict[str, str]]:
+    """Parse ``git worktree list --porcelain`` as RECORDS, not as lines.
+
+    Records are separated by blank lines. Each starts with ``worktree <path>``
+    and may then carry ``HEAD <sha>``, ``branch <ref>``, ``detached``,
+    ``bare``, ``locked …`` or ``prunable …``. Scanning for the next ``HEAD``
+    line irrespective of record boundaries would attribute one worktree's head
+    to another, which is the same class of error B2 already is.
     """
     result = _git_checked(
         ["worktree", "list", "--porcelain"], cwd=repo, what="git worktree list"
     )
 
+    records: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
     for line in result.stdout.splitlines():
-        if not line.startswith("worktree "):
+        if not line.strip():
+            current = None
             continue
-        candidate = Path(line[len("worktree ") :].strip())
-        if candidate.name == worktree_name:
-            return candidate
+        key, _, value = line.partition(" ")
+        if key == "worktree":
+            current = {"worktree": value.strip()}
+            records.append(current)
+        elif current is not None:
+            current[key] = value.strip()
+    return records
+
+
+def resolve_worktree(repo: Path, worktree_name: str) -> WorktreeRef | None:
+    """Locate a worktree by final path component **and** report its actual HEAD.
+
+    ``None`` means git answered successfully and no worktree with that name
+    exists. If git itself could not be consulted, this raises
+    :class:`GitEvidenceCollectionFailed` rather than returning ``None`` — the
+    two are different facts and the caller must not conflate "there is no such
+    worktree" with "we could not look".
+
+    A matched record that carries no usable ``HEAD`` line raises as well:
+    "git did not tell us the head" and "the head is X" are different facts, and
+    a ``WorktreeRef`` carrying a guessed or empty head would be believed.
+    """
+    for record in _worktree_records(repo):
+        candidate = Path(record["worktree"])
+        if candidate.name != worktree_name:
+            continue
+
+        head = record.get("HEAD", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", head):
+            raise GitEvidenceCollectionFailed(
+                "git located the worktree but did not report a usable HEAD commit.",
+                details={
+                    "what": "git worktree list --porcelain",
+                    "repo": str(repo),
+                    "worktree_name": worktree_name,
+                    "worktree_path": str(candidate),
+                    "got": head[:_STDERR_EXCERPT],
+                },
+                remediation="Do not proceed: every scope and evidence decision "
+                "is taken against this worktree's base, so an unmeasured head "
+                "must never be treated as a matching one.",
+            )
+        return WorktreeRef(
+            path=candidate,
+            head_commit=head,
+            branch=record.get("branch") or None,
+        )
     return None
+
+
+def worktree_path_for(repo: Path, worktree_name: str) -> Path | None:
+    """The path of a registered worktree, or ``None`` when it does not exist.
+
+    Thin wrapper over :func:`resolve_worktree`, kept because callers that only
+    need the location should not have to care about the head. Anything that
+    *reasons about the worktree's base* must use :func:`resolve_worktree` or
+    :func:`worktree_head` instead.
+    """
+    ref = resolve_worktree(repo, worktree_name)
+    return ref.path if ref is not None else None
+
+
+def worktree_head(worktree: Path) -> str:
+    """The commit ``HEAD`` resolves to *inside* ``worktree``. 40-hex, fails closed.
+
+    This is the **authoritative** measurement for the B2 invariant.
+    ``git worktree list`` is read from the primary repository and describes
+    git's registration of the worktree; ``rev-parse`` executed inside the
+    worktree cannot be stale with respect to a HEAD that moved during a run.
+    Use :attr:`WorktreeRef.head_commit` for the creation-time record and
+    diagnostics, and this for the comparison that decides whether evidence may
+    be collected at all.
+    """
+    result = _git_checked(
+        ["rev-parse", "--verify", "HEAD^{commit}"],
+        cwd=worktree,
+        what="git rev-parse HEAD (worktree)",
+    )
+    sha = result.stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise GitEvidenceCollectionFailed(
+            "git did not return a full commit SHA for the worktree's HEAD.",
+            details={"worktree": str(worktree), "got": sha[:_STDERR_EXCERPT]},
+        )
+    return sha
+
+
+def create_worktree(
+    repo: Path,
+    *,
+    worktree_name: str,
+    path: Path,
+    start_commit: str,
+    branch: str | None = None,
+) -> WorktreeRef:
+    """Create the task's isolated worktree at an EXACT commit (B2).
+
+    The dispatcher owns this because the alternative does not work: the Claude
+    CLI's ``--worktree`` flag takes a *name* and no start-point
+    (``CLI-HELP-RAW.txt:216-217``), so delegating creation means the CLI
+    chooses the base — and in production it chose ``origin/main`` for all three
+    dispatches while the recorded bases were something else entirely.
+
+    ``start_commit`` **must** already be a full 40-hex SHA, resolved by
+    :func:`resolve_base_commit` when the envelope was built. A ref is not
+    accepted here: a ref can move between the moment the envelope froze the
+    base and the moment the tree is created, and the whole point of this
+    function is that those two are the same commit.
+
+    This is the only mutating git operation in this module. It creates; it
+    still never commits, merges, pushes, rebases, resets, prunes or deletes,
+    and it never writes to the primary work tree.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", start_commit or ""):
+        raise WorktreeCreationFailed(
+            "Refusing to create a worktree from anything but a full commit SHA.",
+            details={
+                "repo": str(repo),
+                "worktree_name": worktree_name,
+                "start_commit": str(start_commit)[:_STDERR_EXCERPT],
+            },
+            remediation="Resolve the base ref to a 40-character commit SHA "
+            "first; a ref can move between resolution and creation, which is "
+            "exactly the drift this function exists to prevent.",
+        )
+
+    target = Path(path)
+    if target.exists():
+        raise WorktreeCreationFailed(
+            "Refusing to create the task's worktree over an existing path.",
+            details={"worktree_name": worktree_name, "path": str(target)},
+            remediation="The worktree path is derived from the task id and "
+            "must be new. An existing path means a previous task's evidence "
+            "is there; do not overwrite it.",
+        )
+
+    branch_name = branch or f"worktree-{worktree_name}"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        raise WorktreeCreationFailed(
+            "The dispatcher's worktree directory could not be created.",
+            details={
+                "worktree_name": worktree_name,
+                "path": str(target),
+                "reason": str(exc)[:_STDERR_EXCERPT],
+            },
+        ) from exc
+
+    try:
+        _git_checked(
+            [
+                "worktree",
+                "add",
+                "--quiet",
+                "-b",
+                branch_name,
+                str(target),
+                start_commit,
+            ],
+            cwd=repo,
+            what="git worktree add",
+            timeout=_WORKTREE_ADD_TIMEOUT_SECONDS,
+        )
+    except GitEvidenceCollectionFailed as exc:
+        raise WorktreeCreationFailed(
+            "The task's isolated worktree could not be created.",
+            details={
+                "repo": str(repo),
+                "worktree_name": worktree_name,
+                "path": str(target),
+                "start_commit": start_commit,
+                "branch": branch_name,
+                **{k: v for k, v in exc.details.items() if k in ("stderr", "returncode", "reason")},
+            },
+            remediation="No worker was started. Inspect the git error; the "
+            "branch may already exist, or the start commit may not be present "
+            "in this repository.",
+        ) from exc
+
+    return WorktreeRef(
+        path=target,
+        head_commit=worktree_head(target),
+        branch=f"refs/heads/{branch_name}",
+    )
 
 
 def _fold_untracked(worktree: Path) -> list[str]:

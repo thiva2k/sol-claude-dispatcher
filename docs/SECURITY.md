@@ -31,6 +31,7 @@ the two share a column.
 | **Repository identity is the exact git top level** | **HARD** | `security.validate_repository_root()` resolves symlinks and `..`, then asks *git itself* (`git rev-parse --show-toplevel`, argv, never a shell) which repository the path belongs to, and requires the resolved path to **be** that top level and to be **exactly equal** to a configured entry in `[security].allowed_repository_roots`. No ancestry matching, no string prefixes. See §1.1 — this is a behaviour change operators will notice. |
 | **Task-id containment, at two independent layers** | **HARD** | `security.validate_task_id()` accepts only a canonical lowercase hyphenated UUID and is called at every MCP entry point that takes a caller-supplied id (`get_task`, `resume_claude_task`, `review_task_with_fable`). Independently, `TaskStore` re-derives and **resolves** every path it is about to read or write and refuses anything that does not land inside `state/tasks/`, so a call site that forgot the validator still cannot escape the state root. Neither layer depends on the other having run. |
 | **Git evidence fails closed** | **HARD** | Every authoritative git command (`status --porcelain`, `diff --name-only`, `diff --stat`, `diff`, `diff --check`, `ls-files --others --exclude-standard`) has explicit success/failure handling. A failure, a timeout, a missing `git` binary, or unusable output raises `GitEvidenceCollectionFailed` and the task lands in an explicit failure state with diagnostics preserved. "git could not tell us" is never rendered as `changed_paths=[] / scope_valid=true`. `git.py` also strips `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_CEILING_DIRECTORIES` and `GIT_NAMESPACE` from every git invocation, so an inherited environment cannot redirect an answer. |
+| **The worktree's base commit is measured, not assumed** | **HARD** | The dispatcher creates the task's isolated worktree itself, with `git worktree add` at the exact 40-hex SHA the envelope froze, and then measures `git rev-parse HEAD` **inside** that worktree and refuses unless it is byte-equal to `envelope.repository.base_commit` — before the worker launches, before every resume launches, and again before any evidence is collected. Equality is exact: an ancestor, a descendant or a shared merge-base is a refusal (`WorktreeBaseMismatch`, landing `FAILED`), because every one of them contributes commits the worker did not write to every diff taken there. The dispatcher does **not** control the Claude CLI's own worktree start-point and no longer pretends to: it does not ask the CLI to create a worktree at all (`--worktree` is never emitted, and `_assert_invocation_sane` refuses an invocation carrying a worktree name). The recorded base is never rewritten to match what was found. Read §1.7 for the operator consequence. |
 | argv, never shell | **HARD** | Every subprocess in `runner.py`, `git.py`, and `validation.py` is `asyncio.create_subprocess_exec` / `subprocess.run` with an argv **list**. `shell=True` and interpolated command strings do not appear anywhere in the codebase — a worker cannot smuggle a second command through shell metacharacters in an argument, because there is no shell parsing the argument. |
 | Scope inspection | **HARD** | `git.check_scope()` runs against the *real* `git diff`/`git status`/`git ls-files --others` output of the worktree — including untracked files, so a worker cannot add a new unauthorized file and have it slip past because it was never staged. This is a measurement, not something the worker's report can influence (§16). The measurement is taken on the **final** state of the worktree; see §1.3. |
 | Process-group timeout | **HARD** | `start_new_session=True` gives the worker its own process group; on timeout the dispatcher signals the whole group (`SIGTERM` → grace → `SIGKILL`), so a worker that spawns children cannot outlive its own termination by hiding work in a subprocess. |
@@ -168,6 +169,48 @@ from `review_task_with_fable` as "retry once the worker finishes", never as a
 review failure.
 
 ---
+
+### 1.7 The worktree base: what changed, and what it costs an operator
+
+Until this fix the dispatcher resolved a base commit against the primary
+repository, froze it into the envelope, and then asked the Claude CLI to create
+the worktree with `--worktree <name>`. That flag takes a name and **no
+start-point**, so the CLI chose the base itself. Nothing compared the two. On
+this machine the CLI based all three real dispatcher worktrees on `origin/main`
+while the recorded bases were the local checkout and a feature branch — and
+every changed-path list, scope decision, `evidence/diff.patch` and review prompt
+was computed against a commit the tree was never on.
+
+The blast radius included **false negatives**, which is why this fails closed
+rather than warning. Evidence is `git diff <recorded-base>` taken inside the
+worktree, so it reports `(W − B) ∪ worker-changes` — and those components
+cancel. A worker that edits a forbidden tracked file to content identical to the
+recorded base produces no diff line at all: the path never enters
+`changed_paths`, never reaches `check_scope`, never appears in `diff.patch`, and
+the run is recorded `scope_valid: true`.
+
+Two honest consequences, stated rather than papered over:
+
+* **The dispatcher now writes to the repository's git metadata.** Creating a
+  linked worktree registers it under `<repo>/.git/worktrees/<name>`. That is
+  bookkeeping, not a change to the working tree: the primary tree's HEAD and its
+  full porcelain status are unchanged, which is exactly what the primary-tree
+  invariant measures. `git.py` still never commits, merges, pushes, rebases,
+  resets, fetches, prunes, unlocks or removes anything.
+* **A worker that moves HEAD inside its own worktree kills its own run.** The
+  post-run check refuses, no evidence is collected, and the task lands `FAILED`
+  with both SHAs named. That is the intended behaviour: a wasted run reported
+  honestly beats a corrupt run reported as evidence.
+
+Dispatcher-created worktrees live under the dispatcher's own
+`state/worktrees/<name>`, deliberately **outside** every repository it
+dispatches against. The Claude CLI put them at `<repo>/.claude/worktrees/`,
+inside the primary work tree, where the container appears as a new untracked
+entry and trips the primary-tree non-interference invariant — so the first
+dispatch into any newly-authorised repository was refused. Nothing about that
+check was relaxed to fix it: no path is excused, no ignore list exists, and a
+worker that writes `.claude/settings.json` into the primary tree is still a
+`POLICY_VIOLATION`. The entry simply never appears.
 
 ## 2. Recursion defense — all 7 layers (§22)
 

@@ -460,8 +460,13 @@ def build_argv(spec: WorkerInvocation) -> list[str]:
     else:
         argv += ["--session-id", spec.session_id]
 
-    if spec.worktree_name:
-        argv += ["--worktree", spec.worktree_name]
+    # B2: NO ``--worktree``. The flag takes a name and no start-point, so
+    # emitting it hands the choice of base commit to the CLI — which is exactly
+    # how three production dispatches ended up measured against a commit their
+    # trees were never on. The dispatcher creates the worktree itself, at the
+    # SHA the envelope froze, and launches the worker with ``cwd`` already
+    # inside it. ``_assert_invocation_sane`` refuses any invocation that still
+    # carries a worktree name, so this cannot come back by accident.
 
     argv.append(spec.prompt)
 
@@ -572,10 +577,21 @@ def _assert_invocation_sane(spec: WorkerInvocation) -> None:
             "permission_mode 'bypassPermissions' is never permitted.",
             details={"permission_mode": spec.permission_mode},
         )
-    if spec.resume_session_id and spec.worktree_name:
+    if spec.worktree_name:
+        # B2. Two separate reasons, both fatal: a resume must reuse the
+        # existing worktree rather than create another (§18), and *no* run may
+        # delegate worktree creation to the CLI, because the CLI picks its own
+        # start-point and the dispatcher would then be measuring a tree it did
+        # not choose the base of. The dispatcher creates the worktree before
+        # the worker starts and passes it as ``cwd``.
         raise InternalDispatcherError(
-            "A resume must reuse the existing worktree, not create another (§18).",
-            details={"worktree_name": spec.worktree_name},
+            "The dispatcher creates the isolated worktree itself; --worktree "
+            "must never be emitted (B2, §18).",
+            details={
+                "worktree_name": spec.worktree_name,
+                "resumed": bool(spec.resume_session_id),
+                "role": spec.role,
+            },
         )
     if spec.role == "reviewer":
         if spec.worktree_name:
@@ -741,8 +757,12 @@ def build_worker_invocation(
 ) -> WorkerInvocation:
     """Resolve an implementation-worker invocation from config + envelope.
 
-    ``include_worktree`` defaults to "yes on a fresh session, never on resume"
-    (§18). The environment is always built through
+    ``include_worktree`` defaults to **False** on every path (B2): the
+    dispatcher creates the isolated worktree itself, at the exact base commit
+    the envelope recorded, and passes it as ``cwd``. ``claude --worktree`` has
+    no start-point parameter, so emitting it would delegate the choice of base
+    to the CLI — the defect this replaces. The environment is always built
+    through
     :func:`security.worker_environment`, so ``SOL_WORKER=1`` and the depth
     marker are present and dispatcher secrets are stripped (§22 layers 4, 7).
 
@@ -756,7 +776,11 @@ def build_worker_invocation(
     to be too large to transport (B1).
     """
     if include_worktree is None:
-        include_worktree = resume_session_id is None
+        # B2: never. Kept as a parameter so the contract in
+        # ``docs/INTERFACES.md`` still resolves and so an explicit ``True``
+        # from some future caller fails loudly in ``_assert_invocation_sane``
+        # rather than silently handing the CLI the choice of base commit.
+        include_worktree = False
 
     timeout = timeout_seconds if timeout_seconds is not None else envelope.execution.timeout_seconds
     timeout = config.clamp_timeout(timeout)

@@ -77,7 +77,12 @@ async def test_dispatch_success_records_evidence_and_awaits_sol_review(
     invocation = log[0]
     assert invocation["has_session_id"] is True
     assert invocation["has_resume"] is False
-    assert invocation["has_worktree"] is True
+    # B2: the dispatcher creates the worktree itself, at the exact recorded
+    # base, and starts the worker inside it. ``--worktree`` has no start-point
+    # parameter, so emitting it would hand the CLI the choice of base commit —
+    # see tests/integration/test_worktree_base_lifecycle.py.
+    assert invocation["has_worktree"] is False
+    assert invocation["cwd"] == result["worktree"]
     assert invocation["env_markers"]["SOL_WORKER"] == "1"
     assert invocation["env_markers"]["SOL_DISPATCH_DEPTH"] == "1"
     assert invocation["env_markers"]["SOL_TASK_ID"] == result["task_id"]

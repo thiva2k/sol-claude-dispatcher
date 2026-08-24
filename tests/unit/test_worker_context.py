@@ -159,6 +159,11 @@ def _compose(**overrides) -> WorkerContext:
     kwargs = dict(
         role=WorkerRole.IMPLEMENTER,
         task_envelope_id="task-1",
+        # B2 §6: the recipe binds the task's immutable baseline identity, so
+        # every composition names it. See tests/unit/test_worktree_base.py for
+        # the tests that pin what binding it buys.
+        base_commit="a" * 40,
+        worktree_name="sol-11111111",
         policy_text=POLICY_TEXT,
         task_prompt=TASK_PROMPT,
         skill_projection=None,
@@ -458,6 +463,8 @@ class TestCombinedFingerprint:
         kwargs = dict(
             role=WorkerRole.IMPLEMENTER,
             task_envelope_id="task-1",
+            base_commit="a" * 40,
+            worktree_name="sol-11111111",
             skill_projection=_skill_projection(CORE_SKILL),
             guidance_projection=_guidance_projection(ROOT_SCOPE, KAVYA_SCOPE),
         )
@@ -465,7 +472,8 @@ class TestCombinedFingerprint:
         return context_fingerprint(**kwargs)
 
     def test_version_string_is_pinned(self):
-        assert CONTEXT_FINGERPRINT_VERSION == "worker-context-fingerprint/v1"
+        # v2: B2 §6 added the base commit and the worktree name to the recipe.
+        assert CONTEXT_FINGERPRINT_VERSION == "worker-context-fingerprint/v2"
 
     def test_fingerprint_is_a_sha256_hex_digest(self):
         value = self._fp()

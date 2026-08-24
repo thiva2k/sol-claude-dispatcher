@@ -137,7 +137,10 @@ def test_worker_argv_shape(dispatcher_config, envelope, fake_env, git_repo):
     assert "--strict-mcp-config" in argv
     assert flag_value(argv, "--mcp-config").endswith("config/empty-mcp.json")
     assert flag_value(argv, "--session-id") == "11111111-1111-4111-8111-111111111111"
-    assert flag_value(argv, "--worktree") == envelope.worktree_name
+    # B2: never ``--worktree``. The flag takes a name and no start-point, so
+    # emitting it delegates the choice of base commit to the CLI; the
+    # dispatcher creates the worktree itself and passes it as ``cwd``.
+    assert "--worktree" not in argv
     assert argv[-1] == "Implement the objective."
     # The prompt is the ONLY positional.
     assert argv.count("Implement the objective.") == 1
@@ -533,6 +536,45 @@ def test_build_argv_fails_closed(kwargs):
         build_argv(WorkerInvocation(**base))  # type: ignore[arg-type]
 
 
+def test_a_fresh_implementer_may_not_receive_a_worktree_either():
+    """B2: no run delegates worktree creation, not even a first dispatch.
+
+    The two older refusals below cover resume (§18) and Fable (§7.3). This one
+    covers the case those two left open — an ordinary fresh implementer run,
+    which is exactly the path that handed the CLI the choice of base commit for
+    all three production dispatches. Without this test, restoring the
+    ``--worktree`` emission in ``_build_argv`` changes nothing observable and
+    would look like dead code worth "tidying up".
+    """
+    spec = WorkerInvocation(
+        binary="claude", model="sonnet", session_id="s", cwd=Path("/tmp"),
+        prompt="p", timeout_seconds=10, role="implementer",
+        worktree_name="sol-abcd1234",
+    )
+    with pytest.raises(InternalDispatcherError) as excinfo:
+        build_argv(spec)
+    assert "--worktree" in excinfo.value.message
+
+
+def test_build_argv_contains_no_worktree_emission_at_all():
+    """B2, asserted from the source: the flag is not emitted anywhere.
+
+    The behavioural test above proves the refusal fires; this proves the
+    emission is *gone* rather than merely unreachable. Reinstating
+    ``argv += ["--worktree", ...]`` is otherwise invisible — the guard raises
+    first, so no behavioural test can see it — and it would sit there waiting
+    for the day somebody relaxes the guard. Comments may name the flag; code
+    may not.
+    """
+    import inspect
+
+    from sol_claude_dispatcher import runner as runner_mod
+
+    for line in inspect.getsource(runner_mod.build_argv).splitlines():
+        code = line.split("#", 1)[0]
+        assert "--worktree" not in code, f"worktree emission is back: {line.strip()}"
+
+
 def test_reviewer_may_not_receive_a_worktree():
     spec = WorkerInvocation(
         binary="claude", model="fable", session_id="s", cwd=Path("/tmp"),
@@ -575,7 +617,7 @@ async def test_run_worker_success(dispatcher_config, envelope, git_repo, fake_en
     log = read_fake_log(tmp_path / "fake-claude.log")
     assert len(log) == 1
     assert log[0]["cwd"] == str(git_repo)
-    assert log[0]["has_worktree"] is True
+    assert log[0]["has_worktree"] is False          # B2: never delegated
     assert log[0]["has_resume"] is False
 
 
@@ -637,9 +679,9 @@ async def test_run_worker_timeout_terminates_and_preserves_evidence(
 
     # State that must never be lost on a timeout (§20).
     assert spec.session_id
-    assert spec.worktree_name == envelope.worktree_name
+    assert spec.worktree_name is None               # B2: never delegated
     assert flag_value(run.argv, "--session-id") == spec.session_id
-    assert flag_value(run.argv, "--worktree") == envelope.worktree_name
+    assert "--worktree" not in run.argv
     record = read_fake_log(tmp_path / "fake-claude.log")[0]
     assert record["session_id"] == spec.session_id
 

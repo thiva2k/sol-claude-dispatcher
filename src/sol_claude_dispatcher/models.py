@@ -87,6 +87,7 @@ __all__ = [
     "ProjectGuidanceRecord",
     "RunMetadata",
     "DispatcherObservations",
+    "WorktreeBaseAnchor",
     "RunRecord",
     "TaskRecord",
 ]
@@ -925,6 +926,14 @@ class DispatcherObservations(StrictModel):
     worker_result_parsed: bool = False
     worker_result_error: str | None = Field(default=None, max_length=_MAX_TEXT)
 
+    #: The commit the isolated worktree was actually on when this run's
+    #: evidence was collected (B2), measured by ``git rev-parse HEAD`` **inside
+    #: the worktree**. Equal to :attr:`base_commit` for every run that was
+    #: allowed to produce evidence at all — a run whose worktree is on any other
+    #: commit is refused with ``WorktreeBaseMismatch`` before a single diff is
+    #: taken. ``None`` only for runs recorded before this field existed.
+    worktree_head_commit: str | None = None
+
     #: Literal measurement: the primary tree has no uncommitted changes *now*.
     #: Not the non-interference verdict — an already-dirty tree is not a
     #: violation.
@@ -936,6 +945,32 @@ class DispatcherObservations(StrictModel):
     #: this field existed. **Detection, not containment**: see
     #: ``docs/SECURITY.md``.
     primary_tree_unchanged: bool | None = None
+
+
+class WorktreeBaseAnchor(StrictModel):
+    """The task's immutable baseline identity, pinned at dispatch (B2 §6).
+
+    Written exactly once, when the dispatcher creates the worktree, and never
+    updated afterwards. It is the value a resume's baseline is checked against,
+    so that "the tree drifted" and "the task was silently redefined" are two
+    refusals rather than one blind spot.
+
+    Everything here is immutable-by-construction: the base commit and the
+    worktree identity the task was approved with, plus the head measured at
+    creation time — **before** any worker ran. Post-worker HEAD state is
+    deliberately absent: it is exactly the mutable thing that must never be
+    mistaken for the baseline.
+    """
+
+    base_ref: str = Field(max_length=256)
+    base_commit: str = Field(min_length=40, max_length=40, pattern=r"^[0-9a-f]{40}$")
+    worktree_name: str
+    worktree_path: str
+    #: HEAD as measured inside the freshly-created worktree, before launch.
+    #: Equal to ``base_commit`` — a dispatch where it is not never gets here.
+    initial_head_commit: str = Field(
+        min_length=40, max_length=40, pattern=r"^[0-9a-f]{40}$"
+    )
 
 
 class RunRecord(StrictModel):
@@ -991,3 +1026,9 @@ class TaskRecord(StrictModel):
     #: overwriting this would erase the value drift is measured against. The
     #: per-run value lives on :attr:`RunMetadata.context_fingerprint`.
     context_fingerprint: str | None = None
+    #: The baseline identity this task was dispatched under (B2 §6). Written
+    #: once, when the dispatcher creates the worktree; a resume verifies that
+    #: the envelope still names this base and that the worktree is still on it,
+    #: and refuses rather than adopting whatever it finds. ``None`` means the
+    #: task was dispatched before the dispatcher owned worktree creation.
+    worktree_base_anchor: WorktreeBaseAnchor | None = None

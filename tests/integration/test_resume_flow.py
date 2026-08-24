@@ -196,10 +196,12 @@ async def test_resume_from_failed_without_a_stored_worktree_is_refused(
     never produced a worktree leaves nothing to resume into, and the refusal is
     a structured error, not a traceback and certainly not a silent success.
     """
-    # A file where the shim expects a directory: no worktree can be created.
-    not_a_dir = tmp_path / "worktree-root-is-a-file"
-    not_a_dir.write_text("not a directory\n")
-    monkeypatch.setenv("FAKE_CLAUDE_WORKTREE_ROOT", str(not_a_dir))
+    # A file where the dispatcher expects its worktree directory: no worktree
+    # can be created, so the dispatch fails before a worker starts (B2 — the
+    # dispatcher owns creation now, so this is where creation is broken).
+    root = Path(dispatcher.config.state_path) / "worktrees"
+    root.parent.mkdir(parents=True, exist_ok=True)
+    root.write_text("not a directory\n")
 
     failed = await dispatcher.dispatch_claude_task(request_payload)
     assert failed["error"] == "WorktreeCreationFailed"

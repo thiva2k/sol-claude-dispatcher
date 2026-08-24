@@ -625,6 +625,18 @@ def git_top_level(path: Path) -> Path              # raises InvalidRepository
 def git_top_level_or_none(path: Path) -> Path | None
 def resolve_base_commit(repo: Path, base_ref: str) -> str
 def create_worktree_name(task_id: str) -> str
+
+@dataclass(frozen=True)
+class WorktreeRef:                                 # B2
+    path: Path
+    head_commit: str                               # full 40-hex SHA
+    branch: str | None                             # None when detached
+
+def create_worktree(repo: Path, *, worktree_name: str, path: Path,
+                    start_commit: str,
+                    branch: str | None = None) -> WorktreeRef
+def resolve_worktree(repo: Path, worktree_name: str) -> WorktreeRef | None
+def worktree_head(worktree: Path) -> str           # 40-hex, raises
 def worktree_path_for(repo: Path, worktree_name: str) -> Path | None
 def collect_diff_evidence(worktree: Path, base_commit: str, *,
                           max_diff_bytes: int = 2_000_000) -> DiffEvidence
@@ -642,6 +654,8 @@ still reachable:
 | Function | Was | Is |
 |---|---|---|
 | `worktree_path_for` | `None` if git failed **or** no worktree | `None` only when git answered and found nothing; raises if git could not be consulted |
+| `resolve_worktree` | (did not exist) | `None` only when git answered and found no such worktree; a **matched** worktree whose porcelain record carries no usable 40-hex `HEAD` raises `GitEvidenceCollectionFailed` rather than degrading — "git did not tell us the head" and "the head is X" are different facts (B2) |
+| `create_worktree` | (did not exist) | raises `WorktreeCreationFailed` on a non-40-hex start-point, an existing target path, or any git failure. Never falls back to a different start-point |
 | `primary_tree_status` | `""` (reads as "clean") if git failed | raises `GitEvidenceCollectionFailed` |
 | `collect_diff_evidence` | silently degraded on any failed sub-command | raises `GitEvidenceCollectionFailed` |
 
@@ -668,9 +682,28 @@ string to write `evidence/diff.patch`.
   the full 40-char SHA. Unknown ref → `InvalidRepository`.
 - `create_worktree_name` → just `models.worktree_name_for(task_id)`. Never
   accepts user text. (§12)
-- `worktree_path_for` → parse `git worktree list --porcelain` and match the
-  final path component against `worktree_name`. Returns `None` when Claude did
-  not create one; the caller raises `WorktreeCreationFailed`.
+- `create_worktree` (**B2**) → `git worktree add --quiet -b worktree-<name>
+  <path> <start_commit>`. `start_commit` **must** already be a full 40-hex SHA
+  (the value `resolve_base_commit` froze into the envelope): a ref can move
+  between resolution and creation, and the entire point of this function is
+  that those two are the same commit. The dispatcher owns creation because
+  `claude --worktree` takes a name and **no start-point**, so delegating
+  creation delegated the choice of base commit with it. The dispatcher places
+  the tree under its own `state/worktrees/`, outside every repository it
+  dispatches against.
+- `resolve_worktree` (**B2**) → parse `git worktree list --porcelain` as
+  **records** (blank-line separated), match the final path component against
+  `worktree_name`, and return the path, the record's `HEAD` SHA and its branch.
+  Parsing by line and keeping only the path — which discarded the `HEAD <sha>`
+  printed directly beneath the matched path — was the defect.
+- `worktree_head` (**B2**) → `git rev-parse --verify HEAD^{commit}` executed
+  **inside the worktree**. This is the authoritative measurement for the base
+  invariant: `git worktree list` is read from the primary and describes git's
+  registration, while this cannot be stale with respect to a HEAD that moved
+  during a run.
+- `worktree_path_for` → the path half of `resolve_worktree`, kept for callers
+  that do not reason about the base. Returns `None` when no such worktree
+  exists; the caller raises `WorktreeCreationFailed`.
 - `collect_diff_evidence` runs, in order:
   `git status --porcelain`, `git diff --name-only <base>`,
   `git diff --stat <base>`, `git diff <base>`, `git diff --check`.
@@ -690,8 +723,23 @@ string to write `evidence/diff.patch`.
   one means a path must match at least one pattern. `valid` is
   `not out_of_scope and not forbidden`.
 
-Nothing in this module commits, merges, pushes, rebases, resets, cleans,
-creates or removes worktrees, or applies changes to the primary tree. (§12)
+Nothing in this module commits, merges, pushes, rebases, resets, fetches,
+cleans, prunes, unlocks or **removes** worktrees, or applies changes to the
+primary tree (§12). It creates exactly one thing — the task's own isolated
+worktree, at an exact commit (`create_worktree`, B2) — and never writes into
+the primary work tree while doing so.
+
+**INVARIANT B2.** For any task whose evidence is collected from a worktree, the
+worktree's actual `HEAD` **MUST** equal `envelope.repository.base_commit`,
+measured by git, before any diff evidence is collected, any validation command
+is run, or any scope decision is taken. Equality is exact and full-length: not
+ancestry, not merge-base, not a prefix. A mismatch is a fail-closed
+`WorktreeBaseMismatch` landing the task in `FAILED` (never `POLICY_VIOLATION` —
+the worker is not at fault), and the recorded base is never rewritten to match
+what was found. Enforced in `server.assert_worktree_base` at three points: after
+the dispatcher creates the worktree and before the worker launches, before every
+resume launches, and in `_finalise_worker_run` before every consumer of the
+base.
 
 Required tests: base commit resolution incl. bad ref; scope matching for
 authorised, unauthorised, forbidden-wins, untracked-file, and empty-allowlist

@@ -164,6 +164,7 @@ def build_dispatcher_observations(
     scope_check: "ScopeCheck",
     worker_result: WorkerResult | None,
     worker_result_error: str | None = None,
+    worktree_head_commit: str | None = None,
     primary_worktree_clean: bool | None = None,
     primary_tree_unchanged: bool | None = None,
 ) -> DispatcherObservations:
@@ -171,7 +172,8 @@ def build_dispatcher_observations(
 
     Every field here comes from process control (``duration_ms``,
     ``exit_code``, ``timed_out``), git inspection (``diff_evidence``,
-    ``primary_worktree_clean``, ``primary_tree_unchanged``) or scope
+    ``primary_worktree_clean``, ``primary_tree_unchanged``,
+    ``worktree_head_commit``) or scope
     checking (``scope_check``) — never from parsed worker output.
     ``worker_result`` is consulted only to record whether parsing succeeded
     (``worker_result_parsed``); none of its fields are copied onto the
@@ -201,6 +203,9 @@ def build_dispatcher_observations(
         diff_check_passed=diff_evidence.diff_check_passed,
         worker_result_parsed=worker_result is not None,
         worker_result_error=worker_result_error,
+        # B2: measured by git INSIDE the worktree, before any evidence was
+        # collected. Never derived from anything the worker said.
+        worktree_head_commit=worktree_head_commit,
         primary_worktree_clean=primary_worktree_clean,
         primary_tree_unchanged=primary_tree_unchanged,
     )

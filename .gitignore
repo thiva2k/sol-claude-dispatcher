@@ -16,9 +16,11 @@ dist/
 state/tasks/*
 state/locks/*
 state/proposals/*
+state/worktrees/*
 !state/tasks/.gitkeep
 !state/locks/.gitkeep
 !state/proposals/.gitkeep
+!state/worktrees/.gitkeep
 
 # Local, non-example configuration (may name real repository roots)
 config/dispatcher.toml

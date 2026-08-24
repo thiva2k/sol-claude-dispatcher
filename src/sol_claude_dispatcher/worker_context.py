@@ -59,7 +59,11 @@ from pathlib import Path
 from typing import Literal, Sequence
 
 from .config import Config
-from .errors import ApprovedSkillChanged, ProjectGuidanceResumeDrift
+from .errors import (
+    ApprovedSkillChanged,
+    ProjectGuidanceResumeDrift,
+    WorktreeBaseMismatch,
+)
 from .models import (
     ProjectGuidanceRecord,
     RunKind,
@@ -107,7 +111,17 @@ SECTION_ORDER: tuple[str, ...] = (
 #: only together with a deliberate, reviewed change to the recipe: every
 #: persisted ``TaskRecord.context_fingerprint`` was produced by one version, and
 #: a silent recipe change would make every resume look like drift.
-CONTEXT_FINGERPRINT_VERSION = "worker-context-fingerprint/v1"
+#:
+#: v2 (B2 §6) adds the task's **baseline identity** — the resolved base commit
+#: and the worktree name — to the recipe. Lane M found that v1 covered neither
+#: the base nor the worktree head, so the anchor a resume is measured against
+#: was structurally blind to the one thing that had actually gone wrong. The
+#: base is immutable for a task, so binding it costs a legitimate resume
+#: nothing and makes a silently-redefined base impossible to hide inside the
+#: anchor. The **post-worker** head is deliberately NOT in the recipe: it is
+#: mutable state, and binding it would turn a drift detector into a rubber
+#: stamp for whatever the tree happens to say.
+CONTEXT_FINGERPRINT_VERSION = "worker-context-fingerprint/v2"
 
 #: Dispatcher-authored policy, emitted immediately before the first projected
 #: block (Lane A R2; ``approved-skills.json`` declares
@@ -289,6 +303,8 @@ def context_fingerprint(
     *,
     role: WorkerRole,
     task_envelope_id: str,
+    base_commit: str,
+    worktree_name: str,
     skill_projection: SkillProjection | None,
     guidance_projection: ProjectGuidanceProjection | None,
 ) -> str:
@@ -315,6 +331,13 @@ def context_fingerprint(
         CONTEXT_FINGERPRINT_VERSION,
         f"role={role.value}",
         f"task_envelope_id={task_envelope_id}",
+        # B2 §6. Both are immutable for the life of a task: the base commit was
+        # frozen into the envelope at dispatch and the worktree name derives
+        # from the task id. Required keyword arguments rather than defaults —
+        # a recipe that can be called without the base is a recipe that will
+        # eventually be called without it.
+        f"base_commit={base_commit}",
+        f"worktree_name={worktree_name}",
     ]
 
     if skill_projection is None:
@@ -360,6 +383,8 @@ def compose_worker_context(
     *,
     role: WorkerRole,
     task_envelope_id: str,
+    base_commit: str,
+    worktree_name: str,
     policy_text: str,
     task_prompt: str,
     skill_projection: SkillProjection | None = None,
@@ -466,6 +491,8 @@ def compose_worker_context(
         fingerprint=context_fingerprint(
             role=role,
             task_envelope_id=task_envelope_id,
+            base_commit=base_commit,
+            worktree_name=worktree_name,
             skill_projection=skill_projection,
             guidance_projection=guidance_projection,
         ),
@@ -587,6 +614,8 @@ class WorkerContextComposer:
         return compose_worker_context(
             role=WorkerRole.IMPLEMENTER,
             task_envelope_id=envelope.task_id,
+            base_commit=envelope.repository.base_commit,
+            worktree_name=envelope.worktree_name,
             policy_text=policy_text,
             task_prompt=task_prompt,
             skill_projection=skill_projection,
@@ -613,6 +642,8 @@ class WorkerContextComposer:
         return compose_worker_context(
             role=WorkerRole.REVIEWER,
             task_envelope_id=envelope.task_id,
+            base_commit=envelope.repository.base_commit,
+            worktree_name=envelope.worktree_name,
             policy_text=policy_text,
             task_prompt=task_prompt,
             skill_projection=None,
@@ -649,7 +680,11 @@ class WorkerContextComposer:
     # -- resume verification (ADDENDUM §16) ------------------------------
 
     def verify_dispatch_anchor(
-        self, record: TaskRecord, *, identity: RepositoryIdentity | None
+        self,
+        record: TaskRecord,
+        *,
+        identity: RepositoryIdentity | None,
+        envelope: TaskEnvelope | None = None,
     ) -> None:
         """Re-verify the dispatch-time context before a resume projects anything.
 
@@ -667,7 +702,50 @@ class WorkerContextComposer:
         A recorded anchor whose engine has since been switched off is itself a
         fail-closed condition. Silently dropping reviewed guidance from a resume
         is the "silently alter instructions" failure §16 exists to prevent.
+
+        B2 §6 adds the **baseline** half of the anchor. The context fingerprint
+        recipe now binds the task's base commit and worktree name, and the
+        recorded :class:`WorktreeBaseAnchor` is compared against the envelope
+        the resume is about to run under. A resume may not normalise, adopt or
+        otherwise redefine the base it was approved with; if the envelope no
+        longer names the anchored base, the task goes back to Sol. Measuring
+        the worktree itself is the caller's job and happens before any state is
+        mutated — this is the half that needs no subprocess.
         """
+        if envelope is not None and record.worktree_base_anchor is not None:
+            anchor = record.worktree_base_anchor
+            if anchor.base_commit != envelope.repository.base_commit:
+                raise WorktreeBaseMismatch(
+                    "This task's recorded baseline is not the base the resume "
+                    "would run under.",
+                    details={
+                        "task_id": record.task_id,
+                        "phase": "resume",
+                        "anchored_base_commit": anchor.base_commit,
+                        "expected_base_commit": envelope.repository.base_commit,
+                        "worktree_name": anchor.worktree_name,
+                        "worktree_path": anchor.worktree_path,
+                        "base_ref": anchor.base_ref,
+                    },
+                    remediation="The base a task was approved with is immutable. "
+                    "Do not edit it; dispatch a new task if a different base is "
+                    "wanted, so the change is visible in the record.",
+                )
+            if anchor.worktree_name != envelope.worktree_name:
+                raise WorktreeBaseMismatch(
+                    "This task's recorded worktree identity does not match its "
+                    "envelope.",
+                    details={
+                        "task_id": record.task_id,
+                        "phase": "resume",
+                        "anchored_worktree_name": anchor.worktree_name,
+                        "worktree_name": envelope.worktree_name,
+                        "anchored_base_commit": anchor.base_commit,
+                        "expected_base_commit": envelope.repository.base_commit,
+                    },
+                    remediation="Task state has been altered; do not resume it.",
+                )
+
         if record.skill_policy is not None:
             engine = self.skill_engine
             if engine is None:

@@ -66,6 +66,7 @@ from .errors import (
     PolicyViolation,
     ResumeLimitReached,
     StateCorruption,
+    WorktreeBaseMismatch,
     WorktreeCreationFailed,
 )
 from .git import (
@@ -73,9 +74,11 @@ from .git import (
     ScopeCheck,
     check_scope,
     collect_diff_evidence,
+    create_worktree,
     primary_tree_status,
     resolve_base_commit,
-    worktree_path_for,
+    resolve_worktree,
+    worktree_head,
     write_full_diff,
 )
 from .locks import RepositoryLock
@@ -90,6 +93,7 @@ from .models import (
     WorkerResult,
     WorkerRole,
     WorkerStatus,
+    WorktreeBaseAnchor,
     new_run_id,
     new_session_id,
     new_task_id,
@@ -336,6 +340,70 @@ def compare_primary_tree(
         "status_entries_appeared": appeared,
         "status_entries_disappeared": disappeared,
     }
+
+
+# ---------------------------------------------------------------------------
+# worktree base identity (B2)
+# ---------------------------------------------------------------------------
+
+
+def assert_worktree_base(
+    worktree_path: Path,
+    *,
+    expected_base_commit: str,
+    task_id: str,
+    worktree_name: str,
+    base_ref: str,
+    phase: str,
+) -> str:
+    """INVARIANT B2. Return the measured head, or raise ``WorktreeBaseMismatch``.
+
+    ::
+
+        actual worktree HEAD == envelope.repository.base_commit
+
+    Exact, full-40-character equality, measured by ``git rev-parse HEAD``
+    **inside** the worktree. Deliberately **not**:
+
+    * an ancestry test — task ``49231f6e``'s recorded base was a genuine
+      ancestor of the commit its worktree was actually on, and an
+      ancestry-tolerant check would have waved through 120 commits of other
+      people's work reported as that worker's output;
+    * a merge-base test — same hole, wider;
+    * a prefix or short-SHA comparison;
+    * "adopt what we observed" — the recorded base is what Sol approved, and
+      rewriting it to match reality is the silent repair ``CLAUDE.md`` §2
+      forbids.
+
+    A descendant is not "close enough" either: it still contributes foreign
+    commits to every diff the dispatcher takes.
+    """
+    actual = worktree_head(worktree_path)
+    if actual != expected_base_commit:
+        raise WorktreeBaseMismatch(
+            "The isolated worktree is not on the commit this task recorded as "
+            "its base, so no measurement taken in it can be trusted.",
+            details={
+                "task_id": task_id,
+                "phase": phase,
+                "worktree_name": worktree_name,
+                "worktree_path": str(worktree_path),
+                "base_ref": base_ref,
+                "expected_base_commit": expected_base_commit,
+                "actual_head_commit": actual,
+            },
+            remediation=(
+                "No evidence was collected for this run, because it would have "
+                "described a tree that never existed: base divergence would be "
+                "attributed to the worker, and a worker change that happens to "
+                "restore a file to the recorded base's content would vanish "
+                f"entirely. The worktree is on {actual}. Re-dispatch with "
+                "repository.base_ref naming the commit you intend, or "
+                "reconcile the worktree so it is on the recorded base. The "
+                "dispatcher will not adopt the observed commit as the base."
+            ),
+        )
+    return actual
 
 
 def _interference_markers(divergence: dict[str, Any]) -> list[str]:
@@ -852,6 +920,57 @@ class Dispatcher:
             run_id = new_run_id()
             prompt = build_worker_prompt(envelope)
 
+            # B2. The dispatcher creates the isolated worktree ITSELF, at the
+            # exact SHA the envelope froze, and verifies it before a single
+            # token is spent. ``claude --worktree`` takes a name and no
+            # start-point, so the previous design handed the choice of base
+            # commit to the CLI and then measured the result against a commit
+            # of its own — which is how two of three production dispatches were
+            # refused for changes their workers never made.
+            try:
+                worktree_path = await asyncio.to_thread(
+                    create_worktree,
+                    canonical_root,
+                    worktree_name=envelope.worktree_name,
+                    path=self._worktree_root() / envelope.worktree_name,
+                    start_commit=envelope.repository.base_commit,
+                )
+            except WorktreeCreationFailed as error:
+                # The task exists, so the refusal must be findable from it.
+                error.details["task_id"] = task_id
+                self.store.transition(
+                    task_id,
+                    TaskState.FAILED,
+                    reason="worktree_creation_failed",
+                    last_error=error.to_payload(),
+                )
+                raise
+            # Recorded immediately: a later failure must never leave the task
+            # unable to name the worktree Sol has to inspect (§12).
+            record = self.store.load(task_id)
+            record.worktree_path = str(worktree_path.path)
+            self.store.save(record)
+
+            try:
+                self._verify_worktree_base(
+                    envelope,
+                    worktree_path.path,
+                    phase="dispatch",
+                    anchor_on_success=True,
+                )
+            except WorktreeBaseMismatch as error:
+                # FAILED, never POLICY_VIOLATION: the worker has not even been
+                # started, so there is nobody to blame for a scope violation.
+                # Mislabelling an environment fault as worker misconduct is
+                # precisely what killed tasks 3dbd78d6 and 49231f6e.
+                self.store.transition(
+                    task_id,
+                    TaskState.FAILED,
+                    reason="worktree_base_mismatch",
+                    last_error=error.to_payload(),
+                )
+                raise
+
             # Gate 4.5 §14. Both projections happen here, before the worker is
             # launched, so a refusal (unapproved scope, drifted hash, unreviewed
             # instruction file) lands the task in FAILED with ``last_error`` set
@@ -881,11 +1000,11 @@ class Dispatcher:
                 # context turns out to be too large to transport.
                 skill_ids=worker_context.skill_ids,
                 guidance_scope_ids=worker_context.guidance_scope_ids,
-                # The worktree does not exist yet: the Claude CLI creates it
-                # from --worktree (§12), so run 1 starts in the repository root
-                # and the worktree path is resolved afterwards, from
-                # `git worktree list --porcelain`, for evidence collection.
-                cwd=canonical_root,
+                # B2: the worktree already exists and has already been verified
+                # to be on the recorded base, so the worker starts *inside* it.
+                # ``build_worker_invocation`` emits no ``--worktree`` on any
+                # path, and ``_assert_invocation_sane`` refuses one that tries.
+                cwd=worktree_path.path,
             )
             invocation = self._with_run_spools(invocation, task_id, run_index)
 
@@ -902,19 +1021,16 @@ class Dispatcher:
             worker_run = await run_worker(invocation)
             finished_at = utc_now()
 
-            worktree_path = await asyncio.to_thread(
-                worktree_path_for, canonical_root, envelope.worktree_name
+            # B2: the dispatcher created this worktree, so the only way it can
+            # be gone is that the run removed or corrupted it. That is still a
+            # fail-closed condition — nothing can be attributed to a tree that
+            # is no longer registered — and it is checked by re-reading git
+            # rather than by trusting the path recorded before the run.
+            surviving = await asyncio.to_thread(
+                resolve_worktree, canonical_root, envelope.worktree_name
             )
 
-            if worktree_path is not None:
-                # Record it immediately: a later failure during evidence
-                # collection must not leave the task unable to name the
-                # worktree Sol has to inspect (§12 "preserve the worktree").
-                record = self.store.load(task_id)
-                record.worktree_path = str(worktree_path)
-                self.store.save(record)
-
-            if worktree_path is None:
+            if surviving is None:
                 # Evidence first, refusal second (§20): the run is recorded so
                 # Sol can see the stdout/stderr that explains the failure.
                 self._write_run_streams(task_id, run_index, worker_run)
@@ -926,16 +1042,20 @@ class Dispatcher:
                     task_id, canonical_root, primary_tree_before
                 )
                 error = WorktreeCreationFailed(
-                    "Claude did not create the task's isolated worktree.",
+                    "The task's isolated worktree is no longer registered with "
+                    "the repository.",
                     details={
                         "task_id": task_id,
                         "worktree_name": envelope.worktree_name,
+                        "worktree_path": str(worktree_path.path),
                         "exit_code": worker_run.exit_code,
                         "stderr_tail": _tail_text(worker_run.stderr),
                     },
                     remediation=(
-                        "Inspect the recorded stderr; the worker exited without "
-                        "an isolated worktree, so no change can be attributed to it."
+                        "The dispatcher created this worktree before the run "
+                        "started, so it was removed or damaged during it. "
+                        "Inspect the recorded stderr; no change can be "
+                        "attributed to a tree that no longer exists."
                     ),
                 )
                 self._record_bare_run(
@@ -967,7 +1087,7 @@ class Dispatcher:
                 run_id=run_id,
                 session_id=session_id,
                 model=model,
-                worktree_path=worktree_path,
+                worktree_path=surviving.path,
                 worker_run=worker_run,
                 started_at=started_at,
                 finished_at=finished_at,
@@ -1037,6 +1157,21 @@ class Dispatcher:
         lock = RepositoryLock(canonical_root, self.config.locks_path)
         lock.acquire()
         try:
+            # B2 §6, before ANY state is mutated and before a worker exists.
+            # A resume must reuse the exact recorded worktree, and that
+            # worktree's baseline must still be the one the task was approved
+            # with. A mismatched task lands in POLICY_VIOLATION, and
+            # POLICY_VIOLATION -> RESUME_REQUESTED is legal, so "issue a
+            # corrective resume" is Sol's natural next move — it must not spend
+            # another paid worker reproducing the same corrupt evidence.
+            await asyncio.to_thread(
+                self._assert_resume_worktree_identity,
+                envelope,
+                record,
+                canonical_root,
+                Path(plan.worktree_path),
+            )
+
             self.store.transition(
                 task_id, TaskState.RESUME_REQUESTED, reason="resume_requested"
             )
@@ -1061,7 +1196,9 @@ class Dispatcher:
             identity = await asyncio.to_thread(
                 self.context.repository_identity, canonical_root
             )
-            self.context.verify_dispatch_anchor(record, identity=identity)
+            self.context.verify_dispatch_anchor(
+                record, identity=identity, envelope=envelope
+            )
             worker_context = self.context.for_worker(
                 envelope,
                 run_kind=RunKind.RESUME,
@@ -1435,6 +1572,223 @@ class Dispatcher:
         if worker_run.stderr_spool_path is None:
             atomic_write_text(run_dir / "stderr.log", redact(worker_run.stderr))
 
+    def _worktree_root(self) -> Path:
+        """Where the dispatcher puts the worktrees it creates (B2, K-2).
+
+        Under the dispatcher's own state directory — deliberately **outside**
+        every repository it dispatches against. The Claude CLI put its
+        worktrees at ``<repo>/.claude/worktrees/<name>``, inside the primary
+        work tree, where git reports the container as a new untracked entry:
+        that entry trips the primary-tree non-interference invariant, so the
+        first dispatch into any newly-authorised repository was refused
+        (K-2). Owning creation lets the container live somewhere that cannot
+        dirty the user's tree at all, which resolves K-2 without excusing
+        anything and without weakening a single check.
+        """
+        return Path(self.config.state_path) / "worktrees"
+
+    def _verify_worktree_base(
+        self,
+        envelope: TaskEnvelope,
+        worktree_path: Path,
+        *,
+        phase: str,
+        anchor_on_success: bool = False,
+    ) -> str:
+        """Enforce INVARIANT B2 and record the verdict as evidence, either way.
+
+        Returns the measured head on success. On mismatch the evidence file is
+        written **before** the error propagates, so the refusal is auditable,
+        and the recorded base is left exactly as Sol approved it.
+        """
+        expected = envelope.repository.base_commit
+        try:
+            measured = assert_worktree_base(
+                worktree_path,
+                expected_base_commit=expected,
+                task_id=envelope.task_id,
+                worktree_name=envelope.worktree_name,
+                base_ref=envelope.repository.base_ref,
+                phase=phase,
+            )
+        except WorktreeBaseMismatch as exc:
+            self._write_worktree_base_evidence(
+                envelope,
+                worktree_path=worktree_path,
+                actual_head_commit=str(exc.details.get("actual_head_commit", "")),
+                held=False,
+                phase=phase,
+            )
+            _event(
+                "worktree_base_mismatch",
+                task_id=envelope.task_id,
+                phase=phase,
+                expected_base_commit=expected,
+                actual_head_commit=exc.details.get("actual_head_commit"),
+            )
+            raise
+
+        self._write_worktree_base_evidence(
+            envelope,
+            worktree_path=worktree_path,
+            actual_head_commit=measured,
+            held=True,
+            phase=phase,
+        )
+        if anchor_on_success:
+            self._anchor_worktree_base(envelope, worktree_path, measured)
+        return measured
+
+    def _assert_resume_worktree_identity(
+        self,
+        envelope: TaskEnvelope,
+        record: TaskRecord,
+        repository_root: Path,
+        worktree_path: Path,
+    ) -> str:
+        """Everything a resume must be true about its worktree, before launch (B2 §6).
+
+        Three separate facts, checked in this order because each is cheaper and
+        more fundamental than the next:
+
+        1. **Anchor vs envelope.** The baseline identity pinned at dispatch
+           must still be the one the envelope names. This is the check that
+           refuses a *normalised* base — a task quietly redefined to match
+           whatever its tree ended up on. It needs no subprocess and it catches
+           the case where the tree and the envelope were moved together.
+        2. **Worktree identity.** Git must still register a worktree of this
+           task's name, at the recorded path. A path that exists but is no
+           longer a registered worktree is not this task's tree.
+        3. **The invariant.** HEAD inside that tree must equal the recorded
+           base, exactly.
+
+        Nothing here adopts, repairs or normalises anything. Legacy tasks
+        dispatched before the anchor existed skip step 1 and are still held to
+        steps 2 and 3.
+        """
+        anchor = record.worktree_base_anchor
+        if anchor is not None:
+            if anchor.base_commit != envelope.repository.base_commit:
+                raise WorktreeBaseMismatch(
+                    "This task's recorded baseline is not the base the resume "
+                    "would run under.",
+                    details={
+                        "task_id": envelope.task_id,
+                        "phase": "resume",
+                        "anchored_base_commit": anchor.base_commit,
+                        "expected_base_commit": envelope.repository.base_commit,
+                        "worktree_name": envelope.worktree_name,
+                        "worktree_path": str(worktree_path),
+                        "base_ref": envelope.repository.base_ref,
+                    },
+                    remediation="The base a task was approved with is "
+                    "immutable. A resume may not adopt a different one; "
+                    "dispatch a new task if a different base is intended.",
+                )
+            if Path(anchor.worktree_path) != worktree_path:
+                raise WorktreeBaseMismatch(
+                    "This task's recorded worktree is not the one the resume "
+                    "would run in.",
+                    details={
+                        "task_id": envelope.task_id,
+                        "phase": "resume",
+                        "anchored_worktree_path": anchor.worktree_path,
+                        "worktree_path": str(worktree_path),
+                        "worktree_name": envelope.worktree_name,
+                        "expected_base_commit": envelope.repository.base_commit,
+                        "anchored_base_commit": anchor.base_commit,
+                    },
+                    remediation="A resume reuses the exact worktree the "
+                    "dispatch created (§18). Task state has been altered; do "
+                    "not resume it.",
+                )
+
+        registered = resolve_worktree(repository_root, envelope.worktree_name)
+        if registered is None or registered.path != worktree_path:
+            raise WorktreeBaseMismatch(
+                "The task's isolated worktree is not registered with the "
+                "repository at the recorded path.",
+                details={
+                    "task_id": envelope.task_id,
+                    "phase": "resume",
+                    "worktree_name": envelope.worktree_name,
+                    "worktree_path": str(worktree_path),
+                    "registered_path": (
+                        str(registered.path) if registered is not None else None
+                    ),
+                    "expected_base_commit": envelope.repository.base_commit,
+                },
+                remediation="Evidence is only meaningful from the worktree "
+                "this task was dispatched into. Do not resume into a "
+                "different tree; return the task to Sol.",
+            )
+
+        return self._verify_worktree_base(envelope, worktree_path, phase="resume")
+
+    def _anchor_worktree_base(
+        self, envelope: TaskEnvelope, worktree_path: Path, initial_head: str
+    ) -> None:
+        """Pin the task's baseline identity, once (B2 §6).
+
+        Written when the worktree is created and verified, and never updated:
+        it is the value a resume's baseline is measured against, so refreshing
+        it would erase the thing being measured — the same reason the context
+        fingerprint anchor is write-once.
+        """
+        record = self.store.load(envelope.task_id)
+        if record.worktree_base_anchor is not None:
+            return
+        record.worktree_base_anchor = WorktreeBaseAnchor(
+            base_ref=envelope.repository.base_ref,
+            base_commit=envelope.repository.base_commit,
+            worktree_name=envelope.worktree_name,
+            worktree_path=str(worktree_path),
+            initial_head_commit=initial_head,
+        )
+        self.store.save(record)
+        _event(
+            "worktree_base_anchored",
+            task_id=envelope.task_id,
+            base_commit=envelope.repository.base_commit,
+            worktree_path=str(worktree_path),
+        )
+
+    def _write_worktree_base_evidence(
+        self,
+        envelope: TaskEnvelope,
+        *,
+        worktree_path: Path,
+        actual_head_commit: str,
+        held: bool,
+        phase: str,
+    ) -> None:
+        """Persist the B2 verdict for a run — on **both** outcomes (§20)."""
+        self.store.write_evidence(
+            envelope.task_id,
+            "worktree-base.json",
+            json.dumps(
+                {
+                    "invariant": "worktree_head == recorded_base_commit",
+                    "held": held,
+                    "phase": phase,
+                    "worktree_name": envelope.worktree_name,
+                    "worktree_path": str(worktree_path),
+                    "base_ref": envelope.repository.base_ref,
+                    "expected_base_commit": envelope.repository.base_commit,
+                    "actual_head_commit": actual_head_commit,
+                    "note": (
+                        "The dispatcher creates this worktree itself, at the "
+                        "commit the envelope froze, and measures HEAD inside it "
+                        "before any evidence is collected. Equality is exact: "
+                        "an ancestor or a descendant of the recorded base is a "
+                        "refusal, because either one contributes commits the "
+                        "worker did not write to every diff taken here."
+                    ),
+                },
+                indent=2,
+            ),
+        )
+
     def _anchor_dispatch_context(self, task_id: str, context: WorkerContext) -> None:
         """Persist the dispatch-time context as the task's anchor (§16).
 
@@ -1603,6 +1957,52 @@ class Dispatcher:
 
         self._write_run_streams(task_id, run_index, worker_run)
 
+        # --- INVARIANT B2: the choke point ---------------------------------
+        # Shared by dispatch and resume, and placed *before* every consumer of
+        # the base: evidence A, the validation commands, evidence B, the scope
+        # decision, ``evidence/diff.patch`` and the review prompt. The worktree
+        # was created on the recorded base and verified before launch, but a
+        # worker has Bash and its own git; if HEAD moved during the run, every
+        # measurement below would describe a tree that never existed.
+        #
+        # Diff evidence is deliberately NOT collected "just for the record"
+        # first. That artefact is the lie — producing it and labelling it would
+        # reintroduce the defect in a file someone will later read as evidence.
+        try:
+            worktree_head_commit = await asyncio.to_thread(
+                self._verify_worktree_base,
+                envelope,
+                worktree_path,
+                phase=run_kind.value,
+            )
+        except WorktreeBaseMismatch as error:
+            self._record_primary_tree_on_failure_path(
+                task_id, repository_root, primary_tree_before
+            )
+            # The run happened and must be in the record, even though no diff
+            # evidence exists for it (§20: evidence first, refusal second).
+            self._record_bare_run(
+                envelope=envelope,
+                run_kind=run_kind,
+                role=WorkerRole.IMPLEMENTER,
+                run_index=run_index,
+                run_id=run_id,
+                session_id=session_id,
+                model=model,
+                worktree_path=str(worktree_path),
+                worker_run=worker_run,
+                started_at=started_at,
+                finished_at=finished_at,
+                worker_context=worker_context,
+            )
+            self.store.transition(
+                task_id,
+                TaskState.FAILED,
+                reason="worktree_base_mismatch",
+                last_error=error.to_payload(),
+            )
+            raise
+
         # --- evidence A: the worktree as the worker left it (§16, P1-7) ---
         worker_evidence = await asyncio.to_thread(
             collect_diff_evidence, worktree_path, envelope.repository.base_commit
@@ -1713,6 +2113,12 @@ class Dispatcher:
             scope_check=scope,
             worker_result=worker_result,
             worker_result_error=worker_result_error,
+            # B2: measured by git inside the worktree, before any of the
+            # evidence above was collected. Equal to ``base_commit`` on every
+            # run that gets this far, by construction — the run is refused
+            # otherwise — and recorded so a reader never has to take that on
+            # trust.
+            worktree_head_commit=worktree_head_commit,
             # Literal measurement, not the invariant: this says the primary tree
             # has no uncommitted changes *now*. Non-interference
             # (post_state == pre_state) is a different question and is decided

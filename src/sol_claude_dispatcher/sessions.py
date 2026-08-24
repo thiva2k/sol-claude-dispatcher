@@ -301,6 +301,16 @@ def escalation_handoff(
             root=envelope.repository.root,
             # Pin the escalated task to the exact commit the parent started
             # from, so the new worker sees the same ground truth.
+            #
+            # B2: this is now true rather than aspirational. Passing the
+            # parent's resolved 40-hex SHA as the child's ``base_ref`` used to
+            # decide only what the child *recorded*; the Claude CLI still chose
+            # the child's worktree start-point for itself, so an escalation
+            # faithfully reproduced the parent's recorded base into a tree that
+            # was on something else — and produced the same spurious violation
+            # with a more expensive model. The dispatcher now creates the
+            # child's worktree at this exact commit and refuses to launch a
+            # worker if it is not on it.
             base_ref=envelope.repository.base_commit,
             workspace_mode=envelope.repository.workspace_mode,
         ),

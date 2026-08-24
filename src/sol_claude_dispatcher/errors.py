@@ -53,6 +53,7 @@ __all__ = [
     "ValidationFailed",
     "ValidationBudgetExceeded",
     "WorktreeCreationFailed",
+    "WorktreeBaseMismatch",
     "GitEvidenceCollectionFailed",
     "RecursionDetected",
     "ConfigurationError",
@@ -135,6 +136,29 @@ class WorktreeCreationFailed(DispatcherError):
     """Could not create or locate the isolated worktree for a task (§12)."""
 
     code = "WorktreeCreationFailed"
+
+
+class WorktreeBaseMismatch(DispatcherError):
+    """The isolated worktree is not on the commit the task recorded as its base (B2).
+
+    Every measurement the dispatcher makes about a run — changed paths, the
+    scope decision, ``evidence/diff.patch``, the review prompt, the validation
+    it re-runs — is taken as a diff against the recorded base commit. If the
+    worktree is on a different commit, all of it describes a tree that never
+    existed: the base divergence is attributed to the worker, and — worse — a
+    worker change that happens to restore a file to its recorded-base content
+    disappears **entirely**, because the two components of
+    ``(W - B) u worker-changes`` cancel. A genuinely forbidden change can be
+    recorded ``scope_valid: true`` that way.
+
+    There is no partial-credit reading of this, so it fails closed rather than
+    warning, and the recorded base is never rewritten to match what was found:
+    Sol named a base, and the dispatcher's job is to report that it could not
+    honour it, not to silently redefine the task.
+    """
+
+    code = "WorktreeBaseMismatch"
+    retryable = False
 
 
 class GitEvidenceCollectionFailed(DispatcherError):
@@ -484,6 +508,7 @@ ERROR_CODES: frozenset[str] = frozenset(
         "ValidationFailed",
         "ValidationBudgetExceeded",
         "WorktreeCreationFailed",
+        "WorktreeBaseMismatch",
         "GitEvidenceCollectionFailed",
         "RecursionDetected",
         "ConfigurationError",
