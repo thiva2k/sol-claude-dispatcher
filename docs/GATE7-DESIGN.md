@@ -2,7 +2,7 @@
 
 **Lifecycle, evidence and recovery integrity.**
 
-Status: **DESIGN — REVISION 3. NOT APPROVED FOR IMPLEMENTATION.**
+Status: **DESIGN — REVISION 4. NOT APPROVED FOR IMPLEMENTATION.**
 
 Revision 1 (`d098d4b`) was independently reviewed (Lane W) → *APPROVED WITH
 REQUIRED CHANGES*, six blocking findings. Revision 2 (`619b63e`) applied Sol's
@@ -11,19 +11,46 @@ N-a … N-e, Y-1 … Y-10**. Sol ruled on that review and issued **twenty direct
 A–T**. This revision integrates three parallel drafting lanes against those
 directives.
 
-> **NO SOURCE CODE MAY BE WRITTEN until this revision receives a THIRD
-> independent review returning ZERO blocking findings.** The production freeze
-> remains absolute until then.
+Revision 3 (`d268f70`, pushed and verified as `origin/main`) received a **third**
+independent review: **4 BLOCKING · 7 non-blocking · WAVE 0 APPROVED TO IMPLEMENT:
+NO.** Six of the seven prior blockers were confirmed **closed by mechanism**, the
+evidence-authority architecture was judged right, and `filter.*` was independently
+reproduced as genuinely closed by class deletion. **Revision 4 fixes the four
+blockers and the seven non-blocking findings.**
+
+> **NO SOURCE CODE MAY BE WRITTEN until a FOURTH independent review returns ZERO
+> blocking findings and WAVE 0 APPROVED TO IMPLEMENT: YES.** That is directive T,
+> and it is not discretionary. The production freeze remains absolute until then.
+
+### What revision 4 changes
+
+| # | Blocker | Fix |
+|---|---|---|
+| **B-1** | *"post-worker the pipeline runs exactly ONE git command"* was **false in the design's own text** — B2's `assert_worktree_base` runs `rev-parse` post-worker on every run — and the journal test named as the last line of defence **would have failed on the happy path** | §0.2, §2, §5.4.5, §5.5.2, §16, §17: the post-worker set is **`{cat-file, rev-parse}`** with the `rev-parse` **argv pinned** and its **count tied to a seam counter**. **The claim and the test are corrected; the command is not.** Three tempting exits are named and refused. |
+| **B-2** | Appendix A.2's *"`--no-checkout` executes nothing"* came from an experiment that **could not have produced a positive result** — it never armed `reference-transaction`. **A third execution surface exists.** | §5.4.1 gains **S-γ (ref update)**; the repertoire is re-measured on all three; A.2 carries a **methodological correction** stating what it could and could not have detected; `# executes NOTHING` is deleted; **Z-4 is demoted from "structural" to "gated" and held OPEN pending Lane Z5** |
+| **B-3** | `patch_file_complete` was **`true` while content was omitted**, for the precise attack directive C names — a modification to `.venv/bin/activate` was detected, scope-exempted, rolled up, and shipped to Fable as complete | §5.5.9A: **ZI-25/26/27.** A base-ignored path whose change is anything but `added` is **represented in full, never rolled up, never budgeted, no configuration elides it**, and is **scope-checked normally**. Only bulk **creation** rolls up, and **the rollup clears the flag.** |
+| **B-4** | **S-7 was not closed.** Three Wave-0 refusals land in §8 **row 0**, which revision 3 assigned to Wave A — so Wave 0 alone would have landed the task **`FAILED` on the first dispatch against every repository**, reintroducing G7-6 | §12.2 **D-24**: the PREPARE-phase mechanism and row 0 **move into Wave 0**, because Wave 0 owns the gate that needs them. §12.2's sentence is now true rather than load-bearing and false. |
+
+Non-blocking: **N-1** repertoire completeness (three live commands were unlisted;
+three `REQUIRES-PROBE` rows retired as clean) · **N-2** `read-tree`
+prohibited-and-prescribed, resolved · **N-3** promisor vector closed as
+non-exploitable, operator trust-print widened · **N-4** two documentation mutants
+were **red on day one**, re-specified structurally · **N-5** ZI-18 was
+**unachievable as written**, restated with a raw gitdir resolver · **N-6**
+directive T **does exist and is satisfied** · **N-7** the two config-softened §2
+items, carried for Sol.
 
 | | |
 |---|---|
 | Baseline | `e6321d1` (1368 tests passing) |
 | Revision 1 | `d098d4b` — reviewed by Lane W |
-| Revision 2 | `619b63e` — reviewed a second time; **the artefact this revision replaces** |
+| Revision 2 | `619b63e` — reviewed a second time |
+| Revision 3 | `d268f70` — **pushed, `origin/main` verified**; reviewed a third time; **the artefact this revision replaces** |
 | Author | Lane V (integrator). **This lane wrote no `src/**`, no `tests/**`.** |
 | Drafting lanes | **Z1** (evidence authority, §A–F) · **Z2** (phase & ownership, §G–J, §P) · **Z3** (structure & policy, §K–S, Y-mapping) |
 | Probes | `GATE7-CAPABILITY-PROBE.md` (Lane U) · `GATE7-V1-ADJACENT-PROBE.md` (Lane X) |
-| Reviews | `GATE7-DESIGN-REVIEW.md` (Lane W) · `GATE7-DESIGN-REVIEW-2.md` (Lane Y) |
+| Reviews | `GATE7-DESIGN-REVIEW.md` (W) · `GATE7-DESIGN-REVIEW-2.md` (Y) · `GATE7-DESIGN-REVIEW-3.md` (Z4) |
+| Pending probe | `GATE7-Z5-PREPARE-PROBE.md` (Lane Z5) — **§5.5.5 / Z-4 is OPEN until it is published and cited** |
 | Installed clients | Claude Code **2.1.237**, Codex CLI **0.149.0** |
 
 ---
@@ -103,7 +130,7 @@ without discharging it first.
 | **Q** | mutations — registry, production-active, named killers | §11 |
 | **R** | wave order kept: 0 → A → B → D → C → E | §12.1 |
 | **S** | capability findings stay, not softened | §6.0 |
-| **T** | *(reserved — see §18: no directive text for T reached this lane)* | §18.4 |
+| **T** | **REVIEW REQUIREMENT** — push the revision, verify `origin/main`, run an independent architecture review, **no implementation source before blocking findings = 0 and WAVE 0 APPROVED = YES**, and return the SHA, verdict, blocking findings, approval flag and the Y-1…Y-10 map | §18.5, §17 |
 
 ---
 
@@ -145,9 +172,33 @@ verified it independently, byte-exact on a normal file, an **empty** file, a fil
 with **no trailing newline** and a **symlink** — which lets `cat-file` come off
 the PREPARE hot path entirely and be invoked lazily, for changed paths only.
 
-> **Consequence, and it is the strongest single sentence in this revision:
-> after the worker is launched, the entire evidence pipeline runs exactly ONE
-> git command — `cat-file` — and it reads object ids, never paths.**
+> **Consequence: after the worker is launched, the dispatcher runs exactly TWO
+> git commands — `cat-file`, which reads object ids and never paths, and
+> `rev-parse --verify HEAD^{commit}`, which is B2's post-worker base check. Both
+> are measured clean on every armed surface. NO PRESENTATION COMMAND RUNS.**
+
+**Revision 3 stated this as "exactly ONE command", and that was false in its own
+text** — §5.5.2 keeps `assert_worktree_base` untouched, §3.1.7 lists
+`WorktreeBaseMismatch` in FINALIZE, and §8 row 2 requires the check *before any
+evidence is collected*, which in code is `server.py:2005` → `git.py:532` →
+`git rev-parse --verify HEAD^{commit}`, inside the task worktree, after the worker
+exits. So §5.4.5's journal test — **the one test §5.4.6 marked NO in the *could it
+pass while false?* column, and called the one check that survives a refactor** —
+**would have failed on the happy path of every single run.**
+
+The correction is to the *claim and the test*, **not** to the command. Three exits
+were available and all three are refused explicitly:
+
+| Tempting exit | Why it is refused |
+|---|---|
+| delete B2's post-worker verification | regresses a **§2 non-regression by name** and reopens task `49231f6e`'s exact defect, which `assert_worktree_base`'s own docstring cites as the reason it exists |
+| weaken the journal assertion to an editable allowlist | that is R-3's disease and S-2's disease — a proof that cannot fail |
+| move `assert_worktree_base` off `_run_git` | blinds the journal entirely and defeats §5.4.5's whole purpose |
+
+`rev-parse --verify HEAD^{commit}` **is already in the permitted repertoire** and
+is measured clean on S-α, S-β **and** S-γ (§5.4.1). The defect was never the
+command; it was a sentence that overstated, and a test written to the sentence
+rather than to the pipeline.
 
 ### Reconciliation 2 — §C's model: Z1's is strictly stronger
 
@@ -335,7 +386,7 @@ the working tree contains.**
               │ B2. THE AUTHORITY PIPELINE  G7-2                          │
               │     two dispatcher-owned filesystem snapshots →           │
               │     inventory → SCOPE → content → one representation      │
-              │     exactly ONE git command runs here: cat-file           │
+              │     post-worker git: cat-file + rev-parse (B2) ONLY       │
               └───────────────────────┬───────────────────────────────────┘
   LAND        ┌───────────────────────▼───────────────────────────────────┐
               │ LandingIntent — recorded, then applied idempotently       │
@@ -1321,17 +1372,32 @@ description of the defect, worked around in one place out of three.
   outcome and never removes a path from the inventory.
 - **ZI-11/12/13/14** — production activation, §4.12.
 - **ZI-15/16/17** — Fable input is never clipped, §5.11.
-- **ZI-18 (admin capture).** The repository's security-relevant administrative
-  state is captured with **plain file I/O only**, and that capture is the
-  **first** thing any dispatch does — before `git worktree add`, before
-  `rev-parse`, **before any git process is created at all**.
+- **ZI-18 (admin capture) — RESTATED so it is achievable (N-5).** The
+  repository's security-relevant administrative state is captured with **plain
+  file I/O only**, and that capture happens **before any git command that could
+  execute a repository-supplied program** — in particular before `worktree add`,
+  and before anything that reads the working tree, refreshes the index, or
+  mutates a ref. *Revision 3 said "before `rev-parse`, before any git process is
+  created at all", and that was **not achievable**:
+  `security.validate_repository_root` (`security.py:217`) and the lock digest
+  (`locks.py:72`) both run `rev-parse --show-toplevel` to establish repository
+  identity before anything else, and the capture itself is keyed on `<gitdir>` /
+  `$GIT_COMMON_DIR`, which revision 3 obtained from `rev-parse
+  --absolute-git-dir`. An implementer could not have satisfied it as written.*
+  **The `rev-parse` variants that may precede the capture are measured clean on
+  all three armed surfaces (§5.4.3), and the capture prefers a raw resolver over
+  even those (§5.8.2A).**
 - **ZI-19 (index irrelevance).** Worker-controlled index state has **no authority
   over evidence**. The evidence pipeline never reads the index, never writes one,
   and **never creates a temporary one**. `assume-unchanged` and `skip-worktree`
   are therefore *structurally irrelevant* rather than defeated.
-- **ZI-20.** A dispatch whose administrative state does not match the recorded
-  trusted baseline **refuses in PREPARE**, and **the refusal path runs no git
-  command whatsoever.**
+- **ZI-20 — RESTATED (N-5).** A dispatch whose administrative state does not
+  match the recorded trusted baseline **refuses in PREPARE**, and **the refusal
+  path runs no git command beyond the identity resolution needed to locate the
+  repository at all** — the raw resolver of §5.8.2A where it succeeds, and at
+  most `rev-parse --show-toplevel` / `--absolute-git-dir` / `--git-common-dir`
+  where it does not. **No presentation command, no `worktree add`, no ref
+  mutation, and nothing that could execute a repository-supplied program.**
 - **ZI-21 (primary tree).** `post_primary_state == pre_primary_state` is measured
   by dispatcher-owned raw filesystem code and raw ref reads. **No git command
   participates, before or after the worker.**
@@ -1414,23 +1480,49 @@ Consequences, each of which reverses a revision-1 or revision-2 position:
 
 ### 5.4 Directive A — post-worker git presentation commands are not evidence authority
 
-#### 5.4.1 Two independent execution surfaces, and a command is safe only if measured against BOTH
+#### 5.4.1 THREE independent execution surfaces, and a command is safe only if measured against ALL THREE
 
-This is the single most important correction revision 3 makes, and it is the same
-failure shape the gate keeps repeating in a new place.
+This is the most important correction the design makes, and **revision 3 got the
+count wrong** — which is itself the lesson, so it is recorded rather than
+quietly amended.
 
 | Surface | Selected by | Triggered by |
 |---|---|---|
 | **S-α — attribute-selected content transform** | an *attribute* (`filter=`, `diff=`, `-diff`, `working-tree-encoding`) resolved from `.gitattributes`, `info/attributes` or `core.attributesFile`, plus a config-defined driver | any command that **reads working-tree content through git's content pipeline** |
 | **S-β — index refresh** | the `core.fsmonitor` key **alone; no attribute is needed** | any command that **refreshes the index**, whether or not it reads content |
+| **S-γ — ref update** *(NEW in revision 4)* | **no attribute and no index refresh** — the hook `$GIT_COMMON_DIR/hooks/reference-transaction` (also `post-checkout`, `post-index-change`, `pre-auto-gc`, and any dir named by `core.hooksPath`) | any command that **creates, moves or deletes a ref** |
 
 `git ls-files --others` reads no content, so it is clean on S-α — and it
-refreshes the index, so it **executes the worker's program on S-β**. Z3's
-measurement of P-A was correct and correctly scoped to S-α; it did not establish
-that P-A executes no worker-chosen program.
+refreshes the index, so it **executes the worker's program on S-β**.
+**`git worktree add` creates a branch ref, so it executes the worker's program on
+S-γ — even with `--no-checkout`, which revision 3 annotated `# executes
+NOTHING`.**
 
-> **Only three commands are measured clean on BOTH surfaces:
+> **S-γ was found because revision 3's own Appendix A.2 armed smudge,
+> `post-checkout` and `fsmonitor` and never armed `reference-transaction`. Its
+> `no-checkout log: []` was therefore a negative result from an experiment that
+> could not have produced a positive one — the exact hazard this document records
+> in reconciliation 4 and §10.4 about somebody else's probe.** It is the fourth
+> occurrence of that pattern in this gate and **the first inside this document's
+> own measured appendix.** Z1's honest caveat — *"S-α and S-β are the two surfaces
+> I know about, not the two that exist"* — is now **demonstrated true rather than
+> conceded**, and §18.5's attack item 1 is answered **yes**.
+
+**What survives and what does not.** The repertoire's **conclusion** survives:
+all three permitted commands are measured **clean on S-γ**, because none of them
+updates a ref. Its **method** does not: "measured against BOTH" was the rule, and
+two was the wrong number.
+
+> **Only three commands are measured clean on ALL THREE surfaces:
 > `ls-tree -r -z --long`, `cat-file` (bare), and `rev-parse`.**
+
+**A fourth surface may exist.** The design does not claim otherwise. What it
+claims is that the permitted set is **object-store reads and ref resolution**,
+which touch neither the working tree, nor the index, nor any ref *mutation* — a
+structural property rather than a per-key enumeration. **That argument is why the
+set is expected to survive a git upgrade; the measurements are why it is believed
+today; and Z-RULE-1 requires both to be re-run as tests with positive controls
+whenever git moves.**
 
 #### 5.4.2 The prohibited set, by name and by class
 
@@ -1446,20 +1538,54 @@ that P-A executes no worker-chosen program.
 | `git cat-file --filters`, `--textconv` | **FIRES** | — |
 | `git check-attr`, `git check-ignore` | consult worker-writable sources **by design** | — |
 | any attribute-selected transform | textconv, external diff, clean/smudge/process, `ident`, `working-tree-encoding` | — |
-| any command that refreshes or writes the index | — | the refresh **is** the trigger |
+| any command that refreshes or writes **the worktree's** index | — | the refresh **is** the trigger. `read-tree` into an external `GIT_INDEX_FILE` is **not** this — see §5.4.3 (N-2). |
 
 #### 5.4.3 The permitted repertoire — exhaustive; widening it is a Sol decision
 
-| Command | Phase | Purpose | S-α | S-β |
-|---|---|---|---|---|
-| `rev-parse --verify <ref>^{commit}` | PREPARE | resolve the immutable base SHA | clean | clean |
-| `rev-parse --show-toplevel` | PREPARE | repository identity | clean | clean |
-| `rev-parse --absolute-git-dir` / `--git-common-dir` | PREPARE | identity | **`REQUIRES-PROBE`** | **`REQUIRES-PROBE`** |
-| `ls-tree -r -z --long <base>` | PREPARE | `BaseTreeSnapshot` | clean | clean |
-| `cat-file --batch` **fed object ids** (never `--filters`, never `--textconv`) | PREPARE for a bounded set; **lazily at FINALIZE** | raw blob contents | clean | clean |
-| `cat-file blob <oid>` | same | single raw blob | clean | clean |
-| `worktree add` | PREPARE, once per task, **only after §5.8's preflight passes** | create the isolated tree | **FIRES smudge** | **FIRES** |
-| `worktree list --porcelain` | PREPARE | registration facts, B2 | **`REQUIRES-PROBE`** | **`REQUIRES-PROBE`** |
+| Command | Phase | Purpose | S-α | S-β | S-γ |
+|---|---|---|---|---|---|
+| `rev-parse --verify <ref>^{commit}` | PREPARE **and FINALIZE** (B2, §5.5.2) | resolve the base SHA; verify the worktree head | clean | clean | clean |
+| `rev-parse --show-toplevel` | PREPARE | repository identity / lock digest (`security.py:217`, `locks.py:72`) | clean | clean | clean |
+| `rev-parse --absolute-git-dir` / `--git-common-dir` | PREPARE | gitdir identity for §5.8 | **clean** | **clean** | **clean** |
+| `rev-parse --is-inside-work-tree` | PREPARE | `git.is_git_repository` (`git.py:248`) | **clean** | **clean** | **clean** |
+| `ls-tree -r -z --long <base>` | PREPARE | `BaseTreeSnapshot` | clean | clean | clean |
+| `cat-file --batch` **fed object ids** (never `--filters`, never `--textconv`) | PREPARE for a bounded set; **lazily at FINALIZE** | raw blob contents | clean | clean | clean |
+| `cat-file blob <oid>` | same | single raw blob | clean | clean | clean |
+| `rev-list --max-parents=0 HEAD` | PREPARE | repository root-commit pin (`git.py:363`) | **clean** | **clean** | **clean** |
+| `config --get remote.origin.url` | PREPARE | repository identity pin (`git.py:359`) | **clean** | **clean** | **clean** |
+| `worktree list --porcelain` | PREPARE | registration facts, B2 | **clean** | **clean** | **clean** |
+| `read-tree <base>` with an **external `GIT_INDEX_FILE`** | PREPARE, `dispatcher_raw` only (§5.5.5) | populate a throwaway index | **clean** | **clean** | **clean** |
+| `worktree add` | PREPARE, once per task, **only after §5.8's preflight passes** | create the isolated tree | **FIRES smudge** | **FIRES** | **FIRES `reference-transaction`** |
+
+**Four rows changed status in revision 4.** `--absolute-git-dir`,
+`--git-common-dir` and `worktree list --porcelain` move from `REQUIRES-PROBE` to
+**permitted**, measured clean on all three surfaces with a positive control.
+Three rows are **new because the code already used them and no revision listed
+them** — `rev-parse --is-inside-work-tree`, `rev-list --max-parents=0` and
+`config --get remote.origin.url`, all measured clean on all three. The repertoire
+was described as *exhaustive* while three live call sites sat outside it; **that
+is now true rather than aspirational**, and `test_git_repertoire_is_exactly_the_permitted_set`
+is what makes it stay true.
+
+> **`config --get` is permitted here and prohibited in §5.8.2, and both are
+> correct.** §5.8.2's rule is that the **administrative capture** must use plain
+> file I/O and never ask git what the configuration says — because that capture
+> is the thing that decides whether the configuration is trusted. The identity
+> producer's single `config --get remote.origin.url` is a different question
+> asked at a different time, of a repository whose administrative state §5.8 has
+> **already reconciled**. §5.8.2's sentence is narrowed to say *"the capture runs
+> no git command"* rather than *"no `git config`"*, and a test asserts the
+> capture's own journal window is empty.
+
+> **`read-tree` is permitted here and prohibited by §5.4.2's final row, and that
+> contradiction is resolved rather than left standing** (N-2). §5.4.2's row is
+> narrowed from *"any command that refreshes or writes the index"* to **"any
+> command that refreshes or writes THE WORKTREE'S index"**. `read-tree` into an
+> **external `GIT_INDEX_FILE`** touches no worktree index, is measured clean on
+> all three surfaces, and appears only in `dispatcher_raw` materialisation. B-I5
+> is unaffected: the *task worktree's* index is still never written, and the
+> temporary index is a dispatcher-owned file. **A `read-tree` without an external
+> `GIT_INDEX_FILE` remains prohibited**, and `ZM-E7`'s killer catches its return.
 
 **Everything else is removed from the dispatcher.** `git status`, `git diff` in
 all forms, `git ls-files` in all forms, `git diff --check`, `git diff --stat`
@@ -1515,10 +1641,33 @@ state/tasks/<id>/runs/NNN/git-invocations.jsonl     NEW, append-only
    "permitted_by":"repertoire row 4", "returncode":0, "duration_ms":12}
 ```
 
-Every call through `_run_git` appends one record. **The FINALIZE phase must
-contain only `cat-file` rows.** That is a decidable post-condition an integration
-test asserts directly, and it is the one check that survives a refactor which
-bypasses the AST tests.
+Every call through `_run_git` appends one record.
+
+> **The FINALIZE phase must contain only `cat-file` and `rev-parse` rows — and
+> the `rev-parse` rows must be exactly the B2 base check (`--verify
+> HEAD^{commit}`, `cwd_role == "task_worktree"`).**
+
+That is a decidable post-condition an integration test asserts directly, and it
+is the one check that survives a refactor which bypasses the AST tests.
+
+**The set is TWO commands, not one, and the second is load-bearing.** B2's
+post-worker verification is a §2 non-regression: a worker has Bash and its own
+git, and if HEAD moved during the run **every measurement below it would describe
+a tree that never existed** (`server.py:1995-2002`). The permitted FINALIZE set
+is therefore `{cat-file, rev-parse}`, with the `rev-parse` variant **pinned to one
+argv**, so it remains a closed set rather than an allowlist a mutant can extend.
+
+**PROVEN BY** `test_finalize_journal_is_catfile_and_b2_revparse_only`, which
+asserts (i) every FINALIZE row's `subcommand` is in `{cat-file, rev-parse}`,
+(ii) every `rev-parse` row's `argv_sha256` equals the single canonical B2 argv
+hash, and (iii) **the count of `rev-parse` rows equals the number of
+`_verify_worktree_base` calls the run made**, read from a seam counter.
+**COULD IT PASS WHILE FALSE?** Not for a presentation command, and not for a
+second `rev-parse` variant — (ii) and (iii) close the widening a bare membership
+test would allow. It still cannot see a call that bypasses `_run_git`, which is
+what the audit-hook test is for. **IF MIS-WIRED** — a new post-worker git call
+appears in the journal and the test fails; the only route to green is to edit the
+pinned argv hash or the seam counter, **both visible in the diff**.
 
 #### 5.4.6 Tests — and whether each could pass while the property is false
 
@@ -1526,11 +1675,12 @@ bypasses the AST tests.
 |---|---|---|
 | `test_git_repertoire_is_exactly_the_permitted_set` (AST) | the source names no other subcommand | **YES** — an `os.system`, a `subprocess.run` outside `_run_git`, or a subcommand built from a variable defeats it. **Not sufficient alone.** |
 | `test_all_git_argv_constructed_in_run_git` (AST) | no second construction site | **YES**, same reasons. Not sufficient alone. |
-| **`test_no_git_presentation_command_after_worker_launch`** | reads `git-invocations.jsonl` after a complete run; every FINALIZE row has `subcommand == "cat-file"` | **NO**, for anything routed through `_run_git`. Still yes for a call that bypasses it — which is why the next row exists. |
+| **`test_finalize_journal_is_catfile_and_b2_revparse_only`** *(renamed from `test_no_git_presentation_command_after_worker_launch`, which was written against a false claim)* | reads `git-invocations.jsonl` after a complete run and asserts the three conditions in §5.4.5 | **NO** for a presentation command, **and** no for a second `rev-parse` variant, because the argv hash and the seam count are pinned. Still yes for a call that bypasses `_run_git` — which is why the audit-hook row exists. |
 | **`test_v1_filter_program_not_executed`** — **Z-RULE-1 positive control mandatory** | arms `$GIT_COMMON_DIR/info/attributes` + `.git/config` with a sentinel `filter.myf.clean`; **(b) runs the revision-2 hardened diff and asserts the sentinel FIRED**; (c) clears; (d) runs the production finalisation and asserts it did **not** | **NO.** Step (b) is what forecloses a mis-armed sentinel. **This is the test whose absence made S-1 shippable.** |
 | `test_v1_fsmonitor_program_not_executed` | same shape, `core.fsmonitor` | as above |
 | `test_v1_textconv_and_external_diff_not_executed` | same shape | as above |
-| `test_v1_hooks_not_executed_during_finalisation` | same shape, `post-index-change`, `core.hooksPath` | as above |
+| `test_v1_hooks_not_executed_during_finalisation` | same shape, arming **`reference-transaction`, `post-checkout`, `post-index-change`, `pre-auto-gc`** and `core.hooksPath` **by name** | as above. **`reference-transaction` is named because revision 3 omitted it and that omission produced B-2.** |
+| **`test_repertoire_is_clean_on_all_three_surfaces`** | the full permitted set run under each of S-α, S-β and S-γ armed separately, **each pass carrying its own positive control that fires** | **NO** for the three surfaces armed. **YES for a fourth surface nobody has armed** — which is stated, not hidden, and is why §5.4.3's safety argument is structural rather than enumerative. |
 | `test_subprocess_audit_hook_accounts_for_every_git_child` | a bypass of the chokepoint | uses `sys.addaudithook` on `subprocess.Popen` in the test process — **the only mechanism found that can observe a bypass from inside the suite**. **`REQUIRES-PROBE`:** not verified against this codebase's `asyncio.to_thread` execution model. |
 
 #### 5.4.7 Named mutants (directive A)
@@ -1538,11 +1688,13 @@ bypasses the AST tests.
 | Mutant | Named killer |
 |---|---|
 | **ZM-A1** re-introduce `git diff <base>` as the content source | `test_v1_filter_program_not_executed` (sentinel fires at step (d)) |
-| **ZM-A2** re-introduce `git status --porcelain -z` for the inventory | `test_no_git_presentation_command_after_worker_launch` + `test_v1_filter_program_not_executed` |
+| **ZM-A2** re-introduce `git status --porcelain -z` for the inventory | `test_finalize_journal_is_catfile_and_b2_revparse_only` + `test_v1_filter_program_not_executed` |
 | **ZM-A3** re-introduce `git diff --check` as a corroborating source | `test_check_findings_have_single_source` (asserts every finding's provenance is `dispatcher` **and** no `diff` row exists in the journal) |
 | **ZM-A4** use `cat-file --filters` for the old side | `test_old_side_bytes_are_raw_blob` (clean/smudge rewrite content; the old side must equal the raw blob **and** the sentinel must not fire) |
 | **ZM-A5** call `subprocess.run(["git", …])` outside `_run_git` | `test_all_git_argv_constructed_in_run_git` (AST) **and** `test_subprocess_audit_hook_accounts_for_every_git_child` |
 | **ZM-A6** move the §5.8 preflight to after `worktree add` | `test_unreconciled_admin_state_refuses_before_worktree_add` |
+| **ZM-A7** run a second `rev-parse` variant post-worker (e.g. `--show-toplevel`) | `test_finalize_journal_is_catfile_and_b2_revparse_only` — condition (ii), the pinned argv hash |
+| **ZM-A8** **delete B2's post-worker verification to make the journal test pass** | `test_worktree_head_moved_during_run_is_refused` — a fake worker that checks out another commit inside its worktree; the run must land `FAILED` with `WorktreeBaseMismatch` **before any evidence exists** |
 | **ZM-A11b** replace the identity producer with `diff --name-only -z` | `test_inventory_never_executes_a_worker_filter` — **measured to fire, so this mutant is killable, which it was not in revision 2** |
 
 ### 5.5 Directive B — the authority pipeline
@@ -1574,6 +1726,13 @@ Steps 2 and 5 happen **once per task**, at worktree materialisation; steps 4 and
 
 `resolve_base_commit` and `assert_worktree_base` are **not touched**. B2 stands
 exactly as it is: exact full-SHA equality, ancestry and merge-base refused.
+
+> **And `assert_worktree_base` runs POST-WORKER**, at §8 row 2, before any
+> evidence is collected — `server.py:2005` → `git.py:532` →
+> `git rev-parse --verify HEAD^{commit}` inside the task worktree. **That is the
+> second of the two post-worker git commands** (§5.4.5). It is measured clean on
+> all three armed surfaces, and it is a §2 non-regression that **must not be
+> deleted to make a journal assertion pass** (§0.2).
 
 ```python
 @dataclass(frozen=True)
@@ -1827,23 +1986,68 @@ configuration with plain file I/O — **no git command** — and refuses the dis
 if it does not match the recorded trusted baseline. **That ordering is the entire
 safety argument for step 3.**
 
-**DECISION Z-4 — `dispatcher_raw` materialisation is specified, not the default.**
+**DECISION Z-4 — `dispatcher_raw` materialisation. STATUS: OPEN, pending
+`GATE7-Z5-PREPARE-PROBE.md`.**
+
+> **Revision 3 annotated the first line of this block `# executes NOTHING`, rested
+> Z-4's claim to being *structural rather than gated* on that annotation, and the
+> annotation is FALSE.** Measured on git 2.43.0 with a positive control:
+>
+> ```
+> POSITIVE CONTROL   git branch poscontrol                       FIRED:reference-transaction
+> Z-4's own argv     worktree add --no-checkout -b b1 …          FIRED:reference-transaction
+>   + -c core.hooksPath=<empty>                                  clean
+> the DEFAULT argv   worktree add --quiet -b b3 …                FIRED:reference-transaction
+> the repertoire     ls-tree / cat-file / rev-parse              clean
+> ```
+>
+> `--no-checkout --detach` fires it too. The hook is
+> `$GIT_COMMON_DIR/hooks/reference-transaction`, **reachable with the `Write` tool
+> and no git command at all** — the identical topology as the original
+> `filter.*` finding.
 
 ```
-git … worktree add --no-checkout -b <branch> <path> <base>   # executes NOTHING
-git … read-tree <base>                                        # index only, no -u
+git … worktree add --no-checkout -b <branch> <path> <base>
+      # FIRES $GIT_COMMON_DIR/hooks/reference-transaction (S-γ). NOT "nothing".
+GIT_INDEX_FILE=<run_dir>/index.tmp git … read-tree <base>     # external index, no -u
 for each TreeEntry: write raw blob bytes / symlink / mkdir, mode from `mode`
 ```
 
 Because the dispatcher writes the bytes, the starting filesystem **is** the base
 object representation by construction, and `BaseReconciliation` becomes a
-*verification* rather than a measurement. **It is the only mechanism found that
-closes the PREPARE execution vector structurally rather than by gating.** It is
-not the default because **`REQUIRES-PROBE`:** whether a worker can build and test
-in a tree with LFS pointers instead of assets, LF where the repository wants
-CRLF, and its own `git status` showing every attribute-affected file as modified,
-is **untested**. It exists, its execution safety is measured, and it is the
-fallback if the §5.8 gate proves insufficient in practice.
+*verification* rather than a measurement. **That property is unaffected by B-2
+and remains Z-4's real value.**
+
+**What B-2 removes is Z-4's claim to be *structural*.** Creating the branch ref
+executes a worker-plantable hook, so a `dispatcher_raw` PREPARE still runs a
+program a *previous* task could have left behind — which is Z1-N1, the very
+defect Z-4 exists to escape. **Z-4 is therefore demoted from "structural" to
+"gated, like the default", unless Lane Z5 measures a fire-nothing materialisation
+path.**
+
+> **THIS SECTION IS NOT FINAL.** Sibling **Lane Z5** is measuring, right now:
+> (i) what actually neutralises `reference-transaction` — and whether
+> `-c core.hooksPath=<empty dir>` is acceptable given it is exactly the
+> flag-hardening this section rejects on principle; (ii) whether a materialisation
+> path exists that fires **nothing** on any armed surface **and** is usable by a
+> real worker; and (iii) whether §5.8-as-precondition ordering is achievable at
+> all, given a previous task's poisoning persists in the **shared** common dir.
+> **Z-4 and the default's gating argument must not be finalised until
+> `GATE7-Z5-PREPARE-PROBE.md` is published and cited here.**
+
+Two things are decided regardless of Z5's result, because they do not depend on
+it:
+
+1. **The default path is not newly unsafe.** §5.8 captures `hooks/**` in the
+   trusted baseline, hashes every file and mode, and **refuses before any git
+   command runs**. A `reference-transaction` hook a worker planted is an
+   administrative divergence on the *next* dispatch and a `POLICY_VIOLATION` on
+   *this* one. What B-2 changes is the document's safety accounting, not the
+   gate.
+2. **`REQUIRES-PROBE` stands on the worker-usability half**: whether a worker can
+   build and test in a tree with LFS pointers instead of assets, LF where the
+   repository wants CRLF, and its own `git status` showing every
+   attribute-affected file as modified, is **untested**.
 
 #### 5.5.6 Steps 6–7 — the POST snapshot and the worker-attributable delta
 
@@ -2000,14 +2204,19 @@ retire before Wave B**.
 
 #### 5.5.9 Per-path buckets
 
-| Bucket | Trigger | Blocks Fable? |
-|---|---|---|
-| `represented` | content in the patch | — |
-| `content_omitted_untextual` | binary by the dispatcher's NUL/UTF-8 test | **no** |
-| `content_omitted_unrepresentable` | symlink, FIFO, socket, device, gitlink — **Y-10** | **no** |
-| `content_omitted_ignored_by_base` | §5.6.5 — per-directory rollup with counts and bytes | **no** |
-| `content_omitted_capped` | over `[evidence].max_file_bytes` | **yes** |
-| `refused` | unreadable, `changed_during_measurement` | **yes** |
+| Bucket | Trigger | Clears `patch_file_complete`? | Blocks Fable? |
+|---|---|---|---|
+| `represented` | content in the patch | — | — |
+| `content_omitted_untextual` | binary by the dispatcher's NUL/UTF-8 test | **no** — it has no text representation and never had one | **no** |
+| `content_omitted_unrepresentable` | symlink, FIFO, socket, device, gitlink — **Y-10** | **no** — same reason | **no** |
+| `content_omitted_bulk_created` | **ONLY** `change == "added"` ∧ `ignored_by_base` ∧ over the volume budget — §5.6.5 | **YES — the flag goes FALSE** | **no** (the reviewer is told by prefix, count and bytes) |
+| `content_omitted_capped` | over `[evidence].max_file_bytes` | **YES** | **yes** |
+| `refused` | unreadable, `changed_during_measurement` | **YES** | **yes** |
+
+> **`content_omitted_ignored_by_base` is DELETED as a bucket.** Revision 3 made
+> it the **only** content-omitted class that did not clear `patch_file_complete`,
+> which reproduced **Shape 2** — the design's own §1 taxonomy — for the precise
+> attack directive C names by name. See §5.5.9A.
 
 Note what has **disappeared** relative to revision 2: `refused: directory` (a
 directory is a `kind`, not a file to read), `refused: path_escapes_worktree`
@@ -2015,6 +2224,79 @@ directory is a `kind`, not a file to read), `refused: path_escapes_worktree`
 `content_omitted_unrepresentable`). **`refused` now means only "we could not see
 it" or "it moved while we looked"**, which is what makes `patch_file_complete` a
 flag worth reading.
+
+#### 5.5.9A A modification to a base-ignored file is represented IN FULL (B-3)
+
+**The defect revision 3 shipped.** Trace the `.venv/bin/activate` persistence
+backdoor — the case directive C names explicitly and §5.6.3 answers:
+
+1. **Inventory** — `content_hash` differs between START and POST →
+   `change="modified"`, `ignored_by_base=True`. **Detected.** This half is right
+   and is a real improvement over revision 2 and over the baseline.
+2. **Policy** — `scope_check_base_ignored = false` exempted it from
+   `allowed_paths`. Not `outside_allowed`.
+3. **Content** — bucketed `content_omitted_ignored_by_base`; the modified bytes
+   never entered `diff.patch`; `diff_stat` got one rollup row.
+4. **Completeness** — `patch_file_complete` **unaffected → `true`**.
+5. **Review** — did not block Fable, which was handed a patch **marked complete**
+   that omitted a supported, changed, regular text file, and told only
+   *".venv/ — 1 modified, N bytes"*.
+
+**So the one attack directive C names was detected in the inventory and then
+neutralised in policy and erased from the evidence, by default, while the
+completeness flag said the evidence was complete.** That violates the brief at
+§9 (*"No `diff_patch_complete=true` when content was omitted"*) and §27
+verbatim, and it is Shape 2 reproduced inside the pipeline built to eliminate it.
+
+**The line that fixes it without reintroducing the explosion: creation is bulk;
+modification is not.**
+
+> **ZI-25.** A base-ignored path whose change is anything other than `added` —
+> `modified`, `removed`, `kind_changed`, `mode_changed`, `link_target_changed` —
+> is **represented in the canonical patch in full**, exactly like any other
+> changed file. It is **never** rolled up, **never** volume-budgeted, and there
+> is **no configuration that elides it.**
+>
+> **ZI-26.** A base-ignored path whose change is `added` is represented in full
+> **by default**, and is rolled up **only** when the run's added-ignored volume
+> exceeds `[evidence].bulk_created_ignored_budget`. When any path is rolled up,
+> **`patch_file_complete` is `False`.**
+>
+> **ZI-27.** `scope_check_base_ignored` exempts **only `added` paths.** A
+> `modified` / `removed` / `kind_changed` base-ignored path is scope-checked
+> exactly like any other path, whatever the setting.
+
+**Why this line and not another.** The rollup exists for one real case: a worker
+runs the project's own build and **creates** thousands of legitimately-ignored
+artefacts. Build output is *created*. **A file that existed before the run and
+changed during it is not build churn** — there is no legitimate workflow in which
+a task's correct behaviour is to silently modify a pre-existing ignored file and
+have the dispatcher not show it. So `added` gets a volume escape hatch (with the
+flag going false when it fires) and nothing else does.
+
+**The explosion does not return.** The 3,842 `.venv` paths are **unchanged**, so
+they are in neither delta and never reach a bucket at all (§5.6.2) —
+`unchanged_count` remains a scalar. ZI-25 applies to paths that are already, by
+construction, in the run delta. On the two repositories measured, that set is
+**empty** for a task that does not run a build.
+
+**PROVEN BY** — `test_modification_to_existing_ignored_file_is_in_the_patch_in_full`:
+the `.venv/bin/activate` fixture; assert the modified bytes appear as a full
+patch section, `patch_file_complete` is **`True`** (nothing was omitted), the
+path is **scope-checked** (ZI-27), and a `forbidden_paths` entry for it fires.
+Paired with `test_bulk_created_ignored_files_roll_up_and_clear_the_flag`: 5,000
+**added** ignored files, assert a rollup, `patch_file_complete` **`False`**, and
+Fable **not** blocked.
+**COULD EITHER PASS WHILE FALSE?** The first could pass if the fixture's file
+were `added` rather than `modified` — so the fixture **creates the file, commits
+it to the base, and only then modifies it**, and the test asserts
+`tracked_at_base or ignored_by_base` **and** `change == "modified"` before it
+asserts anything about the patch. The second could pass if the budget were
+infinite — so it asserts the rollup **row exists** and names the prefix, not
+merely that the run succeeded.
+**IF MIS-WIRED** — a `modified` ignored path that gets rolled up fails the first
+test at the patch-section assertion; a rollup that leaves the flag `true` fails
+the second at the flag assertion. Both failures are loud and neither is silent.
 
 ### 5.6 Directive C — self-hiding and ignored paths
 
@@ -2089,9 +2371,9 @@ Matching operates on **raw bytes**.
 |---|---|
 | `PathIdentitySet` membership | **no effect.** The path is present. |
 | `forbidden_paths` matching | **no effect. Forbidden always wins.** |
-| `allowed_paths` matching | **exempt by default** (`[scope].scope_check_base_ignored = false`). A worker running the project's own build creates thousands of legitimately-ignored artefacts; treating those as out-of-scope makes `POLICY_VIOLATION` routine — the flag-destruction revision 2 itself warned about. Settable to `true`. |
-| content generation | bucketed `content_omitted_ignored_by_base`, carried as a **per-directory rollup** (`prefix`, `count`, `total_bytes`, per-change counts), never thousands of patch sections. **Does not block Fable.** |
-| `diff_stat` | one rollup row per prefix |
+| `allowed_paths` matching | **exempt by default for `added` paths ONLY** (`[scope].scope_check_base_ignored = false`, ZI-27). A worker running the project's own build **creates** thousands of legitimately-ignored artefacts; treating those as out-of-scope makes `POLICY_VIOLATION` routine. **A `modified` / `removed` / `kind_changed` base-ignored path is scope-checked exactly like any other path, whatever the setting.** |
+| content generation | **`modified` and every non-`added` change: represented IN FULL, never rolled up (ZI-25).** `added`: represented in full by default; rolled up only above the volume budget, and **the rollup clears `patch_file_complete`** (ZI-26). |
+| `diff_stat` | full rows for everything represented; one rollup row per prefix only for bulk-created |
 | tamper marking | **none** — see below |
 
 #### 5.6.6 Y-9 is MOOT, not answered
@@ -2235,8 +2517,19 @@ Four, three of them recorded by the reviews and one new:
 
 #### 5.8.2 What is captured, and how
 
-`evidence/gitadmin.py`. **Every read is `open(path, "rb")`. No `git config`, no
-`git ls-files -v`, no `git check-attr`.**
+`evidence/gitadmin.py`. **Every read is `open(path, "rb")`. The capture runs NO
+git command of any kind** — not `git config`, not `git ls-files -v`, not
+`git check-attr`. **PROVEN BY** `test_admin_capture_runs_no_git_command`, which
+asserts the `git-invocations.jsonl` window covering the capture is **empty**,
+under a `subprocess.Popen` audit hook.
+
+> **This is narrower than revision 3's "no `git config`", deliberately.** The
+> identity producer's single `config --get remote.origin.url` (`git.py:359`) is
+> **permitted** (§5.4.3) — it is a different question, asked at a different time,
+> of a repository whose administrative state this capture has **already
+> reconciled**. What must never happen is *asking git what the configuration
+> says in order to decide whether the configuration is trusted*. The rule is
+> about **this capture**, not about the string `git config`.
 
 | Item | Path | Recorded |
 |---|---|---|
@@ -2251,11 +2544,54 @@ Four, three of them recorded by the reviews and one new:
 | filters / diff drivers | every `filter.*.{clean,smudge,process}`, `diff.*.{textconv,command}`, `diff.external` | key, value, source file |
 | index bits (report only) | `<gitdir>/index` | hash + `mtime_ns` + size. **Not parsed** — ZI-19 makes the flags irrelevant; the hash exists so "the index moved" is visible. |
 | worktree registrations | `$GIT_COMMON_DIR/worktrees/*/{gitdir,commondir,HEAD}` | contents |
+| **transport and promisor keys** | any config reached above | `remote.*.url`, `url.*.insteadOf`, `extensions.partialClone`, `core.alternateRefsCommand`, `credential.helper` — **recorded and PRINTED VERBATIM to the operator** (see below) |
 
 **`include.path` is resolved by the dispatcher's own minimal INI reader**, not by
 git — the whole point is not to run git. **Anything it cannot parse makes the
 whole capture `parse_incomplete = True`, which is treated as a divergence
 (fail-closed), never as "nothing found".**
+
+#### 5.8.2A The raw gitdir resolver — so ZI-18 is achievable, not aspirational
+
+The capture is keyed on `<gitdir>` and `$GIT_COMMON_DIR`. **A dispatcher-created
+linked worktree's `.git` is a FILE, not a directory**, and revision 3 specified a
+raw *HEAD* reader (§5.9.2) but **no raw *gitdir* reader** — so the only mechanism
+it named for obtaining those two paths was `rev-parse`, which its own ZI-18
+forbade. That is N-5, and it is closed by specifying the resolver:
+
+```
+resolve_gitdir(root: bytes) -> (gitdir: bytes, common_dir: bytes)
+  1. p = root / b".git"
+  2. if p is a DIRECTORY  -> gitdir = p
+     elif p is a FILE     -> read it; it must be exactly
+                             b"gitdir: " + <path> + b"\n";
+                             gitdir = that path, resolved relative to root
+     else                 -> RepositoryLayoutUnreadable   (fail closed)
+  3. c = gitdir / b"commondir"
+     if c exists -> common_dir = contents, stripped, resolved relative to gitdir
+     else        -> common_dir = gitdir
+  4. both must be existing directories, or RepositoryLayoutUnreadable
+```
+
+Plain `open()` and `stat()`; **no git process**. It matches the layout the
+dispatcher itself creates (`gitdir: …/.git/worktrees/<name>`).
+
+**Fallback, and it is honest.** Where the resolver cannot decide — an unusual
+layout, a relative `commondir` chain it does not model — the capture falls back
+to `rev-parse --absolute-git-dir` / `--git-common-dir`, **measured clean on S-α,
+S-β and S-γ**, and **records `resolver="rev-parse-fallback"` in the snapshot**, so
+the weaker path is legible in the evidence rather than silent.
+
+**PROVEN BY** `test_gitdir_resolver_matches_rev_parse_on_every_layout` — a
+throwaway primary repository, a linked worktree and a detached worktree; the raw
+resolver's answer must equal `rev-parse`'s for each, byte for byte.
+**COULD IT PASS WHILE FALSE?** Only for a layout the fixture does not contain —
+which is exactly why the fallback exists **and is recorded**, rather than the
+resolver being asserted total. **IF MIS-WIRED** — the resolver disagrees with
+`rev-parse` and the test fails; a resolver that silently returned the wrong
+gitdir would make the capture read the wrong files, which
+`test_unreconciled_admin_state_refuses_before_worktree_add` catches from the other
+end, because its poisoned config would no longer be seen.
 
 #### 5.8.3 The trusted baseline and the reconciliation gate
 
@@ -2270,11 +2606,27 @@ if no baseline exists:
        about to trust. Establishing a baseline is a HUMAN act, once per
        repository, and it is where a legitimate git-lfs or fsmonitor setup is
        acknowledged.
+
+       The printed set is NOT only the diff/filter keys. It includes
+       `remote.*.url`, `url.*.insteadOf`, `extensions.partialClone`,
+       `core.alternateRefsCommand` and `credential.helper`, because a
+       transport or promisor key can reach a program through a lazy fetch
+       and the human trust step must see it. (Measured on git 2.43.0: an
+       `ext::<program>` transport reached through `cat-file` in a partial
+       clone did NOT execute the helper — `rc=128` — and neither repository
+       on this host is a partial clone. **Closed as non-exploitable today,
+       and recorded so it is not re-opened as a hypothetical** — but the
+       key list an operator is shown is widened regardless, because
+       §5.8.2 hashes the whole config file while the PRINTED list is what
+       a human actually reads.)
 if current != baseline:
     -> RepositoryAdministrationUnreconciled           (PREPARE refusal, NOT retryable)
 ```
 
-**No git command runs before this gate passes.** That is ZI-20, and it is the
+**No git command that could execute a repository-supplied program runs before
+this gate passes** — only the identity resolution of §5.8.2A, whose fallback
+`rev-parse` variants are measured clean on all three armed surfaces. That is
+ZI-20, and it is the
 whole safety argument for the PREPARE checkout: **the checkout can only execute a
 repository-configured program if that program was in the trusted baseline.**
 
@@ -2644,9 +2996,14 @@ dispatcher. Not re-litigated.
 | `TEXT_CANDIDATE` | no | no | the content |
 | `UNTEXTUAL` | yes | **no** | path, size, sha256 + *"no text representation"* |
 | `UNREPRESENTABLE_KIND` (symlink/FIFO/socket/device) — **Y-10** | yes | **no** | path, `st_mode`, type name, link-target hash + the same sentence |
-| `IGNORED_BY_BASE` | no | **no** | per-directory rollup |
+| **`BULK_CREATED_IGNORED`** *(`added` ∧ `ignored_by_base` ∧ over budget only)* | **YES** | **no** | per-directory rollup: prefix, count, total bytes |
 | `OVERSIZED` | yes | **yes** | refusal |
 | `UNREADABLE` / `CHANGED_DURING_MEASUREMENT` | yes | **yes** | refusal |
+
+> **`IGNORED_BY_BASE` is gone from this table.** It was the only content-omitted
+> class that did not clear `patch_file_complete`, and it is what made the
+> directive-C attack land (§5.5.9A, B-3). **A `modified` base-ignored path is now
+> in the patch in full and this table never sees it.**
 
 **Why `UNREPRESENTABLE_KIND` must not block the review — measured:** this
 repository contains **4** ignored symlinks and the production repository
@@ -2745,6 +3102,7 @@ Every path field in every artefact introduced here is a `PathRepr` object
 | `GitAdministrativeCaptureFailed` | `DispatcherError` | PREPARE / FINALIZE | PREPARE → refusal; **FINALIZE → the tamper verdict is `unknown`, treated as TAMPER, never as clean** |
 | `RefResolutionFailed` | `DispatcherError` | PREPARE / FINALIZE | FINALIZE → `primary_tree_unchanged = None`, **not clean** |
 | `UnsupportedRefStorage` | `DispatcherError` | PREPARE | refusal, with the measured value |
+| `RepositoryLayoutUnreadable` | `DispatcherError` | PREPARE | refusal — the raw resolver could not decide **and** the `rev-parse` fallback failed (§5.8.2A) |
 | `ForbiddenGitInvocation` | `InternalDispatcherError` | any | **a dispatcher defect. Raised, never logged-and-continued.** |
 | `EvidenceIncompleteForReview` / `EvidenceExceedsReviewBudget` | `DispatcherError` | PREPARE (review) | refusal; `state.json` byte-identical |
 | `RunReservationFailed` | `InternalDispatcherError` | RESERVE | `mkdir` failed for a reason other than `EEXIST` |
@@ -2862,7 +3220,7 @@ one that would silently corrupt identity.
 | **ZM-E4** treat a FINALIZE capture failure as clean | `test_admin_capture_failure_is_tamper` |
 | **ZM-E5** re-establish the baseline automatically after divergence | `test_divergence_persists_across_dispatches` |
 | **ZM-E6** stop following `include.path` | `test_include_path_indirection_is_followed` |
-| **ZM-E7** re-introduce the clean `GIT_INDEX_FILE` + `ls-files -v` audit | `test_no_git_presentation_command_after_worker_launch` |
+| **ZM-E7** re-introduce the clean `GIT_INDEX_FILE` + `ls-files -v` audit | `test_finalize_journal_is_catfile_and_b2_revparse_only` |
 | **ZM-E8** allowlist `config.worktree` | `test_config_worktree_hiding_is_caught` |
 | **ZM-F1** restore `snapshot_primary_tree -> git status` | `test_primary_tree_measured_without_git` + `test_v1_filter_program_not_executed` |
 | **ZM-F2** use `resolve_base_commit(repo,"HEAD")` post-worker | `test_primary_tree_measured_without_git` |
@@ -3966,6 +4324,9 @@ signal it receives**.
 
 ```
  0. PREPARE refusals            -> NO lifecycle mutation. state.json byte-identical.
+                                   [WAVE 0 — D-24. Wave 0's own §5.8 and §5.5
+                                    refusals land here, so the phase mechanism
+                                    ships with them, not a wave later.]
                                    Logged to refusals.jsonl. NEVER FAILED.
                                    (admin unreconciled, lifecycle infeasibility,
                                     hash drift, budget, ContextTooLarge-in-preflight,
@@ -3977,7 +4338,7 @@ signal it receives**.
                                     SnapshotBudgetExceeded (PREPARE),
                                     CheckoutTransformationBudgetExceeded)
 
- 1. LAUNCH failures             -> reservation ABORTED_PRELAUNCH.
+ 1. LAUNCH failures             -> reservation ABORTED_PRELAUNCH.   [WAVE A]
                                    TASK LIFECYCLE UNCHANGED. NEVER RUNNING.
                                    NO FAKE WORKER RUN.
                                    (spawn OSError, kernel E2BIG,
@@ -4239,6 +4600,9 @@ observe it.** All are fixed, and the pattern is the reason this gate exists.
 | mutant A-d | unkillable under the shipped config | §4.11 — deleted **in the implementer's table**, with a written equivalence proof, replaced by A-d′ |
 | **`filter.*` "closed by inference"** | **no experiment was run at all** | §5.4 — deleted, plus **Z-RULE-1** as a standing rule |
 | revision 2's `test_v1_fsmonitor_program_not_executed` | **no positive control — it would have passed on the day S-1 was live** | Z-RULE-1 |
+| **revision 3's own Appendix A.2** | **armed three sentinels and drew a four-sentinel conclusion** — `reference-transaction` was never armed, so *"executes nothing"* was a negative result from an experiment that could not have produced a positive one | §5.4.1 (S-γ), Appendix A.2's methodological correction. **This is the first occurrence inside this document's own measured appendix, one page after it recorded the same hazard about somebody else's probe.** |
+| **revision 3's `test_no_git_presentation_command_after_worker_launch`** | asserted `subcommand == "cat-file"` for every FINALIZE row while the design itself keeps B2's post-worker `rev-parse` — **the test could not pass against the pipeline it guarded** | §5.4.5 (B-1) |
+| **revision 3's two documentation mutants** | bare string-absence scans, **red on day one** against quotations of the deleted text; the only route to green was to weaken them | §11.6 (N-4) — structural primary, string tripwire secondary |
 
 ### 10.4 A probe hazard that must not be rediscovered
 
@@ -4378,8 +4742,32 @@ Revision 3 adds the tables in §4.11, §5.4.7, §5.15, §6.12, §7.13 and §11.6
 | **Z-M39** a `--fast` report is accepted as a gate artefact | `test_fast_report_cannot_sign_a_gate` |
 | **Z-M40** derive `stdout_bytes` from a pump counter instead of the child's file | `test_stdout_bytes_is_the_child_file_size` |
 | **Z-M41** accept a wave whose branch point is not the previous accepted wave | `test_wave_acceptance_report_names_the_previous_wave_commit` |
-| **P-M9** state a crash-point count anywhere outside §15 | **`test_crash_point_count_is_stated_once`** — a **documentation mutant** asserting the strings *"ten injection points"* / *"all ten points"* do not appear and that §15's table has exactly fifteen rows |
-| **Z-M33** restore the "clips as before" sentence | `test_no_document_claims_the_review_input_is_clipped` |
+| **P-M9** state a crash-point count anywhere outside §15 | **`test_crash_point_count_is_stated_once`** — see the specification note below |
+| **Z-M33** restore the "clips as before" sentence | `test_no_document_claims_the_review_input_is_clipped` — see the specification note below |
+
+> **Both killers were MIS-SPECIFIED in revision 3, and a naive implementation of
+> either is red on day one (N-4).** Revision 3 specified them as bare
+> string-absence scans. Measured against revision 3 itself: *"ten injection
+> points"* / *"all ten points"* appear **6** times and *"clips as before"* appears
+> **6** times — **every occurrence a quotation of the deleted text**, in a
+> blockquote or a table cell that records what was removed and why. Directives O
+> and P are substantively satisfied; the *tests* were not implementable.
+>
+> **An implementer meeting a red test whose only route to green is to weaken it
+> produces exactly the unfalsifiable assertion these two mutants exist to
+> prevent.** So both are re-specified **structurally**, and the string scan is
+> narrowed to live prose:
+>
+> | Killer | Structural assertion (primary) | String assertion (secondary) |
+> |---|---|---|
+> | `test_crash_point_count_is_stated_once` | §15's table has **exactly fifteen** `C`-prefixed rows; **no other `##`/`###` section in `docs/**` contains a markdown table whose first column matches `^\*\*C[0-9]+\*\*$`** | the banned strings do not appear **outside a blockquote, a fenced block or a table cell** |
+> | `test_no_document_claims_the_review_input_is_clipped` | **no `[:N]` slice, `.truncate`, `textwrap.shorten` or equivalent is applied to the patch binding on the review path** (AST over `src/**`) | as above |
+>
+> The structural half is the proof; the string half is a tripwire for the
+> **recurrence of the known sentence**, which is what actually happened twice.
+> **The tripwire can still be evaded by a paraphrase and that is stated, not
+> hidden** — the proof for the review path is
+> `test_review_input_bytes_equal_patch_file_bytes`.
 
 **P-M9 and Z-M33 are deliberately documentation mutants.** §18.5 makes this
 document the specification, and the defects they guard are *document* defects
@@ -4412,10 +4800,13 @@ WAVE 0   AUTHORITY FOUNDATION
          reconciliation + the inventory type · §5.6 ignore-blind measurement ·
          §5.7 byte path model · §5.8 administrative preflight + fingerprint +
          deny list · §5.9 primary tree · the native content primitive ·
-         §8 rows 3, 4, 5a · docs/SECURITY.md amended IN THIS WAVE
+         §3.1's EXECUTION PHASE mechanism (phase.py, _record_failure,
+         refusals.jsonl)  [D-24] · §8 row 0 · §8 rows 3, 4, 5a ·
+         docs/SECURITY.md amended IN THIS WAVE
 WAVE A   LIFECYCLE / PREFLIGHT
-         G7-1 · G7-5 · G7-6 · the EXECUTION PHASE mechanism (§3.1) ·
-         §8 rows 0 and 1 · ACCEPTANCE REQUIRES production activation (§4.12)
+         G7-1 · G7-5 · G7-6 · lifecycle profiles + future-phase preflight ·
+         §8 row 1 (LAUNCH failures: start_worker, WorkerHandle) ·
+         ACCEPTANCE REQUIRES production activation (§4.12)
 WAVE B   RUN TRANSACTION / EVIDENCE INTEGRATION
          G7-2 · G7-7 · canonical patch · completeness flags · Fable refusal ·
          LAND_INCOMPLETE · INTEGRATES Wave 0's content primitive
@@ -4463,15 +4854,59 @@ drawn could not be accepted on its own terms.**
 > which any invariant attributed to that wave names a killer test or a ladder row
 > owned by a later wave.**
 
-**The one remaining dependency, and how it is broken.** Wave 0's findings need a
-landing state. §8's rows 0 and 1 belong to Wave A's phase mechanism — **but rows
-3, 4 and 5a do not.** They land `FAILED` and `POLICY_VIOLATION`, both of which
-exist today. So **Wave 0 introduces rows 3, 4 and 5a into the existing ladder**,
-and Wave A later inserts rows 0 and 1 above them. **The ladder is built
-bottom-up, and no Wave 0 finding is orphaned.**
-`EvidenceIncompleteForReview` / `EvidenceExceedsReviewBudget` stay in Wave B,
-because they are PREPARE-phase refusals and PREPARE lands in Wave A; **Wave 0
-produces no finding that needs them.**
+**Revision 3's argument here was FALSE three times over (B-4).** It said:
+*"§8's rows 0 and 1 belong to Wave A's phase mechanism — but rows 3, 4 and 5a do
+not … **Wave 0 produces no finding that needs them.**"* That was the entire claim
+that S-7 was closed, and §12.1 placed §5.8 and §5.5 in Wave 0 while §8 row 0
+enumerates three refusals those exact sections produce:
+
+| Wave-0 refusal | Defined in | Phase | §8 row |
+|---|---|---|---|
+| `RepositoryAdministrationUnestablished` / `Unreconciled` | §5.8.3 (Wave 0) | **PREPARE only** | **row 0** |
+| `SnapshotBudgetExceeded` (PREPARE) | §5.5.3 (Wave 0) | PREPARE | **row 0** |
+| `CheckoutTransformationBudgetExceeded` | §5.5.4 (Wave 0) | PREPARE | **row 0** |
+
+**The first fires on the first dispatch against every repository** — §13's own
+migration row says so in as many words. Shipped alone under revision 3's plan, a
+Wave-0 PREPARE refusal would have propagated into the **baseline**
+`_record_failure` (`server.py:2694`), whose mutable set is
+`{CREATED, ROUTED, RUNNING, RESUME_REQUESTED}`; on the dispatch path `RUNNING` is
+entered at `server.py:937`, ~100 lines before the spawn. **The refusal would have
+landed the task `FAILED`, with `resume_count` and `run_count` already spent —
+G7-6, the defect Gate 7 exists to fix, reintroduced by Gate 7's own first wave,
+on every repository, on its first dispatch.**
+
+And **Wave 0 could not have passed its own machine check**: Z-I7 refuses a
+wave-acceptance report in which any invariant attributed to that wave names a
+ladder row owned by a later wave, and **ZI-20**'s landing row is row 0. §11.3
+check (4) requires every `ZI-*` heading token to be in the registry, so it could
+not be omitted to dodge the check either. *A wave that produces a finding with no
+landing state has not closed anything* — Z-I7's own words, applied to Z-I7's own
+wave.
+
+**DECISION D-24 — the PREPARE-refusal mechanism moves into Wave 0.** §3.1's
+`phase.py`, `ToolExecution`, the parameterless `_record_failure`,
+`refusals.jsonl` and **§8 row 0** are Wave 0's, **because Wave 0 owns the gate
+that needs them.** Wave A keeps the lifecycle profiles, the future-phase
+preflight, production activation, and **§8 row 1** — the LAUNCH row, which
+belongs with `start_worker`/`WorkerHandle` and which Wave 0 does not touch.
+
+The corrected statement, now true rather than load-bearing and false:
+
+> **Wave 0 owns every ladder row its own findings land in — rows 0, 3, 4 and 5a.
+> It produces no finding whose landing state is owned by a later wave.**
+> `EvidenceIncompleteForReview` / `EvidenceExceedsReviewBudget` are Wave B
+> refusals and land in row 0, which Wave 0 will already have built.
+
+**PROVEN BY** `test_every_wave0_invariant_names_a_wave0_killer` — the registry
+cross-check, which is the thing that would have caught the original defect —
+**and** `test_wave0_prepare_refusal_leaves_state_byte_identical`, an integration
+test that runs a Wave-0-only build against a repository with **no administrative
+baseline**, asserts `RepositoryAdministrationUnestablished`, and asserts
+`state.json` is **byte-identical** with no task directory created.
+**COULD IT PASS WHILE FALSE?** No — it is the exact day-one path, and under
+revision 3's plan it would have landed `FAILED`. **IF MIS-WIRED** — the task
+lands `FAILED` and the byte-identity assertion fails immediately, loudly.
 
 ### 12.3 The honest resize — Wave 0 is the largest wave
 
@@ -4480,8 +4915,8 @@ artefacts each wave must deliver:
 
 | Wave | New/moved modules | Invariants closed | Named tests | Named mutants | Ladder rows |
 |---|---|---|---|---|---|
-| **0** | `inventory.py`, `basetree.py`, `fssnap.py`, `reconcile.py`, `ignore.py`, `gitadmin.py`, `content.py`, `git.py` policy | **~14** | **~45** | **~45** | 3 |
-| A | `lifecycle.py`, `phase.py`, compact artifacts | 9 | ~28 | ~15 | 2 |
+| **0** | `inventory.py`, `basetree.py`, `fssnap.py`, `reconcile.py`, `ignore.py`, `gitadmin.py`, `content.py`, `git.py` policy, **`phase.py`** | **~22** | **~55** | **~57** | **4** (0, 3, 4, 5a) |
+| A | `lifecycle.py`, compact artifacts, `config_authority` activation | 9 | ~28 | ~15 | **1** (row 1) |
 | B | `evidence.py`, `runs.py` | 8 | ~24 | ~17 | 0 |
 | D | `ownership.py`, `streams.py` | 12 | ~24 | ~28 | 0 |
 | C | timeout / stream-json / post-timeout validation | 7 | ~16 | ~16 | 0 |
@@ -4504,7 +4939,7 @@ cost is correctness.
 
 | Parallelisable | Serial (one lane at a time) |
 |---|---|
-| `inventory.py`, `basetree.py`, `fssnap.py`, `reconcile.py`, `ignore.py`, `gitadmin.py`, `content.py` (Wave 0), `lifecycle.py`, `phase.py`, `evidence.py`, `runs.py`, `ownership.py`, `streams.py` | **`server.py` orchestration** |
+| `inventory.py`, `basetree.py`, `fssnap.py`, `reconcile.py`, `ignore.py`, `gitadmin.py`, `content.py`, **`phase.py`** (all Wave 0), `lifecycle.py`, `evidence.py`, `runs.py`, `ownership.py`, `streams.py` | **`server.py` orchestration** |
 | the compact artifact authoring + review | `git.py` — **Wave 0 owns it outright** (`_run_git` policy *and* the identity producer) |
 | `scripts/mutation/**`, `scripts/gate/**` | `runner.py` (Waves D and C both touch worker execution) |
 | tests for a new module | `models.py` / `state.py` schema additions |
@@ -4527,7 +4962,8 @@ why it is stated twice.
 | `test_wave0_modules_import_nothing_from_wave_b_modules` (AST import graph) | Z-I7 structurally | Only if a Wave-B symbol is re-exported through a Wave-0 module — so the test asserts the **module** graph, not just names |
 | `test_wave0_suite_is_green_at_the_wave0_commit` | Wave 0 is acceptable on its own terms | **Yes, in one way**: it proves the suite passes, not that the wave closed what it claims. **That is why the registry check exists.** |
 | `test_every_wave0_invariant_names_a_wave0_killer` (registry cross-check) | Z-I7 | Only if the registry is edited to attribute the invariant elsewhere — visible in the diff |
-| `test_ladder_rows_3_4_5a_land_without_wave_a` | §12.2 | No |
+| `test_ladder_rows_0_3_4_5a_land_without_wave_a` | §12.2 (D-24) | No |
+| **`test_wave0_prepare_refusal_leaves_state_byte_identical`** | the day-one path revision 3 would have landed `FAILED` | **No** — it is the exact first-dispatch path |
 | `test_wave_acceptance_report_names_the_previous_wave_commit` | rebase discipline | No |
 
 ### 12.6 The Wave 0 residual that must not be papered over
@@ -4736,7 +5172,9 @@ GATE 7 .............................. PASS/FAIL
       check-production-activation.py --expect active  (CORROBORATING, not enforcing)
   G7-7 durable run reservation ...... mkdir allocator; index never reused
   G7-8 restart ownership ............ owner classified before any action
-  V-1 evidence authority ............ post-worker git commands: cat-file ONLY
+  V-1 evidence authority ............ post-worker git: cat-file + B2 rev-parse ONLY
+      FINALIZE journal rows .......... {cat-file: N, rev-parse: M}; M == B2 call count
+      presentation commands .......... 0
       positive control fired ........ YES  (Z-RULE-1)
   V-2 path identity ................. bytes end-to-end; hostile-name pipeline test
   V-4 index bits .................... structurally irrelevant (no index is read)
@@ -4767,24 +5205,35 @@ resolve named plainly rather than force-mapped.**
 
 | # | Decision | Resolved in | Status |
 |---|---|---|---|
-| **Y-1** | What actually closes Tier-0 `filter.*` execution (S-1)? | **§5.4** (the whole *class* of presentation commands is deleted, not hardened), **§5.4.1** (two surfaces), **§5.4.3** (three commands measured clean on both), **§5.4.6** (**the killer test `filter.*` never had, with a mandatory positive control**), **§12.2** (the content primitive is in Wave 0) | **RESOLVED — and the finding is worse than S-1 recorded.** `git diff --name-only -z` — revision 2's own authoritative tracked-path source — **fires the filter**, measured independently by two lanes. So the vector was *inside Wave 0's own inventory*, ordered by §8 before the row that would report it. **After the worker launches the pipeline runs exactly one git command: `cat-file`.** The residual is named in §12.6. |
+| **Y-1** | What actually closes Tier-0 `filter.*` execution (S-1)? | **§5.4** (the whole *class* of presentation commands is deleted, not hardened), **§5.4.1** (two surfaces), **§5.4.3** (three commands measured clean on both), **§5.4.6** (**the killer test `filter.*` never had, with a mandatory positive control**), **§12.2** (the content primitive is in Wave 0) | **RESOLVED — and the finding is worse than S-1 recorded.** `git diff --name-only -z` — revision 2's own authoritative tracked-path source — **fires the filter**, measured independently by two lanes. So the vector was *inside Wave 0's own inventory*, ordered by §8 before the row that would report it. **After the worker launches the dispatcher runs exactly two git commands: `cat-file` and B2's `rev-parse --verify HEAD^{commit}` — both measured clean on all three armed surfaces, no presentation command.** Revision 3 claimed *one* and was false in its own text; the claim and its journal test are corrected in §0.2 and §5.4.5, **not** the command. The residual is named in §12.6. |
 | **Y-2** | Bind `phase` to the tracker; add the loud cross-check; add mutant A-i (S-2) | **§3.1.3** (the parameter is **deleted**, not bound), **§3.1.7**, **§3.1.8**, **§4.11** | **RESOLVED, and stronger than asked.** Y-2 asked for the guard to read the tracker; revision 3 **removes the parameter entirely**, so there is no literal to get wrong. **Y-2's item 2 is refined rather than copied**, and the reason is measured: Y-2's cross-check (*"PREPARE + task state ∈ {CREATED, ROUTED, RUNNING, RESUME_REQUESTED} → loud"*) has a **real false positive**, because closing Z2-G-F2 requires a *legitimate* PREPARE refusal (`ResumeNotPermittedFromState`) precisely when the state is `RUNNING`. **A flag that fires on routine refusals is worse than no flag.** The substituted contradiction — *PREPARE while this execution already holds a reservation or a handle* — is impossible by monotonicity and has no false positive. |
 | **Y-3** | Absolute suppressed set, or pre/post delta (S-3 / OQ-B6)? | **§5.6**, **§5.5.7** | **RESOLVED — and SUPERSEDED: neither.** There is **no suppressed set and no ignore query at all**. `changed_paths` is the difference between two **ignore-blind** dispatcher-owned snapshots, so `.venv` is in neither delta and collapses to `unchanged_count`, **an int that cannot become a path list**. This is strictly stronger than a delta: nothing can remove a path because nothing is consulted. **OQ-B6 is deleted.** Z3's F5 case (a new file inside an already-ignored directory) is caught trivially, and Z1's case — **a modification to an already-existing ignored file**, Sol's explicit §C requirement — is caught too, which a delta over a *path set* could not express. |
 | **Y-4** | Which rule governs a pre-Gate-7 run directory (S-4)? | **§7.6** (H-I1…H-I3), **§7.6.3** (the claim-coverage theorem), **§7.14** | **RESOLVED.** A run directory with no `reservation.json` is **LEGACY** — not `ORPHANED`, no claim, **not modified, not one byte**. Reconciliation is **claim-driven** and **never walks `state/tasks/**`**. Revision 2's contradictory `COMPLETE`/`ORPHANED` sentence is **deleted**. Measured basis: all five existing tasks are populated and **none is in `RUNNING`** — revision 2 would have written five `ORPHANED` claims and **permanently closed production** the moment the freeze lifted. |
 | **Y-5** | Must reconciliation prove the OWNING dispatcher is dead before acting (S-5)? | **§7.7.2** (dispatcher identity + kernel liveness lock), **§7.7.3** (twelve-row owner truth table + action table), **§7.7.4** (single-flight + `TerminationAuthority`), **§7.8** (every deadline row inside `OWNER_GONE`) | **RESOLVED.** Owner classification is **first**, uses **two independent signals**, and **disagreement is `OWNER_AMBIGUOUS`, never resolved by preferring one**. The signalling path is **reachable only while holding the dead owner's liveness flock**, which the kernel refuses while that owner lives — so it is not a policy check a future edit can forget to call. **What remains conventional is stated:** same-uid processes can always signal each other; the claim is that *the dispatcher's own code path cannot*. |
 | **Y-6** | Correct the three amendment contradictions before Wave A (S-6) | **A-d → §4.11** (deleted **in the implementer's table**, with the equivalence proof, replaced by A-d′). **"clips as before" → §13 and §5.11** (both sentences deleted; replacement text in §13; `test_no_document_claims_the_review_input_is_clipped`). **"all ten points" → §3.5, §15, and mutant P-M9** (a **documentation mutant**, the only thing that can fail for a document defect). | **RESOLVED, all three limbs.** The third limb — the crash-point count — **appears in no directive** and is covered here because it would otherwise ship untested: revision 2 had fifteen rows and two "ten" statements, so **C9, C11, C12, C13 and C14 had no test plan.** |
-| **Y-7** | Re-cut the waves (S-7) | **§12.1, §12.2, §12.3, §12.4** | **RESOLVED — by taking the third option and rejecting the reviewer's own recommendation.** Y-7 proposed *shrinking* Wave 0 and moving the inventory to Wave B; directive L directs the opposite. §12.3 states the cost honestly with numbers — **Wave 0 is the largest wave in the plan** — and §12.3's closing paragraph gives the reason: shrinking it defers **two live scope-enforcement bypasses reachable with no denied command** behind two waves. |
+| **Y-7** | Re-cut the waves (S-7) | **§12.1, §12.2 (D-24), §12.3, §12.4, §12.5** | **NOW RESOLVED — it was NOT resolved in revision 3 (B-4).** Taking directive L's third option was legitimate and honestly costed, but the dependency §12.2 *claimed to have broken was not broken*: three Wave-0 refusals (`RepositoryAdministrationUnestablished`/`Unreconciled`, `SnapshotBudgetExceeded`, `CheckoutTransformationBudgetExceeded`) land in §8 **row 0**, which revision 3 assigned to Wave A — so a Wave-0-only build would have reached the baseline `_record_failure` and landed the task **`FAILED` on the first dispatch against every repository**, reintroducing G7-6 through Gate 7's own first wave. Wave 0 could not have passed Z-I7's machine check either. **D-24 moves §3.1's phase mechanism and §8 row 0 into Wave 0**, which makes §12.2's sentence true rather than load-bearing and false. |
 | **Y-8** | What repository-visible artefact carries the shipped default (N-a)? | **§4.12** (change 5 + the seven-conjunct proof chain), **§9.3**, **§16** | **RESOLVED AND EXCEEDED.** Y-8 asked for a tracked artefact plus a verbatim checker row. Directive N requires more: **the registered production entrypoint itself refuses to start**, with **no operator-supplied expectation flag**, proven by a **live subprocess negative control in an isolated package tree**. `check-production-activation.py` is **demoted to a corroborator**. `config/dispatcher.example.toml` is tracked and asserted in `tests/**`, which the gitignored canonical file can never be. |
 | **Y-9** | Is `.gitignore`/`.gitattributes` tampering "any write", "a write that hides a path", or "a write that hides a path this run created" (N-b)? | **§5.6.6** | **MOOT, NOT ANSWERED — and this needs Sol's explicit ratification.** Under an ignore-blind measurement **no worker write suppresses anything**, so a `.gitignore` write is not an attack: it is an ordinary file change, scope-checked like any other, and lands `POLICY_VIOLATION` only by the ordinary rule. This **disposes of the cost** Z3's option (iii) carried honestly (a legitimate *"generate `dist/`, then gitignore it"* task landing `POLICY_VIOLATION`) — it does not. The tamper marker narrows to `.git/**` and `$GIT_COMMON_DIR/**` writes, which §5.8 owns. **Sol has not ruled on Y-9; §18.4 asks for it explicitly rather than inheriting it from a draft.** |
 | **Y-10** | A fourth bucket for symlink/FIFO/device, treated like `untextual` (N-e)? | **§5.5.9**, **§5.11.5** | **ADOPTED — and this needs Sol's explicit ratification.** `UNREPRESENTABLE_KIND` does not block the review; `refused` is reserved for *unreadable* and *changed-during-measurement*. **Measured basis:** this repository contains **4** ignored symlinks and **production contains 1** — a number neither review recorded. Under revision 2's rule that single symlink **kills every Fable review of production, forever**, for a reason unrelated to any task. R-13's reasoning applies unchanged: **a symlink has no text representation either.** **Sol has not ruled; §18.4 asks.** |
 
-**Summary for Sol.** Eight of the ten are **resolved** (Y-1 … Y-8), two of them
-more strongly than asked (Y-2, Y-8) and two by superseding the question rather
-than answering it (Y-1's *class deletion*, Y-3's *no ignore query*). **Two —
-Y-9 and Y-10 — are adopted as forced consequences of directives C, K and O
-without an explicit Sol ruling**, and both change what lands `POLICY_VIOLATION`
-and what blocks a review. **They are named plainly here rather than force-mapped
-as resolved.**
+**Summary for Sol, after the third review.** Eight of the ten are **resolved**
+(Y-1 … Y-8) — but two of those changed status in revision 4:
+
+- **Y-1** was *resolved in substance and overstated in claim*: the class deletion
+  genuinely closes `filter.*` and the third review independently reproduced it,
+  **but the row's own headline sentence was false** (B-1) and the two-surface
+  method it rested on was incomplete (B-2). **Both corrected; the section still
+  resolves the decision.**
+- **Y-7 was NOT resolved in revision 3** (B-4) and is resolved here by **D-24**.
+  It is the one row the third reviewer judged differently from the document, and
+  the reviewer was right.
+
+**Y-9 and Y-10 remain adopted as forced consequences of directives C, K and O
+without an explicit Sol ruling.** Both change what lands `POLICY_VIOLATION` and
+what blocks a review; **Y-10 is load-bearing — without it the single ignored
+symlink in `/home/dev/full-voice-agent` kills every Fable review of production
+forever.** They are named plainly rather than force-mapped, for the third
+revision running.
 
 ---
 
@@ -4848,9 +5297,10 @@ confirm the deletion is intended.
 
 **Z1's `REQUIRES-PROBE` list — and the honest one at the end.** Each is
 **reasoned, not measured**, and must not be integrated as though it were:
-(0) `worktree list --porcelain`, `rev-parse --absolute-git-dir` and
-`--git-common-dir` were **not individually armed** on either surface — carried as
-blocked probes, **not as permitted commands**; (2) `dispatcher_raw`
+**(0) RETIRED by the third review:** `worktree list --porcelain`,
+`rev-parse --absolute-git-dir` and `--git-common-dir` are now **measured clean on
+all three armed surfaces** with a positive control and are **permitted**
+(§5.4.3); (2) `dispatcher_raw`
 materialisation is untested **from the worker's side**; (3) the dispatcher-composed
 unified diff has **not** been validated against `git apply` for the four §9 edge
 cases — **a genuine new risk that must be retired before Wave B**;
@@ -4862,12 +5312,16 @@ model, not a measurement**; (9) the base-committed ignore matcher and its
 agreement corpus; (11) every measurement is **git 2.43.0 on this host**, and a
 git upgrade must re-run the Z-RULE-1 tests.
 
-> **(10) — the one Sol should weigh most.** Only **two** execution surfaces were
-> armed. Lane X's matrix names others that are currently unreachable *because of*
-> the command repertoire. **"S-α and S-β are the two surfaces I know about, not
-> the two that exist."** A third surface nobody has thought of is exactly the
-> shape of every finding in this gate so far. **This is why §5.4.3's repertoire
-> is pinned by a test and why widening it is a Sol decision, not a convenience.**
+> **(10) — the one Sol should weigh most, and it has now been PROVEN rather than
+> feared.** Revision 3 recorded Z1's caveat: *"S-α and S-β are the two surfaces I
+> know about, not the two that exist."* **The third review armed a third and it
+> fired: `git worktree add` executes `$GIT_COMMON_DIR/hooks/reference-transaction`
+> on a ref update, even with `--no-checkout`.** Three surfaces are armed now and
+> the permitted set is clean on all three. **The caveat stands unchanged for a
+> fourth**, and it is why §5.4.3's safety argument is *structural* (object-store
+> reads and ref resolution touch neither the working tree, the index, nor any ref
+> mutation) rather than an enumeration — and why widening the repertoire is a Sol
+> decision, not a convenience.
 
 ### 18.2 From the phase-and-ownership lane (Z2)
 
@@ -4959,6 +5413,62 @@ surface, wall-clock, exact agreement with git on the production repository), but
 it changes *what produces the inventory*. **The type in §5.5.7 is unaffected by
 the choice; only the producer paragraph is.**
 
+### 18.3A Decisions arising from the third review
+
+**T-1 — the post-worker repertoire is `{cat-file, rev-parse}`** (B-1). This
+revision adopts the reviewer's recommendation: B2's post-worker check is a §2
+non-regression, `rev-parse --verify HEAD^{commit}` is measured clean on all three
+armed surfaces, and the correction belongs to the claim and the test rather than
+to the command. **Sol should confirm**, because the alternative — a `{cat-file}`
+FINALIZE set — is only reachable by deleting B2's post-worker verification, which
+reopens task `49231f6e`'s defect.
+
+**T-2 — S-γ, and whether a fourth surface must be probed before Wave 0** (B-2).
+Three surfaces are now armed and the permitted set is clean on all three. **Z1's
+caveat is no longer a caveat but a demonstrated fact**, so §18.5's attack item 1
+is answered *yes* for the third surface. **Sol should decide whether Wave 0 may
+begin on three armed surfaces plus a structural argument, or whether a systematic
+sweep of git's hook and program-invocation points is a Wave-0 precondition.**
+
+**T-3 — Z-4's status, OPEN pending Lane Z5.** `dispatcher_raw` is demoted from
+*structural* to *gated*. Whether it regains structural status depends on Lane Z5's
+measurement of a fire-nothing materialisation path. **Sol should also rule on
+whether `-c core.hooksPath=<empty>` is acceptable in Z-4's argv** — it works
+(measured) but it is exactly the flag-hardening §5.5.5 rejects on principle, and
+adopting it would make Z-4 *gated by a flag* rather than *structural*.
+
+**T-4 — B-3's line, and `scope_check_base_ignored`.** ZI-25/26/27 draw the line at
+**creation is bulk, modification is not**. **Sol should confirm**, and confirm that
+`scope_check_base_ignored = false` applying **only to `added` paths** is the right
+default. *(If Sol instead wants any base-ignored change to clear
+`patch_file_complete`, that is a one-line change to §5.5.9's table and it makes
+Fable refuse after any build run — the cliff Y-10 exists to avoid, in a new
+place.)*
+
+**T-5 — D-24's wave boundary** (B-4). The PREPARE mechanism and §8 row 0 move into
+Wave 0. The alternatives the reviewer listed are: move §5.8's gate and the two
+budgets into Wave A; re-order so Wave A precedes Wave 0 (which directive R forbids
+and which defers two live bypasses); or abandon the independence claim. **Sol
+should confirm D-24 rather than let an implementer build it informally under
+schedule pressure.**
+
+**T-6 — the widened repertoire** (N-1). `config --get remote.origin.url`,
+`rev-list --max-parents=0 HEAD` and `rev-parse --is-inside-work-tree` were **live
+in `src/**` and unlisted** while §5.4.3 called itself exhaustive; all three are
+measured clean on all three surfaces, as are the three `REQUIRES-PROBE` rows now
+retired. §5.4.3 says widening is a Sol decision. **Sol must ratify the widened set
+— with its measurements recorded — or order the identity producer rewritten.**
+**Lane Z5 is producing a definitive git-invocation × attack-surface matrix; this
+design adopts it as the repertoire's authority when it lands.**
+
+**T-7 — promote `TaskStore.transition`'s compare-and-set from *recommended* to
+*required*?** §15.3 discloses in bold that concurrent-writer exclusion *"rests
+entirely on the reconciliation lock and the owner gate — a convention"*, and that
+the failure *"is precisely S-5 race 3"*. The third reviewer agreed the disclosure
+is honest and declined to make it blocking, because the reconciliation lock plus
+single-flight rename covers the reachable path. **Sol should decide whether P-M6
+is a requirement.**
+
 ### 18.4 Two decisions adopted without an explicit ruling
 
 **Y-9 (`.gitignore` / `.gitattributes` tamper) is MOOT under §5.6** and
@@ -4968,27 +5478,57 @@ both were adopted as forced consequences of directives C, K and O rather than
 from a Sol ruling.** They should be **ratified explicitly rather than inherited
 from a draft.**
 
-**Directive T.** The directive list this lane received runs A–S with T reserved.
-**No text for a directive T reached the integrator.** If one exists it is
-**unaddressed**, and this document says so rather than mapping something to it.
+**Directive T — CORRECTED.** Revision 3 recorded that no text for a directive T
+had reached the integrator and that if one existed it was unaddressed. **That was
+false about the world, though honest about revision 3's own context** — the
+briefing chain referred to directives "in my previous messages" and never pasted
+the block.
+
+**Directive T exists**, headed `T. REVIEW REQUIREMENT`, and it is a **process
+gate rather than a design directive**: push the revision, verify `origin/main`,
+run an independent architecture review, **write no implementation source until
+blocking findings = 0 and WAVE 0 APPROVED TO IMPLEMENT = YES**, and return the
+SHA, the verdict, the blocking findings, the approval flag and the Y-1…Y-10 map.
+
+**T is SATISFIED, not unaddressed.** Revision 3 was pushed and `d268f70` **is**
+`origin/main`, verified; a third independent review was run and returned
+**4 blocking, 7 non-blocking, WAVE 0 APPROVED: NO**; §18.5 already independently
+encodes the no-code-before-zero-blockers rule; and §17 carries the map. **A
+document that is the specification must not record a false fact about the
+directive that governs its own approval**, which is why this paragraph replaces
+revision 3's rather than being appended to it.
 
 ### 18.5 The gate on implementation
 
 **No `src/**` or `tests/**` change may be written for Gate 7 until this revision
-receives a THIRD independent architecture review returning ZERO blocking
-findings.** The reviewer must not be the author and must not implement the fixes.
+receives a FOURTH independent architecture review returning ZERO blocking
+findings **and `WAVE 0 APPROVED TO IMPLEMENT: YES`.** The reviewer must not be
+the author, must not be a prior reviewer, and must not implement the fixes. **This
+is directive T.**
 
-**What the third review inherits:** two prior reviews (R-1…R-14, M-1…M-10;
-S-1…S-7, N-a…N-e, Y-1…Y-10), Lane U's capability probe, Lane X's
-adjacent-mechanism probe, three revision-3 drafting lanes, and this document.
+**What the fourth review inherits:** three prior reviews (R-1…R-14, M-1…M-10;
+S-1…S-7, N-a…N-e, Y-1…Y-10; **B-1…B-4, N-1…N-7**), Lane U's capability probe,
+Lane X's adjacent-mechanism probe, **Lane Z5's PREPARE probe** (§5.5.5 is OPEN
+until it lands), three revision-3 drafting lanes, and this document.
+
+**The third review's own summary of what it found, carried so the fourth does not
+have to re-derive it:** *"a claim whose named killer test contradicts the pipeline
+it guards; a measurement whose experiment could not have produced a positive
+result; and a completeness flag that is true while the content it accounts for was
+omitted."* **Assume revision 4 contains at least one more of these and go find
+it.** Three reviews have each found at least one, and B-2 was one the document had
+documented the failure mode of, one page earlier, about somebody else.
 
 **What it should attack hardest — the decisions most likely to be wrong:**
 
-1. **The permitted repertoire is three commands wide, and its safety argument is
-   structural** (object-store reads touch neither the index nor attributes).
-   Z1-G-list item 10 says plainly that **only two execution surfaces were armed**.
-   Is a structural argument plus two measured surfaces enough, or does the
-   repertoire need a third surface probe before Wave 0?
+1. **ANSWERED YES BY THE THIRD REVIEW, AND STILL LIVE FOR A FOURTH.** Revision 3
+   asked whether a structural argument plus **two** armed surfaces was enough. It
+   was not: **S-γ existed and `worktree add` fires on it.** Three are armed now,
+   the permitted set is clean on all three, and the safety argument remains
+   structural (object-store reads and ref *resolution* touch neither the working
+   tree, the index, nor any ref *mutation*). **The honest question for the fourth
+   review is the same question one surface later: is three enough, and what would
+   a systematic enumeration of git's program-invocation points cost?**
 2. **The `ToolExecution` mechanism removes the parameter but keeps ~12 explicit
    `enter()` calls.** The failure *direction* is safe by construction. Is the
    failure *probability* better than the class marker it replaces, or has the
@@ -5056,6 +5596,36 @@ hardened checkout log:  [SMUDGE-FIRED ]         # -c core.hooksPath=<empty>
 $ od -c < wt5/thing.dat
 0000000   S   M   U   D   G   E   D   :   p   a   y   l   o   a   d  \r  \n
 ```
+
+> **METHODOLOGICAL CORRECTION — this experiment armed three sentinels and drew a
+> four-sentinel conclusion.** It armed **smudge**, **`post-checkout`** and
+> **`core.fsmonitor`**. It did **not** arm `reference-transaction`. So
+> `no-checkout log: []` established only *"no smudge, no post-checkout, no
+> fsmonitor"* — and was reported, and relied upon, as *"executes nothing"*.
+>
+> **What it could have detected:** an attribute-selected content transform during
+> checkout (S-α); a `post-checkout` hook; an index refresh (S-β).
+> **What it could not have detected, and what is actually there:** any hook fired
+> by a **ref update** (S-γ) — which `worktree add` performs unconditionally,
+> because it creates a branch.
+>
+> Re-run with `reference-transaction` armed and a positive control first:
+>
+> ```
+> POSITIVE CONTROL   git branch poscontrol              FIRED:reference-transaction
+> worktree add --no-checkout -b b1 …                    FIRED:reference-transaction
+> worktree add --no-checkout --detach …                 FIRED:reference-transaction
+> worktree add --quiet -b b3 …   (the default argv)     FIRED:reference-transaction
+>   + -c core.hooksPath=<empty>                         clean
+> ls-tree -r -z --long / cat-file / rev-parse           clean
+> ```
+>
+> **The `# executes NOTHING` annotation is deleted from §5.5.5.** The permitted
+> repertoire's *conclusion* survives — all three commands are clean on S-γ — but
+> this appendix's *method* did not, and the failure mode is the one §10.4 records
+> one page earlier about somebody else's probe. **It is recorded here rather than
+> silently fixed, because a design whose central discipline is "a negative result
+> needs a positive control" must show its own violation of it.**
 
 ### A.3 Checkout transform on an ordinary repository
 
@@ -5187,7 +5757,35 @@ byte-identical, sha256 `e41ef3bd…d498e`, 1286 B.
 
 ---
 
-## Appendix C — Revision 3 change log
+## Appendix C — Revision 4 change log
+
+| Section | Change | Driver |
+|---|---|---|
+| header | revision 4; the four blockers and their fixes; **fourth review required** | third review |
+| §0.2 | *"exactly ONE git command"* → **`{cat-file, rev-parse}`**, with the three tempting exits named and refused | **B-1** |
+| §2, §16, §17 Y-1 | the same correction, everywhere the claim appeared | B-1 |
+| §5.4.5 | the journal assertion is written against the **true** set, with the `rev-parse` argv **pinned** and its count tied to a **seam counter** | B-1 |
+| §5.4.6 | the journal test renamed and re-specified; `test_repertoire_is_clean_on_all_three_surfaces` added; the hooks test **names `reference-transaction`** | B-1, B-2 |
+| §5.4.7 | **ZM-A7** (a second `rev-parse` variant) and **ZM-A8** (deleting B2's check to make the test pass) added | B-1 |
+| §5.5.2 | B2's post-worker `rev-parse` stated **explicitly** as the second permitted post-worker command | B-1 |
+| §5.4.1 | **S-γ (ref update)** added as a third execution surface; "measured against BOTH" → **ALL THREE** | **B-2** |
+| §5.4.3 | three surfaces; three `REQUIRES-PROBE` rows **retired as clean**; three live-but-unlisted commands **added**; `read-tree` and `config --get` contradictions **resolved** | B-2, N-1, N-2 |
+| §5.5.5 | `# executes NOTHING` **deleted**; Z-4 **demoted from "structural" to "gated"**; **OPEN pending Lane Z5** | B-2 |
+| Appendix A.2 | **methodological correction** — what the experiment could and could not have detected, with the re-run and its positive control | B-2 |
+| §5.5.9, §5.5.9A, §5.6.5, §5.11.5 | **ZI-25/26/27** — a base-ignored path that is *modified* is represented **in full**, never rolled up, and is **scope-checked**; only bulk **creation** rolls up, and **the rollup clears `patch_file_complete`** | **B-3** |
+| §8, §12.1–§12.5, §17 Y-7 | **D-24** — the PREPARE mechanism and §8 row 0 **move into Wave 0** | **B-4** |
+| §5.8.2 | *"no `git config`"* narrowed to *"the capture runs no git command"* | N-1 |
+| §5.8.2A | **the raw gitdir resolver**, so ZI-18 is achievable | N-5 |
+| §5.3 ZI-18 / ZI-20 | restated to something an implementer can satisfy | N-5 |
+| §5.8.2/§5.8.3 | transport and promisor keys **printed to the operator**; promisor vector recorded as closed | N-3 |
+| §11.6 | both documentation mutants **re-specified structurally** — they were red on day one | N-4 |
+| §0.1, §18.4 | **directive T exists and is SATISFIED**; revision 3's statement was false about the world | N-6 |
+| §10.3 | four new rows: revision 3's own proofs that could not fail | B-1, B-2, N-4 |
+| §18.3A | **T-1 … T-7**, the decisions arising from the third review | — |
+
+---
+
+## Appendix D — Revision 3 change log (retained)
 
 | Section | Change | Driver |
 |---|---|---|
