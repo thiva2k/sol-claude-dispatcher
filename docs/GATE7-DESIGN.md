@@ -2,7 +2,7 @@
 
 **Lifecycle, evidence and recovery integrity.**
 
-Status: **DESIGN — REVISION 4. NOT APPROVED FOR IMPLEMENTATION.**
+Status: **DESIGN — REVISION 5. NOT APPROVED FOR IMPLEMENTATION.**
 
 Revision 1 (`d098d4b`) was independently reviewed (Lane W) → *APPROVED WITH
 REQUIRED CHANGES*, six blocking findings. Revision 2 (`619b63e`) applied Sol's
@@ -18,11 +18,39 @@ evidence-authority architecture was judged right, and `filter.*` was independent
 reproduced as genuinely closed by class deletion. **Revision 4 fixes the four
 blockers and the seven non-blocking findings.**
 
+Revision 4 (`165aa93`) left **one** question OPEN by construction: §5.5.5 and
+DECISION Z-4, held pending Lane Z5's PREPARE probe. **Z5 is published
+(`2569f31`), and it answers both halves negatively while discovering a FOURTH
+execution surface.** Revision 5 integrates it.
+
+> ### The honest framing this document now owes its fourth reviewer
+>
+> **Three revisions ago the claim was that the PREPARE execution vector is
+> "closed structurally."** It is now: **closed by an ENUMERATED, argv- and
+> env-pinned defence on FOUR MEASURED SURFACES, with no proof that four is
+> all of them.**
+>
+> The surface count has been wrong **twice** — revision 3 said two, revision 4
+> said three, Z5 measured four — and each correction came from a probe, never
+> from reasoning. Nothing in this document should be read as asserting that the
+> enumeration is complete.
+
 > **NO SOURCE CODE MAY BE WRITTEN until a FOURTH independent review returns ZERO
 > blocking findings and WAVE 0 APPROVED TO IMPLEMENT: YES.** That is directive T,
 > and it is not discretionary. The production freeze remains absolute until then.
 
-### What revision 4 changes
+### What revision 5 changes
+
+| # | Z5 finding | What this revision does |
+|---|---|---|
+| **1** | **The ordering fix does not work.** A worker-set `core.hooksPath` — directly, or reached through `include.path` — **survives the dispatcher deleting `$GIT_COMMON_DIR/hooks` outright**, and there is **no per-worktree hooks namespace** to isolate into | §5.5.5(a): filesystem quarantine is **not** a defence. Only **PIN 2** (`-c core.hooksPath=<empty dir>` on the argv) is. Written plainly, not softened. |
+| **2** | **S-δ — a FOURTH execution surface.** `cat-file --batch` (rc=0, **silent**) and `ls-tree -r -z --long` (rc=0, **silent**) run the worker's `core.sshCommand` / `core.gitProxy` / `ext::` program via **promisor lazy fetch**. These are *the design's own permitted post-worker commands* | §5.4.1 gains **S-δ**; §5.4.3's repertoire is re-measured on **four** columns; **`--long` is REMOVED** from `BaseTreeSnapshot`'s argv (it is what arms it); **PIN 1** `GIT_NO_LAZY_FETCH=1` closes the column and enters §5.4.3A's global env policy; Lane X's TIER-0 table is **corrected** — `core.sshCommand` and `core.gitProxy` are **executed**, not inert |
+| **3** | **DECISION Z-4 is retired, not rescued.** A fire-nothing raw materialisation exists but is **unusable** (no index ⇒ every file reports `D` *and* `??`; a real edit produced no diff), and **every** measured way to give it an index fires `post-index-change` — including an external `GIT_INDEX_FILE` | §5.5.5(c): *fire-nothing only when unusable, usable only when it fires.* The "structural rather than gated" claim is **withdrawn**. The untested raw-DIRC path is escalated as **T-8**, claiming nothing. |
+| **4** | **`git.py:776` bypasses the chokepoint** — `write_full_diff` calls `subprocess.run(["git","diff",…])` directly, outside `_run_git`. A live ZM-A5 in the current tree | §5.4.5 records that the journal is **blind** to it; §5.4.6 specifies **`test_no_direct_git_subprocess_in_src`** (AST, whole tree) and states that it **fails against `HEAD`**, with this call site as the **day-one killer** |
+| **5** | **The patch format is real.** All §9 edge cases pass `git apply --check` **and apply byte-exactly** | §5.5.8: the `REQUIRES-PROBE` is **retired** and **three** measured format constraints become load-bearing renderer rules |
+| **6** | Z5's **NOT TESTED / NOT OBSERVED** discipline | Mirrored: `GIT_CONFIG_KEY0` precedence, the raw-DIRC index, and the per-worktree hooks path are each labelled with what was and was not attempted |
+
+### What revision 4 changed
 
 | # | Blocker | Fix |
 |---|---|---|
@@ -45,12 +73,13 @@ items, carried for Sol.
 | Baseline | `e6321d1` (1368 tests passing) |
 | Revision 1 | `d098d4b` — reviewed by Lane W |
 | Revision 2 | `619b63e` — reviewed a second time |
-| Revision 3 | `d268f70` — **pushed, `origin/main` verified**; reviewed a third time; **the artefact this revision replaces** |
+| Revision 3 | `d268f70` — **pushed, `origin/main` verified**; reviewed a third time |
+| Revision 4 | `165aa93` — closed B-1…B-4 and N-1…N-7; **the artefact this revision replaces** |
 | Author | Lane V (integrator). **This lane wrote no `src/**`, no `tests/**`.** |
 | Drafting lanes | **Z1** (evidence authority, §A–F) · **Z2** (phase & ownership, §G–J, §P) · **Z3** (structure & policy, §K–S, Y-mapping) |
-| Probes | `GATE7-CAPABILITY-PROBE.md` (Lane U) · `GATE7-V1-ADJACENT-PROBE.md` (Lane X) |
+| Probes | `GATE7-CAPABILITY-PROBE.md` (Lane U) · `GATE7-V1-ADJACENT-PROBE.md` (Lane X) · `GATE7-Z5-PREPARE-PROBE.md` (Lane Z5, `2569f31`) |
 | Reviews | `GATE7-DESIGN-REVIEW.md` (W) · `GATE7-DESIGN-REVIEW-2.md` (Y) · `GATE7-DESIGN-REVIEW-3.md` (Z4) |
-| Pending probe | `GATE7-Z5-PREPARE-PROBE.md` (Lane Z5) — **§5.5.5 / Z-4 is OPEN until it is published and cited** |
+| Pending probe | **none.** Z5 is published and cited; §5.5.5 / Z-4 is **CLOSED — negatively** |
 | Installed clients | Claude Code **2.1.237**, Codex CLI **0.149.0** |
 
 ---
@@ -98,12 +127,19 @@ a mutant must **visibly edit**. The three are never blurred.
 §1–§3 are the shared structure and the cross-cutting mechanisms. §4–§7 are the
 four subsystems, each carrying the nine headings §3 of the brief demands. §8–§16
 are the cross-cutting obligations. §17 is the Y-1…Y-10 mapping. §18 is what Sol
-must rule on. Appendix A is measured data; Appendix C is the revision-3 change
-log.
+must rule on. Appendix A is measured data; Appendix C is the change log.
 
 **`REQUIRES-PROBE`** marks a statement that is reasoned but **not measured**. It
 must not be read as a measurement, and Wave acceptance may not depend on one
 without discharging it first.
+
+**`NOT TESTED` / `NOT OBSERVED`** are Lane Z5's discipline, adopted here.
+`NOT TESTED` means *no experiment was run* — the statement claims nothing in
+either direction. `NOT OBSERVED` means *an experiment ran, a positive control
+fired, and the effect did not appear* — which is evidence, bounded by what that
+experiment could have detected. Revision 4's Appendix A.2 correction exists
+because a `NOT OBSERVED` was recorded where the control had never been armed;
+that distinction is now marked wherever it applies.
 
 ---
 
@@ -165,7 +201,8 @@ They can be neutralised with `-c core.fsmonitor=false` — the lever works — b
 that is precisely the *enumerated, version-scoped* defence Y-1 rejected, and it
 is the defence Z3's own argument for P-A over P-B rests on avoiding.
 
-**RESOLVED: adopt Z1's permitted set.** Only `ls-tree -r -z --long`, `cat-file`
+**RESOLVED: adopt Z1's permitted set** *(and revision 5 removes `--long` from it —
+§5.4.1)*. Only `ls-tree -r -z`, `cat-file`
 (bare) and `rev-parse` are measured clean on **both** surfaces. `ls-files` in
 every form is prohibited. **Z3's dispatcher-side git-blob-sha1 is kept** — Z1
 verified it independently, byte-exact on a normal file, an **empty** file, a file
@@ -266,7 +303,10 @@ Z1 found the cause of the Z3/Lane-Y disagreement about whether
 
 Revision 2's layer 4 *requires* the `read-tree`, so the production shape is the
 one that fires. **Any probe of a hardened invocation that omits the `read-tree`
-measures a repository state the design never produces.** This is Z-RULE-1's
+measures a repository state the design never produces.** *Z5 measured the
+converse and it is worse than this note assumed: the `read-tree` that makes the
+state real is itself an execution surface —* `post-index-change` *fires on it,
+including with an external* `GIT_INDEX_FILE` *(§5.5.5(c)).* This is Z-RULE-1's
 failure mode occurring inside a *probe* rather than inside a test, and it is the
 third time in this gate a negative result came from an experiment that could not
 have produced a positive one. It is recorded in §10.4 so it is not rediscovered.
@@ -1385,7 +1425,7 @@ description of the defect, worked around in one place out of three.
   `$GIT_COMMON_DIR`, which revision 3 obtained from `rev-parse
   --absolute-git-dir`. An implementer could not have satisfied it as written.*
   **The `rev-parse` variants that may precede the capture are measured clean on
-  all three armed surfaces (§5.4.3), and the capture prefers a raw resolver over
+  all four armed surfaces (§5.4.3), and the capture prefers a raw resolver over
   even those (§5.8.2A).**
 - **ZI-19 (index irrelevance).** Worker-controlled index state has **no authority
   over evidence**. The evidence pipeline never reads the index, never writes one,
@@ -1480,49 +1520,72 @@ Consequences, each of which reverses a revision-1 or revision-2 position:
 
 ### 5.4 Directive A — post-worker git presentation commands are not evidence authority
 
-#### 5.4.1 THREE independent execution surfaces, and a command is safe only if measured against ALL THREE
-
-This is the most important correction the design makes, and **revision 3 got the
-count wrong** — which is itself the lesson, so it is recorded rather than
-quietly amended.
+#### 5.4.1 FOUR independent execution surfaces — and the count has now been wrong twice
 
 | Surface | Selected by | Triggered by |
 |---|---|---|
-| **S-α — attribute-selected content transform** | an *attribute* (`filter=`, `diff=`, `-diff`, `working-tree-encoding`) resolved from `.gitattributes`, `info/attributes` or `core.attributesFile`, plus a config-defined driver | any command that **reads working-tree content through git's content pipeline** |
-| **S-β — index refresh** | the `core.fsmonitor` key **alone; no attribute is needed** | any command that **refreshes the index**, whether or not it reads content |
-| **S-γ — ref update** *(NEW in revision 4)* | **no attribute and no index refresh** — the hook `$GIT_COMMON_DIR/hooks/reference-transaction` (also `post-checkout`, `post-index-change`, `pre-auto-gc`, and any dir named by `core.hooksPath`) | any command that **creates, moves or deletes a ref** |
+| **S-α — attribute-selected content transform** | an *attribute* (`filter=`, `diff=`, `-diff`, `working-tree-encoding`) from `.gitattributes`, `info/attributes` or `core.attributesFile`, plus a config-defined driver | any command that **reads working-tree content through git's content pipeline** |
+| **S-β — index refresh** | `core.fsmonitor` **alone; no attribute needed** | any command that **refreshes the index** |
+| **S-γ — ref update** *(found by the third review)* | the hook `$GIT_COMMON_DIR/hooks/reference-transaction`, and via `core.hooksPath` the **entire 28-hook namespace** | any command that **creates, moves or deletes a ref** — including `worktree add --no-checkout`, `--detach`, `pack-refs` and `gc` |
+| **S-δ — promisor lazy fetch** *(found by Lane Z5; **the most severe**)* | `extensions.partialClone` + `remote.<n>.promisor` + a transport program: `core.sshCommand`, `core.gitProxy`, or `ext::` once the worker sets `protocol.ext.allow=always` | any command that **reads an object that is not present locally** — because *an object-store read of an absent object is not a read, it is a FETCH* |
 
-`git ls-files --others` reads no content, so it is clean on S-α — and it
-refreshes the index, so it **executes the worker's program on S-β**.
-**`git worktree add` creates a branch ref, so it executes the worker's program on
-S-γ — even with `--no-checkout`, which revision 3 annotated `# executes
-NOTHING`.**
+**S-δ lands on the two commands this design treated as unconditionally safe.**
+Measured, with a positive control in the same repository:
 
-> **S-γ was found because revision 3's own Appendix A.2 armed smudge,
-> `post-checkout` and `fsmonitor` and never armed `reference-transaction`. Its
-> `no-checkout log: []` was therefore a negative result from an experiment that
-> could not have produced a positive one — the exact hazard this document records
-> in reconciliation 4 and §10.4 about somebody else's probe.** It is the fourth
-> occurrence of that pattern in this gate and **the first inside this document's
-> own measured appendix.** Z1's honest caveat — *"S-α and S-β are the two surfaces
-> I know about, not the two that exist"* — is now **demonstrated true rather than
-> conceded**, and §18.5's attack item 1 is answered **yes**.
+```
+cat-file blob <ABSENT>        [PERMITTED]   rc=128  EXEC:sshcommand-prog
+cat-file --batch <ABSENT>     [PERMITTED]   rc=0    EXEC:sshcommand-prog   <-- SILENT
+ls-tree -r -z --long <base>   [PERMITTED]   rc=0    EXEC:sshcommand-prog   <-- SILENT
+ls-tree -r -z <base>          [no --long]   rc=0    clean
+rev-parse --verify HEAD^{commit}            rc=0    clean
+```
 
-**What survives and what does not.** The repertoire's **conclusion** survives:
-all three permitted commands are measured **clean on S-γ**, because none of them
-updates a ref. Its **method** does not: "measured against BOTH" was the rule, and
-two was the wrong number.
+**`cat-file --batch` and `ls-tree --long` execute the worker's program and return
+`rc=0`.** The dispatcher sees a successful command; `git-invocations.jsonl` would
+record `"returncode": 0`. Confirmed a second time through `core.gitProxy`, and a
+third through `ext::`.
 
-> **Only three commands are measured clean on ALL THREE surfaces:
-> `ls-tree -r -z --long`, `cat-file` (bare), and `rev-parse`.**
+**Both preconditions are plain file operations with no git command at all**:
+append to `.git/config` (which `Write` reaches), and `rm` **one loose base blob** —
+*chosen deliberately, because it is a blob §5.4.3's lazy FINALIZE `cat-file` is
+guaranteed to read.* **The attack is aimed precisely at the design's own
+laziness.**
 
-**A fourth surface may exist.** The design does not claim otherwise. What it
-claims is that the permitted set is **object-store reads and ref resolution**,
-which touch neither the working tree, nor the index, nor any ref *mutation* — a
-structural property rather than a per-key enumeration. **That argument is why the
-set is expected to survive a git upgrade; the measurements are why it is believed
-today; and Z-RULE-1 requires both to be re-run as tests with positive controls
-whenever git moves.**
+**And `--long` is what arms it.** `--long` prints the blob **size**, which
+requires the blob; `ls-tree -r -z` without it is clean. §5.4.3 and §5.5.2
+specified `--long` **by name**.
+
+> ##### The paragraph this falsifies, quoted so it cannot be re-derived
+>
+> Revision 3 §5.4.3: *"`ls-tree` and bare `cat-file` read the **object database**
+> and never touch the working tree or the index … That is a **structural**
+> property of object-store reads rather than a per-key enumeration, which is why
+> it is expected to survive a git upgrade."*
+>
+> **Measured false.** The paragraph is the exact form of reasoning this gate
+> exists to distrust: a structural argument extended one category past its
+> evidence. It is deleted, not softened.
+
+> ##### The count has been wrong twice, and that is the finding
+>
+> Revision 3 said two surfaces and asserted *"a fourth surface may exist. The
+> design does not claim otherwise."* **S-γ existed. Then S-δ existed.** Z1's
+> caveat — *"S-α and S-β are the two surfaces I know about, not the two that
+> exist"* — has now been **demonstrated true twice**, once by each of the last two
+> reviews.
+>
+> **So the honest framing, and it replaces every "structural" claim in §5.4:**
+> the post-worker path is **closed by an enumerated, argv- and env-pinned defence
+> on FOUR measured surfaces, with no proof that four is all of them.** Not
+> structurally. Not by a property that survives a git upgrade unexamined. **By a
+> defence whose completeness is bounded by the number of surfaces someone has
+> thought to arm**, which is four, and which was two a fortnight ago.
+
+**What the four measurements could and could not have detected.** Each was run
+with a positive control armed for that surface in the same repository in the same
+run; a `clean` row with a dead control is reported **NOT TESTABLE**, never
+`clean`. What none of them could detect is **a fifth mechanism nobody enumerated**
+— and §18.5 puts exactly that to the fourth reviewer.
 
 #### 5.4.2 The prohibited set, by name and by class
 
@@ -1542,30 +1605,78 @@ whenever git moves.**
 
 #### 5.4.3 The permitted repertoire — exhaustive; widening it is a Sol decision
 
-| Command | Phase | Purpose | S-α | S-β | S-γ |
-|---|---|---|---|---|---|
-| `rev-parse --verify <ref>^{commit}` | PREPARE **and FINALIZE** (B2, §5.5.2) | resolve the base SHA; verify the worktree head | clean | clean | clean |
-| `rev-parse --show-toplevel` | PREPARE | repository identity / lock digest (`security.py:217`, `locks.py:72`) | clean | clean | clean |
-| `rev-parse --absolute-git-dir` / `--git-common-dir` | PREPARE | gitdir identity for §5.8 | **clean** | **clean** | **clean** |
-| `rev-parse --is-inside-work-tree` | PREPARE | `git.is_git_repository` (`git.py:248`) | **clean** | **clean** | **clean** |
-| `ls-tree -r -z --long <base>` | PREPARE | `BaseTreeSnapshot` | clean | clean | clean |
-| `cat-file --batch` **fed object ids** (never `--filters`, never `--textconv`) | PREPARE for a bounded set; **lazily at FINALIZE** | raw blob contents | clean | clean | clean |
-| `cat-file blob <oid>` | same | single raw blob | clean | clean | clean |
-| `rev-list --max-parents=0 HEAD` | PREPARE | repository root-commit pin (`git.py:363`) | **clean** | **clean** | **clean** |
-| `config --get remote.origin.url` | PREPARE | repository identity pin (`git.py:359`) | **clean** | **clean** | **clean** |
-| `worktree list --porcelain` | PREPARE | registration facts, B2 | **clean** | **clean** | **clean** |
-| `read-tree <base>` with an **external `GIT_INDEX_FILE`** | PREPARE, `dispatcher_raw` only (§5.5.5) | populate a throwaway index | **clean** | **clean** | **clean** |
-| `worktree add` | PREPARE, once per task, **only after §5.8's preflight passes** | create the isolated tree | **FIRES smudge** | **FIRES** | **FIRES `reference-transaction`** |
+**Every row re-measured on all FOUR surfaces** (Lane Z5, positive control per
+surface per run):
 
-**Four rows changed status in revision 4.** `--absolute-git-dir`,
-`--git-common-dir` and `worktree list --porcelain` move from `REQUIRES-PROBE` to
-**permitted**, measured clean on all three surfaces with a positive control.
-Three rows are **new because the code already used them and no revision listed
-them** — `rev-parse --is-inside-work-tree`, `rev-list --max-parents=0` and
-`config --get remote.origin.url`, all measured clean on all three. The repertoire
-was described as *exhaustive* while three live call sites sat outside it; **that
-is now true rather than aspirational**, and `test_git_repertoire_is_exactly_the_permitted_set`
-is what makes it stay true.
+| Command (exact argv) | Phase | S-α | S-β | S-γ | **S-δ** | verdict |
+|---|---|---|---|---|---|---|
+| `rev-parse --verify <ref>^{commit}` | PREPARE **and FINALIZE** (B2, §5.5.2) | clean | clean | clean | **clean** | clean on all four |
+| `rev-parse --show-toplevel` | PREPARE | clean | clean | clean | **clean** | clean on all four |
+| `rev-parse --absolute-git-dir` / `--git-common-dir` | PREPARE | clean | clean | clean | **clean** | **retires `REQUIRES-PROBE`** |
+| `rev-list --max-parents=0 HEAD` | PREPARE (`git.py:362`) | clean | clean | clean | **clean** | clean on all four |
+| `config --get remote.origin.url` | PREPARE (`git.py:359`) | clean | clean | clean | **clean** | clean on all four |
+| `worktree list --porcelain` | PREPARE | clean | clean | clean | **clean** | **retires `REQUIRES-PROBE`** |
+| **`ls-tree -r -z <base>`** *(NO `--long`)* | PREPARE | clean | clean | clean | **clean** | **clean on all four — this is the argv the design now uses** |
+| ~~`ls-tree -r -z --long <base>`~~ | — | clean | clean | clean | **FIRES, silently, `rc=0`** | **REMOVED — `--long` is what arms S-δ** |
+| `cat-file --batch` fed object ids | PREPARE (bounded) / **lazily at FINALIZE** | clean | clean | clean | **FIRES, silently, `rc=0`** | **permitted ONLY under `GIT_NO_LAZY_FETCH=1`** |
+| `cat-file blob <oid>` | same | clean | clean | clean | **FIRES (`rc=128`)** | **permitted ONLY under `GIT_NO_LAZY_FETCH=1`** |
+| `read-tree <base>` with an external `GIT_INDEX_FILE` | PREPARE, `dispatcher_raw` only | clean | clean | **FIRES `post-index-change`** † | clean | **clean only under PIN 2** (§5.5.5(c)) |
+| `worktree add` (any form) | PREPARE, only after §5.8 passes | **FIRES** smudge (checkout forms) | **FIRES** (checkout forms) | **FIRES `reference-transaction` in EVERY form, `--no-checkout` and `--detach` included** | FIRES (checkout form) | **gated + argv-pinned** |
+| `rev-parse --is-inside-work-tree` | — | clean | clean | clean | **clean** | clean, but **it has NO call site in `src/**`** — public API only |
+
+##### The two argv/env pins this table depends on
+
+> **PIN 1 — `GIT_NO_LAZY_FETCH=1` in `_git_env`, unconditionally.** Measured to
+> close **the entire S-δ column** in one line, with a negative control confirming
+> the same command fires without it. It is **not** set today. **Blanking
+> `extensions.partialClone`, `remote.<n>.promisor` or
+> `fetch.negotiationAlgorithm` on the argv was measured INEFFECTIVE — all three
+> still fired.** A defence that disarms the promisor *configuration* rather than
+> the *fetch* does not work; only refusing to fetch does.
+>
+> **PIN 2 — `-c core.hooksPath=<empty dir>` on every invocation.** Measured to
+> neutralise **every one of the 28 hooks**, with a negative control. `/dev/null`
+> and a nonexistent path behave identically; **the directory need not exist.** It
+> does **not** touch `core.fsmonitor` or `filter.*.smudge` — only `--no-checkout`
+> removes those.
+
+† **`post-index-change` is not a ref transaction**, so it is not S-γ's trigger —
+but it is a hook in the **same 28-hook namespace S-γ exposes**, reached by an
+**index write** rather than a ref update, and it is neutralised by the **same**
+pin. It is recorded in S-γ's column because that is the column PIN 2 governs, and
+the alternative — a fifth column for one row — would overstate what was measured.
+**An external `GIT_INDEX_FILE` does NOT avoid it: the hook fires on the index
+write, whichever file is written.**
+
+**Both pins are ENUMERATED defences and this document does not pretend
+otherwise.** Pin 2's necessity is proven by §5.5.5: a worker-set `core.hooksPath`
+**survives the dispatcher deleting `$GIT_COMMON_DIR/hooks` outright**, so
+filesystem quarantine is not a defence and argv pinning is the only measured one.
+
+**A missing base object becomes a LOUD FAILURE instead of silent execution.**
+Under PIN 1, `cat-file` on an absent object **fails** rather than fetching. That
+turns Z5's attack precondition — a worker deleting one loose base blob with plain
+`rm` — into `BaseBlobUnreadable` at §8 **row 3**, `FAILED`, with the object id
+named. **The fail-closed direction is what makes the pin safe to depend on**, and
+`test_deleted_base_blob_fails_closed_and_executes_nothing` is its killer, with a
+positive control that fires the transport program without the pin.
+
+**`--long` is dropped as a second, independent reduction.** `BaseTreeSnapshot`
+does not need blob sizes for its primary purpose: Z-5 makes the `ls-tree` **oid**
+the content hash, so no size is read on the hot path. Where a base blob size is
+genuinely required — `total_blob_bytes`, and the primary-tree `stat_identity`
+size comparison of §5.9.5 — it is obtained **deliberately, for named oids, under
+PIN 1**, and a missing object there is the same loud failure. **`TreeEntry.blob_size`
+becomes `int | None`**, `None` meaning *not requested*, and a test asserts the
+snapshot's default argv contains no `--long`.
+
+**Four rows changed status.** `--absolute-git-dir`, `--git-common-dir` and
+`worktree list --porcelain` move from `REQUIRES-PROBE` to **permitted**. Three
+rows were **live in `src/**` while the repertoire called itself exhaustive** —
+`rev-list --max-parents=0 HEAD`, `config --get remote.origin.url` and
+`rev-parse --is-inside-work-tree`; **the exact argv is recorded, not the generic
+subcommand**, and the third has **no call site**, so its repertoire status is
+moot at runtime although it remains exported public API.
 
 > **`config --get` is permitted here and prohibited in §5.8.2, and both are
 > correct.** §5.8.2's rule is that the **administrative capture** must use plain
@@ -1581,29 +1692,111 @@ is what makes it stay true.
 > contradiction is resolved rather than left standing** (N-2). §5.4.2's row is
 > narrowed from *"any command that refreshes or writes the index"* to **"any
 > command that refreshes or writes THE WORKTREE'S index"**. `read-tree` into an
-> **external `GIT_INDEX_FILE`** touches no worktree index, is measured clean on
-> all three surfaces, and appears only in `dispatcher_raw` materialisation. B-I5
-> is unaffected: the *task worktree's* index is still never written, and the
-> temporary index is a dispatcher-owned file. **A `read-tree` without an external
-> `GIT_INDEX_FILE` remains prohibited**, and `ZM-E7`'s killer catches its return.
+> **external `GIT_INDEX_FILE`** touches no worktree index and appears only in
+> `dispatcher_raw` materialisation. B-I5 is unaffected: the *task worktree's*
+> index is still never written, and the temporary index is a dispatcher-owned
+> file. **A `read-tree` without an external `GIT_INDEX_FILE` remains
+> prohibited**, and `ZM-E7`'s killer catches its return.
+>
+> **CORRECTED BY Z5 — `read-tree` is NOT clean.** It fires `post-index-change`
+> on S-γ's hook surface, **and an external `GIT_INDEX_FILE` does not avoid it**:
+> the hook fires on the index *write*, whichever file is written. It is clean
+> only under **PIN 2**. This is one of the measurements that retired Z-4
+> (§5.5.5(c)), and the narrowing above stands only because PIN 2 is now global
+> policy — **not** because the command is inert.
 
 **Everything else is removed from the dispatcher.** `git status`, `git diff` in
 all forms, `git ls-files` in all forms, `git diff --check`, `git diff --stat`
 disappear from `src/**`. **This is a deletion, not a hardening.**
 
-**Why the permitted set is exec-safe, as a mechanism rather than a list.**
-`ls-tree` and bare `cat-file` read the **object database** and never touch the
-working tree or the index; `rev-parse` resolves refs. None refreshes the index
-(which is what arms `core.fsmonitor`); none applies attributes (which is what
-selects `filter.*`, `diff.*.textconv`, `diff.*.command`). That is a **structural**
-property of object-store reads rather than a per-key enumeration, which is why it
-is expected to survive a git upgrade where Lane X's "NOT-exploitable" list will
-not. **It is still measured, not assumed**, and Z-RULE-1 requires the measurement
-to exist as a test with a positive control, not as this paragraph.
+##### Why the permitted set is exec-safe — and it is NOT a structural argument
 
-**Three commands are carried as `REQUIRES-PROBE`, not as permitted**, until armed
-against both surfaces. Z1's own words: *"'I expect it for the same structural
-reason' is exactly the sentence this gate exists to distrust."*
+Revision 3 said the permitted set was safe because *object-store reads touch
+neither the working tree nor the index* — a **structural** property *"expected to
+survive a git upgrade"*. **That paragraph is deleted. It was measured false**: an
+object-store read of an **absent** object is a *fetch*, and a fetch runs a
+transport program the worker names (S-δ).
+
+The honest statement, and it is weaker on purpose:
+
+> **The permitted set is exec-safe because each command was measured against four
+> armed surfaces with a positive control, and because two enumerated pins —
+> `GIT_NO_LAZY_FETCH=1` and `-c core.hooksPath=<empty>` — close the two surfaces
+> on which members of the set fire. There is no proof that four surfaces are all
+> of them. The count has been wrong twice.**
+
+Three consequences follow, and each is a rule rather than a hope:
+
+1. **A git upgrade invalidates this table**, exactly as a Codex upgrade
+   invalidates §6.0. `scripts/gate/git_version.py` records `git --version` at gate
+   time and compares against a pinned value; **a mismatch is a gate failure whose
+   named remediation is to re-run the four-surface probe**, not to re-assert the
+   table.
+2. **Widening the repertoire is a Sol decision**, and the widening must carry its
+   own four-surface measurement with a control.
+3. **`test_repertoire_is_clean_on_all_four_surfaces`** runs the full set under
+   each surface armed separately, **each pass carrying its own positive control
+   that must fire**. **COULD IT PASS WHILE FALSE?** For the four armed surfaces,
+   no. **For a fifth nobody has armed, yes — and that is stated rather than
+   hidden.**
+
+##### 5.4.3A The global git invocation policy, stated as one block
+
+Every git call in `src/**` goes through `_run_git`, which applies this
+unconditionally. **Every line is an enumerated defence and is labelled as one.**
+
+```
+env:   GIT_NO_LAZY_FETCH=1        # PIN 1 — closes the whole S-δ column (measured)
+       GIT_CONFIG_NOSYSTEM=1      # ignore /etc/gitconfig
+       GIT_CONFIG_GLOBAL=/dev/null# ignore ~/.gitconfig
+       GIT_TERMINAL_PROMPT=0      # existing
+       GIT_OPTIONAL_LOCKS=0       # existing — suppresses post-index-change for
+                                  #   `status` ONLY; measured NOT to for read-tree
+       + existing redirect-var stripping (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR,
+         GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES,
+         GIT_CEILING_DIRECTORIES, GIT_NAMESPACE)
+       + NEW scrubbing (hygiene, not a worker path under this threat model):
+         GIT_CONFIG_COUNT, GIT_CONFIG_KEY_*, GIT_CONFIG_VALUE_*, GIT_EXTERNAL_DIFF,
+         GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, GIT_PAGER, GIT_ATTR_NOSYSTEM
+
+argv:  git -c core.hooksPath=<empty dir>   # PIN 2 — neutralises all 28 hooks
+           -c core.fsmonitor=false
+           -c core.attributesFile=/dev/null   # partial — see the caveat
+           -c core.quotePath=false
+           --no-pager  <subcommand> …
+
+diff-producing subcommands additionally: --no-ext-diff --no-textconv --no-color
+                                         --attr-source=<base_commit>
+```
+
+**Measured caveats that must travel with this block, not be inferred from it:**
+
+- `-c core.attributesFile=/dev/null` does **not** disable in-tree
+  `.gitattributes` or `info/attributes` — reproduced twice. **The "hardened
+  checkout" combination is genuinely incomplete**, which is why `worktree add` is
+  gated by §5.8 rather than trusted.
+- `GIT_OPTIONAL_LOCKS=0` suppresses `post-index-change` for **`status` only**,
+  and **not** for `read-tree`. Lane X's C7c note is correct for `status` and
+  **does not generalise**.
+- **Zero `-c key=value` occurrences exist in `src/**` today**, so none of these
+  pins is implemented; all are Wave 0 work.
+- `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` is a viable *alternative* lever for
+  pinning `core.hooksPath` without touching argv. **Recorded, not adopted** — argv
+  is simpler to assert in the journal. (Z5's first attempt used `GIT_CONFIG_KEY0`
+  without the underscore and git refused with `rc=128`; **that row is reported
+  NOT TESTABLE as run, never `clean`** — a reading from a command that never
+  executed proves nothing.)
+
+##### Lane X's TIER-0 table is corrected
+
+Lane X listed `core.sshCommand` and `core.gitProxy` under *"NOT executed in the
+dispatcher's context"*, with the correct caveat that the list was *"safe only
+because the dispatcher's command repertoire is …"*. **The repertoire it named did
+not include a lazy-fetch trigger. It does now — `cat-file` and `ls-tree` are the
+whole post-worker repertoire — and both keys are measured EXECUTING via S-δ.**
+Both move to **executed**. `credential.helper` and `core.alternateRefsCommand`
+remain **NOT OBSERVED** from the repertoire, each from an experiment whose control
+fired.
 
 #### 5.4.4 `git.py` splits
 
@@ -1657,6 +1850,21 @@ a tree that never existed** (`server.py:1995-2002`). The permitted FINALIZE set
 is therefore `{cat-file, rev-parse}`, with the `rev-parse` variant **pinned to one
 argv**, so it remains a closed set rather than an allowlist a mutant can extend.
 
+> **THE JOURNAL IS ONLY AS GOOD AS THE CHOKEPOINT, AND THE CHOKEPOINT IS BROKEN
+> TODAY.** `git.py:776` — `write_full_diff` — calls
+> `subprocess.run(["git", "diff", base_commit], stdout=<fd>, …)` **directly,
+> outside `_run_git`**, because it streams to a file descriptor while `_run_git`
+> uses `capture_output=True`. It uses `_git_env()` but not `_git_checked`'s
+> taxonomy, and **any journal built from `_run_git` alone is blind to it.** This
+> is a **live instance of mutant ZM-A5 already in the tree**, and §5.4.6's AST
+> tests *as revision 4 specified them* would not have caught it: they scanned for
+> git **subcommand strings** and for argv construction inside `_run_git`, not for
+> a `subprocess` call whose first argv element is `"git"`.
+>
+> §5.4.4 already deletes `write_full_diff`. **The AST check is strengthened
+> regardless**, because deletion removes today's instance and not tomorrow's
+> (§5.4.6).
+
 **PROVEN BY** `test_finalize_journal_is_catfile_and_b2_revparse_only`, which
 asserts (i) every FINALIZE row's `subcommand` is in `{cat-file, rev-parse}`,
 (ii) every `rev-parse` row's `argv_sha256` equals the single canonical B2 argv
@@ -1673,14 +1881,17 @@ pinned argv hash or the seam counter, **both visible in the diff**.
 
 | Test | Proves | Could it pass while false? |
 |---|---|---|
-| `test_git_repertoire_is_exactly_the_permitted_set` (AST) | the source names no other subcommand | **YES** — an `os.system`, a `subprocess.run` outside `_run_git`, or a subcommand built from a variable defeats it. **Not sufficient alone.** |
-| `test_all_git_argv_constructed_in_run_git` (AST) | no second construction site | **YES**, same reasons. Not sufficient alone. |
+| `test_git_repertoire_is_exactly_the_permitted_set` (AST) | the source names no other subcommand | **YES** — a subcommand built from a variable defeats it. **Not sufficient alone.** |
+| **`test_no_direct_git_subprocess_in_src`** (AST) — **NEW, and it has a day-one killer target** | **no call to `subprocess.run` / `Popen` / `check_output` / `check_call` / `os.system` / `os.exec*` / `asyncio.create_subprocess_exec` anywhere in `src/**` whose first argv element is the literal `"git"`, or a name bound to it, outside `git._run_git`** — asserted over the **whole** AST, not over a subcommand string list | **NO for a literal `["git", …]` call.** Still yes for an argv assembled through an alias the AST cannot follow — which is why the audit-hook row below exists. **This test FAILS AGAINST THE CURRENT TREE:** `git.py:776` is exactly this call, and it is the **specified day-one killer**. A test that is green on a tree containing the defect it names is not a test. |
+| `test_all_git_argv_constructed_in_run_git` (AST) | no second construction site | **YES** for an indirection. Not sufficient alone; paired with the row above and the audit hook. |
 | **`test_finalize_journal_is_catfile_and_b2_revparse_only`** *(renamed from `test_no_git_presentation_command_after_worker_launch`, which was written against a false claim)* | reads `git-invocations.jsonl` after a complete run and asserts the three conditions in §5.4.5 | **NO** for a presentation command, **and** no for a second `rev-parse` variant, because the argv hash and the seam count are pinned. Still yes for a call that bypasses `_run_git` — which is why the audit-hook row exists. |
 | **`test_v1_filter_program_not_executed`** — **Z-RULE-1 positive control mandatory** | arms `$GIT_COMMON_DIR/info/attributes` + `.git/config` with a sentinel `filter.myf.clean`; **(b) runs the revision-2 hardened diff and asserts the sentinel FIRED**; (c) clears; (d) runs the production finalisation and asserts it did **not** | **NO.** Step (b) is what forecloses a mis-armed sentinel. **This is the test whose absence made S-1 shippable.** |
 | `test_v1_fsmonitor_program_not_executed` | same shape, `core.fsmonitor` | as above |
 | `test_v1_textconv_and_external_diff_not_executed` | same shape | as above |
 | `test_v1_hooks_not_executed_during_finalisation` | same shape, arming **`reference-transaction`, `post-checkout`, `post-index-change`, `pre-auto-gc`** and `core.hooksPath` **by name** | as above. **`reference-transaction` is named because revision 3 omitted it and that omission produced B-2.** |
-| **`test_repertoire_is_clean_on_all_three_surfaces`** | the full permitted set run under each of S-α, S-β and S-γ armed separately, **each pass carrying its own positive control that fires** | **NO** for the three surfaces armed. **YES for a fourth surface nobody has armed** — which is stated, not hidden, and is why §5.4.3's safety argument is structural rather than enumerative. |
+| **`test_repertoire_is_clean_on_all_four_surfaces`** *(renamed; revision 4's name asserted a count that was wrong within the week)* | the full permitted set run under each of **S-α, S-β, S-γ and S-δ** armed separately, **each pass carrying its own positive control that fires**, and under the §5.4.3A pins | **NO** for the four surfaces armed. **YES for a fifth surface nobody has armed** — and revision 4 wrote the same sentence about a fourth, then a probe found one. §5.4.3's safety argument is now **enumerative, with no structural fallback**; the residue is stated in §18.5 rather than argued away. |
+| **`test_absent_base_object_executes_nothing`** *(new — the S-δ sentinel)* | deletes a base blob, arms `core.sshCommand` / `core.gitProxy` / an `ext::` remote; **(b) runs `cat-file --batch` WITHOUT `GIT_NO_LAZY_FETCH` and asserts the program FIRED and `rc == 0`**; (c) clears; (d) runs the production invocation under PIN 1 and asserts the program did **not** fire and the read **failed closed** | **NO.** Step (b) is load-bearing twice over: it forecloses a mis-armed sentinel **and** it demonstrates the silent `rc=0`. A version asserting only `rc != 0` at step (d) would pass against a build that fetched successfully. |
+| **`test_base_tree_argv_has_no_long_flag`** *(new)* | AST + runtime assertion that `BaseTreeSnapshot`'s argv contains no `--long` | **NO** for the literal flag. **YES** if a size is obtained by some other absent-object read — which is why PIN 1 is global rather than local to this call site. |
 | `test_subprocess_audit_hook_accounts_for_every_git_child` | a bypass of the chokepoint | uses `sys.addaudithook` on `subprocess.Popen` in the test process — **the only mechanism found that can observe a bypass from inside the suite**. **`REQUIRES-PROBE`:** not verified against this codebase's `asyncio.to_thread` execution model. |
 
 #### 5.4.7 Named mutants (directive A)
@@ -1731,7 +1942,7 @@ exactly as it is: exact full-SHA equality, ancestry and merge-base refused.
 > evidence is collected — `server.py:2005` → `git.py:532` →
 > `git rev-parse --verify HEAD^{commit}` inside the task worktree. **That is the
 > second of the two post-worker git commands** (§5.4.5). It is measured clean on
-> all three armed surfaces, and it is a §2 non-regression that **must not be
+> all four armed surfaces, and it is a §2 non-regression that **must not be
 > deleted to make a journal assertion pass** (§0.2).
 
 ```python
@@ -1741,7 +1952,11 @@ class TreeEntry:
     mode: int            # 0o100644 | 0o100755 | 0o120000 | 0o160000
     kind: Literal["blob", "symlink", "gitlink"]
     oid: str             # 40-hex — THIS IS the content hash
-    blob_size: int       # from --long; -1 for gitlink
+    blob_size: int | None  # None == NOT REQUESTED. `--long` is dropped from the
+                           # default argv because it is what arms S-δ (§5.4.1);
+                           # a size is fetched deliberately, per oid, under
+                           # GIT_NO_LAZY_FETCH=1, only where §5.9.5 needs one.
+                           # -1 for gitlink.
 ```
 
 **DECISION Z-5 — the content hash is the git blob object id.**
@@ -1771,9 +1986,10 @@ security primitive; a collision attack would have to produce a file whose git oi
 matches the base blob, which is the assumption git already makes about the
 repository. **Recorded, not hidden.**
 
-**Parsing `ls-tree -r -z --long`, precisely.** Records are NUL-terminated. Within
-a record, split on the **first** `0x09`: head is
-`<mode> SP <type> SP <oid> SP <space-padded-size>`, tail is the **raw path**.
+**Parsing `ls-tree -r -z`, precisely.** Records are NUL-terminated. Within a
+record, split on the **first** `0x09`: head is `<mode> SP <type> SP <oid>` —
+**and `SP <space-padded-size>` only when `--long` was deliberately requested**,
+which the default argv does not do — tail is the **raw path**.
 Splitting on the last TAB, or on any newline, is a defect — **a filename may
 contain a TAB**. `-r` means `tree` never appears; `commit` means a gitlink and
 `size` is `-`.
@@ -1977,77 +2193,110 @@ Pinned by `test_resume_old_side_is_base_not_run1`.
 **`REQUIRES-PROBE`:** no repository with a real submodule was exercised; the
 production repository has none.
 
-#### 5.5.5 Step 3 — materialisation, and the one PREPARE execution vector
+#### 5.5.5 Step 3 — materialisation. The PREPARE vector is closed by an ENUMERATED defence, or not at all
 
-**DECISION Z-3 — materialisation is gated, not hardened.** `git worktree add`
-remains the default mechanism and is permitted **only after §5.8's raw
-administrative preflight has passed**. §5.8 reads the filter/attribute/hook
-configuration with plain file I/O — **no git command** — and refuses the dispatch
-if it does not match the recorded trusted baseline. **That ordering is the entire
-safety argument for step 3.**
+**Lane Z5 measured both halves of this section's open question and both answers
+are negative.** `GATE7-Z5-PREPARE-PROBE.md` is published; §5.5.5 is no longer
+OPEN, and what it now says is weaker than what revision 4 hoped for.
 
-**DECISION Z-4 — `dispatcher_raw` materialisation. STATUS: OPEN, pending
-`GATE7-Z5-PREPARE-PROBE.md`.**
+##### (a) The ordering fix does not work — filesystem quarantine is not a defence
 
-> **Revision 3 annotated the first line of this block `# executes NOTHING`, rested
-> Z-4's claim to being *structural rather than gated* on that annotation, and the
-> annotation is FALSE.** Measured on git 2.43.0 with a positive control:
->
-> ```
-> POSITIVE CONTROL   git branch poscontrol                       FIRED:reference-transaction
-> Z-4's own argv     worktree add --no-checkout -b b1 …          FIRED:reference-transaction
->   + -c core.hooksPath=<empty>                                  clean
-> the DEFAULT argv   worktree add --quiet -b b3 …                FIRED:reference-transaction
-> the repertoire     ls-tree / cat-file / rev-parse              clean
-> ```
->
-> `--no-checkout --detach` fires it too. The hook is
-> `$GIT_COMMON_DIR/hooks/reference-transaction`, **reachable with the `Write` tool
-> and no git command at all** — the identical topology as the original
-> `filter.*` finding.
+The §5.8-as-precondition argument was: establish or quarantine the administrative
+state before any ref-mutating operation, so a planted hook cannot exist when
+`worktree add` runs. **Measured, it does not hold**, because *the hook does not
+have to be in `$GIT_COMMON_DIR/hooks` at all*:
 
 ```
-git … worktree add --no-checkout -b <branch> <path> <base>
-      # FIRES $GIT_COMMON_DIR/hooks/reference-transaction (S-γ). NOT "nothing".
-GIT_INDEX_FILE=<run_dir>/index.tmp git … read-tree <base>     # external index, no -u
-for each TreeEntry: write raw blob bytes / symlink / mkdir, mode from `mode`
+-- dispatcher DELETES the common hooks dir outright --
+hooks dir present? no
+PC branch (worker core.hooksPath)                rc=0  WORKERHOOK:reference-transaction
+worktree add -b (worker core.hooksPath)          rc=0  WORKERHOOK:post-checkout
+                                                       WORKERHOOK:post-index-change
+                                                       WORKERHOOK:reference-transaction
+-- same, reached through include.path indirection --
+worktree add -b                                  rc=0  INCHOOK:reference-transaction …
+-- and with the dispatcher PINNING -c core.hooksPath=<empty> on the argv --
+worktree add -b + pin                            rc=0  clean
 ```
 
-Because the dispatcher writes the bytes, the starting filesystem **is** the base
-object representation by construction, and `BaseReconciliation` becomes a
-*verification* rather than a measurement. **That property is unaffected by B-2
-and remains Z-4's real value.**
+A previous task's poisoning persists as a **config key**, not only as a file, and
+`include.path` means a `.git/config` grep is not a defence either. There is also
+**no per-worktree hook namespace to isolate into**: a hook planted at
+`$GIT_DIR/worktrees/<n>/hooks/reference-transaction` was **never consulted**
+(control fired; **NOT OBSERVED**).
 
-**What B-2 removes is Z-4's claim to be *structural*.** Creating the branch ref
-executes a worker-plantable hook, so a `dispatcher_raw` PREPARE still runs a
-program a *previous* task could have left behind — which is Z1-N1, the very
-defect Z-4 exists to escape. **Z-4 is therefore demoted from "structural" to
-"gated, like the default", unless Lane Z5 measures a fire-nothing materialisation
-path.**
+> **Stated plainly, because softening it would be the fourth instance of this
+> gate's own failure mode: the PREPARE execution vector can be closed only by an
+> ENUMERATED, ARGV-PINNED defence — `-c core.hooksPath=<empty dir>` — and not
+> structurally. §5.8's baseline gate remains correct and valuable, but *refusing*
+> is a gate, not a structural closure.**
 
-> **THIS SECTION IS NOT FINAL.** Sibling **Lane Z5** is measuring, right now:
-> (i) what actually neutralises `reference-transaction` — and whether
-> `-c core.hooksPath=<empty dir>` is acceptable given it is exactly the
-> flag-hardening this section rejects on principle; (ii) whether a materialisation
-> path exists that fires **nothing** on any armed surface **and** is usable by a
-> real worker; and (iii) whether §5.8-as-precondition ordering is achievable at
-> all, given a previous task's poisoning persists in the **shared** common dir.
-> **Z-4 and the default's gating argument must not be finalised until
-> `GATE7-Z5-PREPARE-PROBE.md` is published and cited here.**
+##### (b) DECISION Z-3 (revised) — materialisation is gated AND argv-pinned
 
-Two things are decided regardless of Z5's result, because they do not depend on
-it:
+`git worktree add` remains the default mechanism. It runs **only after §5.8's raw
+administrative preflight passes** *and* with **PIN 2** on its argv. Neither alone
+is sufficient: the gate cannot see a key reached through `include.path` after the
+baseline was trusted, and the pin does not stop a worker planting the key.
 
-1. **The default path is not newly unsafe.** §5.8 captures `hooks/**` in the
-   trusted baseline, hashes every file and mode, and **refuses before any git
-   command runs**. A `reference-transaction` hook a worker planted is an
-   administrative divergence on the *next* dispatch and a `POLICY_VIOLATION` on
-   *this* one. What B-2 changes is the document's safety accounting, not the
-   gate.
-2. **`REQUIRES-PROBE` stands on the worker-usability half**: whether a worker can
-   build and test in a tree with LFS pointers instead of assets, LF where the
-   repository wants CRLF, and its own `git status` showing every
-   attribute-affected file as modified, is **untested**.
+##### (c) DECISION Z-4 — RETIRED. `dispatcher_raw` is not structural
+
+Revision 4 demoted Z-4 from *structural* to *gated* pending measurement. **The
+measurement retires it rather than rescuing it.**
+
+A fire-nothing materialisation path **does exist** — raw administrative files
+written with plain file I/O, content written from `ls-tree` + `cat-file` bytes,
+**zero sentinels fired with all 28 hooks and 11 exec keys armed**, and the bytes
+are the **raw blob, not the smudged form**, which is exactly the property Z-4
+exists for.
+
+**It is not worker-usable.** With no index, a real `git status` inside it reports
+**every tracked file simultaneously `D` (staged deletion) and `??` (untracked)**,
+and after a real edit `git status` was **unchanged** and `git diff` **empty**. *A
+real Claude worker in that tree would be told its own change did not happen.*
+
+**And every measured way to give it an index fires:**
+
+```
+read-tree BASE (in-place index)                       rc=0  HOOK:post-index-change
+GIT_INDEX_FILE=<tmp> read-tree BASE                   rc=0  HOOK:post-index-change
+update-index --index-info (stdin)                     rc=0  HOOK:post-index-change
+GIT_INDEX_FILE=<tmp> read-tree + hooksPath=<empty>    rc=0  clean
+```
+
+**An external `GIT_INDEX_FILE` does NOT avoid the hook** — it fires on the index
+*write*, whichever file is written. (It is also useless to the worker: the
+variable is per-process, so the worker's own `git status` would not read it.)
+
+> **Z-4 is fire-nothing only in the state that is unusable, and usable only in
+> the state that fires.** Its claim to close the PREPARE vector *structurally
+> rather than by gating* is **unsupported by any configuration that was
+> measured**, and it is **retired, not rescued**. `worktree_materialisation =
+> "dispatcher_raw"` survives as a configuration value with the same gate and the
+> same pin as the default — it buys the raw-blob starting tree (which makes
+> `BaseReconciliation` a verification rather than a measurement), and it buys
+> **nothing** on execution safety.
+
+**The one untested path that could make it structural**, named so nobody
+rediscovers it as an idea: the dispatcher writing the git **index file itself in
+raw DIRC format**, with no git process. **NOT TESTED. Unspecified, unimplemented,
+unmeasured**, and a substantial piece of new dispatcher-owned binary-format code.
+**This design makes no claim about its feasibility** — only that no *git*
+mechanism achieves it. It is escalated as **T-8** (§18.3A), not adopted.
+
+##### (d) What the default path therefore is, exactly
+
+```
+git -c core.hooksPath=<empty dir>        # PIN 2 — the enumerated defence
+    -c core.fsmonitor=false
+    … the rest of §5.4.3A …
+    worktree add --quiet -b <branch> <path> <base_commit>
+```
+
+preceded by §5.8's gate, which refuses on any administrative divergence **before
+this command is constructed**. The residual, stated: **a worker that plants
+`core.hooksPath` and a hook in the same run is caught by §5.8's fingerprint on
+the *next* dispatch and by `POLICY_VIOLATION` on *this* one — and PIN 2 is what
+stops the hook running in between.**
 
 #### 5.5.6 Steps 6–7 — the POST snapshot and the worker-attributable delta
 
@@ -2197,10 +2446,45 @@ that nothing reads it back. A test asserts a `new\nline.txt` patch round-trips
 through `git apply --check` in a **disposable** repository — the only external
 validation that does not put git back on the authority path (it validates a
 *format*, post-hoc, in a throwaway tree, and its result never feeds evidence).
-**`REQUIRES-PROBE`:** `git apply --check` acceptance of a dispatcher-composed
-patch for the four §9 edge cases is **not verified**. Revision 2 got those shapes
-from git itself; hand-composing them is a genuine new risk that a probe **must
-retire before Wave B**.
+**`REQUIRES-PROBE` RETIRED — measured (Z5).** Every §9 edge case was
+hand-composed by the probe in the shape this design specifies, and every one
+passed `git apply --check` **and applied byte-exactly** into a disposable
+repository:
+
+```
+empty new file                 --check ok   apply ok   bytes match
+new file with content          --check ok   apply ok   bytes match
+path with spaces               --check ok   apply ok   bytes match
+path with newline (C-quoted)   --check ok   apply ok   bytes match
+delete to empty                --check ok   apply ok   bytes match
+```
+
+**Three format constraints are now load-bearing and MUST be encoded in the
+renderer**, because each has a plausible wrong form that `--check` rejects:
+
+1. **An empty new file is `diff --git` + `new file mode 100644` and NO `@@` line
+   at all.** Emitting `@@ -0,0 +0,0 @@` produces `corrupt patch`, and omitting
+   `new file mode` produces no valid patch either. The zero-hunk file section is
+   the *only* accepted shape. `test_empty_new_file_patch_has_no_hunk_header`.
+2. **Paths containing spaces:** git itself appends a **trailing TAB** after
+   `+++ b/<path>` (and after `--- a/<path>`). The **tab-less form is also
+   accepted** by `git apply`. The renderer emits the tab-less form; the test
+   asserts *acceptance*, not byte-equality with git's own output, because the
+   two differ and only one of them is this design's product.
+   `test_spaced_path_patch_applies_without_trailing_tab`.
+3. **C-quoting is optional, but when used the quote must wrap the whole
+   prefixed path** — `"a/new\nline.txt"`, not `a/"new\nline.txt"`. The wrong
+   nesting is accepted by nothing. `test_c_quoted_path_quote_wraps_prefix`.
+
+> **PROVEN BY:** each test composes the patch with the production renderer and
+> runs `git apply --check` plus a real `git apply` in a `tmp_path` repository,
+> then compares the resulting file bytes to the intended bytes.
+> **COULD IT PASS WHILE FALSE?** Yes, if it only ran `--check`: `--check`
+> accepted shapes that this probe also had to *apply* to distinguish. Hence
+> apply-and-compare-bytes, not `--check` alone. **IF MIS-WIRED** — the renderer
+> falls back to git for these shapes — `test_no_direct_git_subprocess_in_src`
+> (§5.4.6) fails, and `git apply` is not on the permitted post-worker list
+> (§5.4.3) outside these disposable-repo tests.
 
 #### 5.5.9 Per-path buckets
 
@@ -2427,7 +2711,7 @@ dispatcher-internal reader uses it and nothing else. `display` is best-effort
 #### 5.7.2 Never re-derive a path
 
 Paths are produced by exactly two mechanisms: the `FsSnapshot` walk
-(`os.scandir` on a `bytes` root) and `ls-tree -r -z --long`. Lane X measured why
+(`os.scandir` on a `bytes` root) and `ls-tree -r -z`. Lane X measured why
 this must be a **rule** and not a parser: `--stat` accepts `-z` and **ignores
 it**, and patch headers C-quote regardless. Under §5.4 none of those commands is
 run at all, so the rule is now cheap to keep: **the only rendered path forms in
@@ -2625,7 +2909,7 @@ if current != baseline:
 
 **No git command that could execute a repository-supplied program runs before
 this gate passes** — only the identity resolution of §5.8.2A, whose fallback
-`rev-parse` variants are measured clean on all three armed surfaces. That is
+`rev-parse` variants are measured clean on all four armed surfaces. That is
 ZI-20, and it is the
 whole safety argument for the PREPARE checkout: **the checkout can only execute a
 repository-configured program if that program was in the trusted baseline.**
@@ -3213,7 +3497,11 @@ one that would silently corrupt identity.
 | **ZM-D3** move `PathIdentityUnrepresentable` back above the policy rows | `test_unrepresentable_path_does_not_preempt_policy_violation` |
 | **ZM-D4** drop the unrepresentable path instead of failing | `test_unrepresentable_path_in_scope_fails_closed` |
 | **ZM-D5** parse paths out of the composed patch header | `test_paths_only_from_two_producers` (AST) + `test_hostile_names_survive_the_whole_pipeline` |
-| **ZM-D6** split `ls-tree -z --long` on the last TAB | `test_base_tree_snapshot_matches_ls_tree_for_hostile_names` |
+| **ZM-D6** split `ls-tree -z` on the last TAB | `test_base_tree_snapshot_matches_ls_tree_for_hostile_names` |
+| **ZM-D7** *(new)* restore `--long` to the default `ls-tree` argv | `test_base_tree_argv_has_no_long_flag` **and** `test_absent_base_object_executes_nothing` (the S-δ sentinel, with its positive control) |
+| **ZM-D8** *(new)* drop `GIT_NO_LAZY_FETCH=1` from `_git_env` | `test_absent_base_object_executes_nothing` |
+| **ZM-D9** *(new)* drop `-c core.hooksPath=<empty>` from the argv policy | `test_worktree_add_executes_no_planted_hook` (positive control: the same argv without the pin **must** fire) |
+| **ZM-D10** *(new)* disarm S-δ by blanking `extensions.partialClone` / `remote.*.promisor` instead of `GIT_NO_LAZY_FETCH` | `test_absent_base_object_executes_nothing` — **measured: both still fire** |
 | **ZM-E1** run the admin capture after `worktree add` | `test_unreconciled_admin_state_refuses_before_worktree_add` |
 | **ZM-E2** capture with `git config --list` | `test_admin_capture_runs_no_git_command` |
 | **ZM-E3** treat a missing baseline as "trust current" | `test_missing_baseline_refuses` |
@@ -4603,6 +4891,8 @@ observe it.** All are fixed, and the pattern is the reason this gate exists.
 | **revision 3's own Appendix A.2** | **armed three sentinels and drew a four-sentinel conclusion** — `reference-transaction` was never armed, so *"executes nothing"* was a negative result from an experiment that could not have produced a positive one | §5.4.1 (S-γ), Appendix A.2's methodological correction. **This is the first occurrence inside this document's own measured appendix, one page after it recorded the same hazard about somebody else's probe.** |
 | **revision 3's `test_no_git_presentation_command_after_worker_launch`** | asserted `subcommand == "cat-file"` for every FINALIZE row while the design itself keeps B2's post-worker `rev-parse` — **the test could not pass against the pipeline it guarded** | §5.4.5 (B-1) |
 | **revision 3's two documentation mutants** | bare string-absence scans, **red on day one** against quotations of the deleted text; the only route to green was to weaken them | §11.6 (N-4) — structural primary, string tripwire secondary |
+| **revision 4's own "structural property of object-store reads"** | the paragraph reasoned from *category* — object reads are local, therefore inert — with **no experiment behind it at all**, and it was **false**: `cat-file --batch` and `ls-tree --long` execute the worker's transport program via promisor lazy fetch (S-δ). It was written **in the same revision** that added S-γ after the identical mistake | §5.4.1 — the paragraph is **quoted and deleted**; the repertoire is measured on four surfaces; PIN 1 added. **Fourth occurrence of the shape, and the second inside this document.** |
+| **revision 4's "Z-4 closes PREPARE structurally, pending measurement"** | *"structural"* was asserted of a mechanism **nobody had run**; when it was run, the fire-nothing state proved **unusable** and every usable state **fired** | §5.5.5(c) — **retired, not rescued** |
 
 ### 10.4 A probe hazard that must not be rediscovered
 
@@ -4981,6 +5271,24 @@ acceptance rather than assumed:
 > worker-influenced" until that row reads zero.** *(Escalated as Z3-AMB-1,
 > §18.3.)*
 
+**Three additions to that row, from Lane Z5, each of which would otherwise let
+Wave 0 declare a closure it has not built:**
+
+1. **The row must be produced by `test_no_direct_git_subprocess_in_src`, not by a
+   subcommand-string grep.** `git.py:776` is a `subprocess.run(["git","diff",…])`
+   outside `_run_git` that a subcommand scan over `_run_git`'s call sites cannot
+   see (§5.4.5). **The test is red against `HEAD` today**; the row cannot read
+   zero until it is green.
+2. **PIN 1 and PIN 2 are Wave 0 deliverables, not documentation.** **Zero
+   `-c key=value` occurrences exist in `src/**` today** and `GIT_NO_LAZY_FETCH`
+   is not set anywhere. **Until both ship, the post-worker `cat-file` is a live
+   S-δ execution vector**, and Wave 0 must not claim the repertoire is safe on
+   the strength of §5.4.3's table alone — that table was measured *with* the pins.
+3. **The acceptance report must name the surface count it was measured against —
+   four — and must not describe the closure as structural.** The word has been
+   used twice for claims that were later falsified (§10.3), and an acceptance
+   report is exactly where it would be inherited without re-derivation.
+
 ---
 
 ## 13. Backward compatibility summary
@@ -5205,7 +5513,7 @@ resolve named plainly rather than force-mapped.**
 
 | # | Decision | Resolved in | Status |
 |---|---|---|---|
-| **Y-1** | What actually closes Tier-0 `filter.*` execution (S-1)? | **§5.4** (the whole *class* of presentation commands is deleted, not hardened), **§5.4.1** (two surfaces), **§5.4.3** (three commands measured clean on both), **§5.4.6** (**the killer test `filter.*` never had, with a mandatory positive control**), **§12.2** (the content primitive is in Wave 0) | **RESOLVED — and the finding is worse than S-1 recorded.** `git diff --name-only -z` — revision 2's own authoritative tracked-path source — **fires the filter**, measured independently by two lanes. So the vector was *inside Wave 0's own inventory*, ordered by §8 before the row that would report it. **After the worker launches the dispatcher runs exactly two git commands: `cat-file` and B2's `rev-parse --verify HEAD^{commit}` — both measured clean on all three armed surfaces, no presentation command.** Revision 3 claimed *one* and was false in its own text; the claim and its journal test are corrected in §0.2 and §5.4.5, **not** the command. The residual is named in §12.6. |
+| **Y-1** | What actually closes Tier-0 `filter.*` execution (S-1)? | **§5.4** (the whole *class* of presentation commands is deleted, not hardened), **§5.4.1** (**four** surfaces after Z5), **§5.4.3** (the permitted set measured clean on all four, under two enumerated pins), **§5.4.6** (**the killer test `filter.*` never had, with a mandatory positive control**), **§12.2** (the content primitive is in Wave 0) | **RESOLVED — and the finding is worse than S-1 recorded.** `git diff --name-only -z` — revision 2's own authoritative tracked-path source — **fires the filter**, measured independently by two lanes. So the vector was *inside Wave 0's own inventory*, ordered by §8 before the row that would report it. **After the worker launches the dispatcher runs exactly two git commands: `cat-file` and B2's `rev-parse --verify HEAD^{commit}` — both measured clean on all four armed surfaces, `cat-file` only because PIN 1 closes S-δ, no presentation command.** Revision 3 claimed *one* and was false in its own text; the claim and its journal test are corrected in §0.2 and §5.4.5, **not** the command. The residual is named in §12.6. |
 | **Y-2** | Bind `phase` to the tracker; add the loud cross-check; add mutant A-i (S-2) | **§3.1.3** (the parameter is **deleted**, not bound), **§3.1.7**, **§3.1.8**, **§4.11** | **RESOLVED, and stronger than asked.** Y-2 asked for the guard to read the tracker; revision 3 **removes the parameter entirely**, so there is no literal to get wrong. **Y-2's item 2 is refined rather than copied**, and the reason is measured: Y-2's cross-check (*"PREPARE + task state ∈ {CREATED, ROUTED, RUNNING, RESUME_REQUESTED} → loud"*) has a **real false positive**, because closing Z2-G-F2 requires a *legitimate* PREPARE refusal (`ResumeNotPermittedFromState`) precisely when the state is `RUNNING`. **A flag that fires on routine refusals is worse than no flag.** The substituted contradiction — *PREPARE while this execution already holds a reservation or a handle* — is impossible by monotonicity and has no false positive. |
 | **Y-3** | Absolute suppressed set, or pre/post delta (S-3 / OQ-B6)? | **§5.6**, **§5.5.7** | **RESOLVED — and SUPERSEDED: neither.** There is **no suppressed set and no ignore query at all**. `changed_paths` is the difference between two **ignore-blind** dispatcher-owned snapshots, so `.venv` is in neither delta and collapses to `unchanged_count`, **an int that cannot become a path list**. This is strictly stronger than a delta: nothing can remove a path because nothing is consulted. **OQ-B6 is deleted.** Z3's F5 case (a new file inside an already-ignored directory) is caught trivially, and Z1's case — **a modification to an already-existing ignored file**, Sol's explicit §C requirement — is caught too, which a delta over a *path set* could not express. |
 | **Y-4** | Which rule governs a pre-Gate-7 run directory (S-4)? | **§7.6** (H-I1…H-I3), **§7.6.3** (the claim-coverage theorem), **§7.14** | **RESOLVED.** A run directory with no `reservation.json` is **LEGACY** — not `ORPHANED`, no claim, **not modified, not one byte**. Reconciliation is **claim-driven** and **never walks `state/tasks/**`**. Revision 2's contradictory `COMPLETE`/`ORPHANED` sentence is **deleted**. Measured basis: all five existing tasks are populated and **none is in `RUNNING`** — revision 2 would have written five `ORPHANED` claims and **permanently closed production** the moment the freeze lifted. |
@@ -5252,8 +5560,11 @@ executes a worker-chosen **smudge filter** and a `post-checkout` hook, from a
 hardening does not stop the smudge.** **PREPARE is not trusted by virtue of
 preceding the worker; it is *made* trusted by §5.8's raw preflight running
 first.** This revision resolves it by ordering (§5.8 is step 0; `worktree add` is
-step 3; step 3 is gated on step 0) and specifies `dispatcher_raw` materialisation
-as the structural alternative. **Sol must confirm the ordering is the intended
+step 3; step 3 is gated on step 0) **and by PIN 2 on the argv**. Revision 3 and 4
+also offered `dispatcher_raw` materialisation as a *structural* alternative;
+**Z5 retired that claim (§5.5.5(c)), and ordering alone is now known to be
+insufficient — a worker-set `core.hooksPath` survives the dispatcher deleting the
+hooks directory (§5.5.5(a)).** **Sol must confirm the ordering is the intended
 reading, because it changes §5.8 from a *detection* section into a *precondition*
 section.**
 
@@ -5298,13 +5609,14 @@ confirm the deletion is intended.
 **Z1's `REQUIRES-PROBE` list — and the honest one at the end.** Each is
 **reasoned, not measured**, and must not be integrated as though it were:
 **(0) RETIRED by the third review:** `worktree list --porcelain`,
-`rev-parse --absolute-git-dir` and `--git-common-dir` are now **measured clean on
-all three armed surfaces** with a positive control and are **permitted**
-(§5.4.3); (2) `dispatcher_raw`
-materialisation is untested **from the worker's side**; (3) the dispatcher-composed
-unified diff has **not** been validated against `git apply` for the four §9 edge
-cases — **a genuine new risk that must be retired before Wave B**;
-(4) submodules; (5) reftable ref storage (git ≥ 2.45) and its refusal path;
+`rev-parse --absolute-git-dir` and `--git-common-dir` are **measured clean on all
+four armed surfaces** with a positive control and are **permitted** (§5.4.3);
+**(2) RETIRED by Z5 — negatively:** `dispatcher_raw` materialisation was untested
+from the worker's side; it has now been tested from the worker's side and **it
+does not work** (§5.5.5(c)); **(3) RETIRED by Z5 — positively:** the
+dispatcher-composed unified diff **is** accepted by `git apply --check` and
+applies byte-exactly for every §9 edge case, subject to three measured format
+constraints (§5.5.8); (4) submodules; (5) reftable ref storage (git ≥ 2.45) and its refusal path;
 (6) `st_ctime_ns` forgery resistance; (7) the `sys.addaudithook` mechanism
 against this codebase's `asyncio.to_thread` model; (8) the HMAC-signed admin
 baseline — **a proposal about filesystem containment under a same-uid threat
@@ -5312,16 +5624,20 @@ model, not a measurement**; (9) the base-committed ignore matcher and its
 agreement corpus; (11) every measurement is **git 2.43.0 on this host**, and a
 git upgrade must re-run the Z-RULE-1 tests.
 
-> **(10) — the one Sol should weigh most, and it has now been PROVEN rather than
-> feared.** Revision 3 recorded Z1's caveat: *"S-α and S-β are the two surfaces I
-> know about, not the two that exist."* **The third review armed a third and it
-> fired: `git worktree add` executes `$GIT_COMMON_DIR/hooks/reference-transaction`
-> on a ref update, even with `--no-checkout`.** Three surfaces are armed now and
-> the permitted set is clean on all three. **The caveat stands unchanged for a
-> fourth**, and it is why §5.4.3's safety argument is *structural* (object-store
-> reads and ref resolution touch neither the working tree, the index, nor any ref
-> mutation) rather than an enumeration — and why widening the repertoire is a Sol
-> decision, not a convenience.
+> **(10) — the one Sol should weigh most. It has now been PROVEN TWICE.**
+> Revision 3 recorded Z1's caveat: *"S-α and S-β are the two surfaces I know
+> about, not the two that exist."* The third review armed a third and it fired
+> (**S-γ**: `worktree add` runs `reference-transaction` even with
+> `--no-checkout`). Revision 4 wrote that three were armed and appealed to a
+> *structural* argument for the rest. **Lane Z5 armed a fourth and it fired
+> (S-δ), and the structural argument it appealed to was the thing that turned
+> out to be false.**
+>
+> Four surfaces are armed and the permitted set is clean on all four **under two
+> enumerated pins**. **The caveat stands unchanged for a fifth**, and §5.4.3's
+> safety argument is now **an enumeration and nothing else** — there is no
+> structural claim left to hide behind, which is precisely why widening the
+> repertoire must remain a Sol decision rather than a convenience.
 
 ### 18.2 From the phase-and-ownership lane (Z2)
 
@@ -5417,25 +5733,75 @@ the choice; only the producer paragraph is.**
 
 **T-1 — the post-worker repertoire is `{cat-file, rev-parse}`** (B-1). This
 revision adopts the reviewer's recommendation: B2's post-worker check is a §2
-non-regression, `rev-parse --verify HEAD^{commit}` is measured clean on all three
-armed surfaces, and the correction belongs to the claim and the test rather than
+non-regression, `rev-parse --verify HEAD^{commit}` is measured clean on all
+**four** armed surfaces (S-δ added by Z5), and the correction belongs to the claim and the test rather than
 to the command. **Sol should confirm**, because the alternative — a `{cat-file}`
 FINALIZE set — is only reachable by deleting B2's post-worker verification, which
 reopens task `49231f6e`'s defect.
 
-**T-2 — S-γ, and whether a fourth surface must be probed before Wave 0** (B-2).
-Three surfaces are now armed and the permitted set is clean on all three. **Z1's
-caveat is no longer a caveat but a demonstrated fact**, so §18.5's attack item 1
-is answered *yes* for the third surface. **Sol should decide whether Wave 0 may
-begin on three armed surfaces plus a structural argument, or whether a systematic
-sweep of git's hook and program-invocation points is a Wave-0 precondition.**
+**T-2 — SUPERSEDED BY MEASUREMENT. The fourth surface exists.** (B-2, then Z5.)
+Revision 4 asked Sol whether Wave 0 could begin on **three** armed surfaces plus
+a structural argument. **Lane Z5 answered the empirical half before Sol answered
+the policy half: S-δ exists, and it fires on `cat-file --batch` and
+`ls-tree --long` — two commands the design had already permitted.** The
+"structural argument" that made three feel sufficient is the paragraph §5.4.1
+now quotes and deletes.
 
-**T-3 — Z-4's status, OPEN pending Lane Z5.** `dispatcher_raw` is demoted from
-*structural* to *gated*. Whether it regains structural status depends on Lane Z5's
-measurement of a fire-nothing materialisation path. **Sol should also rule on
-whether `-c core.hooksPath=<empty>` is acceptable in Z-4's argv** — it works
-(measured) but it is exactly the flag-hardening §5.5.5 rejects on principle, and
-adopting it would make Z-4 *gated by a flag* rather than *structural*.
+**What Sol must rule on is therefore narrower and sharper: Wave 0 may not begin
+on a structural argument at all, because the structural argument has now been
+falsified twice.** The remaining choice is between:
+(a) **four armed surfaces plus two enumerated pins (PIN 1, PIN 2), accepting that
+completeness is unproven**, or (b) **a systematic sweep of git's program- and
+hook-invocation points as a Wave-0 precondition.** This design implements (a)
+and states its residue in §5.4.1. **Sol should choose knowingly.**
+
+**T-2A — ratify PIN 1 and PIN 2 as global, non-optional invocation policy**
+(§5.4.3A). `GIT_NO_LAZY_FETCH=1` on **every** dispatcher git invocation, and
+`-c core.hooksPath=<empty dir>` on every **mutating** one. Both are exactly the
+flag-hardening §5.5.5 hoped to avoid; **both are now the only measured defence
+for their surface**, so the principle loses to the measurement. **Sol should
+ratify them explicitly**, because they are enumerated defences and the document
+must not present them as anything else.
+
+**T-2B — remove `--long` from the `ls-tree` argv** (§5.5.2). It is what arms
+S-δ. The cost is that `TreeEntry.blob_size` becomes `int | None`, and any size
+the design needs is fetched deliberately, per oid, under PIN 1. **Sol should
+confirm that no consumer requires a size for every entry**; §5.9.5 is the only
+site that reads one.
+
+**T-3 — CLOSED NEGATIVELY. Z-4 is RETIRED, not rescued.** Revision 4 demoted
+`dispatcher_raw` from *structural* to *gated* pending Z5. Z5 measured it: the
+fire-nothing state is **unusable by a real worker**, and **every** measured way
+to make it usable **fires** (§5.5.5(c)). **Its claim to close PREPARE
+structurally is withdrawn.** `dispatcher_raw` survives only as a configuration
+value that buys the raw-blob starting tree, with the same gate and the same pin
+as the default, and **no execution-safety benefit whatsoever**. **Sol needs only
+to ratify the retirement** — there is no longer a decision about whether
+`-c core.hooksPath=<empty>` makes it "gated rather than structural", because
+nothing about it is structural.
+
+**T-8 — commission the raw-DIRC index work, or close it permanently.** The one
+path that could make a fire-nothing materialisation *usable* is the dispatcher
+writing git's **index file itself in raw DIRC binary format**, with no git
+process. It is **NOT TESTED**: unspecified, unimplemented, unmeasured, and a
+substantial piece of new dispatcher-owned binary-format code that would have to
+track git's index versions. **This design claims nothing about its feasibility
+and does not adopt it.** **Sol should either commission a probe or close the
+idea**, so that a later lane does not rediscover it as an insight and build it
+under schedule pressure. *(Recommendation, non-binding: close it. PIN 2 already
+covers the surface, and a hand-written index is a new correctness liability in
+exchange for removing one enumerated flag.)*
+
+**T-9 — `git.py:776` is a live chokepoint bypass in the current tree.**
+`write_full_diff` calls `subprocess.run(["git", "diff", …])` **directly, outside
+`_run_git`**, so the §5.4.5 journal cannot see it and none of §5.4.3A's pins
+apply to it. It is a live instance of mutant **ZM-A5** sitting in `HEAD`.
+**Sol should confirm that fixing it is Wave-0 work**, because
+`test_no_direct_git_subprocess_in_src` (§5.4.6) is specified to **fail against
+the current tree** and this call site is its day-one killer. **Fixing it is not
+a refactor of convenience: until it routes through `_run_git`, the design's
+central claim about the post-worker repertoire is unenforceable by the mechanism
+the design names.**
 
 **T-4 — B-3's line, and `scope_check_base_ignored`.** ZI-25/26/27 draw the line at
 **creation is bulk, modification is not**. **Sol should confirm**, and confirm that
@@ -5455,11 +5821,14 @@ schedule pressure.**
 **T-6 — the widened repertoire** (N-1). `config --get remote.origin.url`,
 `rev-list --max-parents=0 HEAD` and `rev-parse --is-inside-work-tree` were **live
 in `src/**` and unlisted** while §5.4.3 called itself exhaustive; all three are
-measured clean on all three surfaces, as are the three `REQUIRES-PROBE` rows now
-retired. §5.4.3 says widening is a Sol decision. **Sol must ratify the widened set
-— with its measurements recorded — or order the identity producer rewritten.**
-**Lane Z5 is producing a definitive git-invocation × attack-surface matrix; this
-design adopts it as the repertoire's authority when it lands.**
+measured clean on all **four** surfaces, as are the three `REQUIRES-PROBE` rows
+now retired. §5.4.3 says widening is a Sol decision. **Sol must ratify the widened
+set — with its measurements recorded — or order the identity producer rewritten.**
+**Lane Z5's matrix has landed and §5.4.3 adopts it as the repertoire's
+authority.** N-1's argv are corrected there to the forms Z5 actually measured
+(`rev-list --max-parents=0 HEAD`, `config --get remote.origin.url`); Z5 also
+found **no call site in `src/**` for `rev-parse --is-inside-work-tree`, so it is
+dropped from the widening request rather than ratified.**
 
 **T-7 — promote `TaskStore.transition`'s compare-and-set from *recommended* to
 *required*?** §15.3 discloses in bold that concurrent-writer exclusion *"rests
@@ -5508,8 +5877,9 @@ is directive T.**
 
 **What the fourth review inherits:** three prior reviews (R-1…R-14, M-1…M-10;
 S-1…S-7, N-a…N-e, Y-1…Y-10; **B-1…B-4, N-1…N-7**), Lane U's capability probe,
-Lane X's adjacent-mechanism probe, **Lane Z5's PREPARE probe** (§5.5.5 is OPEN
-until it lands), three revision-3 drafting lanes, and this document.
+Lane X's adjacent-mechanism probe, **Lane Z5's PREPARE probe (`2569f31`, landed
+— §5.5.5 is CLOSED, negatively)**, three revision-3 drafting lanes, and this
+document.
 
 **The third review's own summary of what it found, carried so the fourth does not
 have to re-derive it:** *"a claim whose named killer test contradicts the pipeline
@@ -5521,14 +5891,24 @@ documented the failure mode of, one page earlier, about somebody else.
 
 **What it should attack hardest — the decisions most likely to be wrong:**
 
-1. **ANSWERED YES BY THE THIRD REVIEW, AND STILL LIVE FOR A FOURTH.** Revision 3
-   asked whether a structural argument plus **two** armed surfaces was enough. It
-   was not: **S-γ existed and `worktree add` fires on it.** Three are armed now,
-   the permitted set is clean on all three, and the safety argument remains
-   structural (object-store reads and ref *resolution* touch neither the working
-   tree, the index, nor any ref *mutation*). **The honest question for the fourth
-   review is the same question one surface later: is three enough, and what would
-   a systematic enumeration of git's program-invocation points cost?**
+1. **ANSWERED NO TWICE. ASK IT A THIRD TIME.** Revision 3 asked whether a
+   structural argument plus **two** armed surfaces was enough. It was not: S-γ
+   existed. Revision 4 asked the same question about **three**, and offered a
+   structural argument — *"object-store reads and ref resolution touch neither
+   the working tree, the index, nor any ref mutation"*. **That argument was
+   false**: S-δ makes an object-store read execute a worker-named transport
+   program, on the two commands the design permits. **Four are armed now, the
+   permitted set is clean on all four under PIN 1 + PIN 2, and there is NO
+   structural argument left — only an enumeration.** The question for the fourth
+   review is therefore not *"is four enough"* but: **what would a systematic
+   enumeration of git's program- and hook-invocation points cost, and is any
+   Wave-0 approval defensible without one?** *(The reviewer should assume a
+   fifth surface exists and try to name it. Suggested starting points, none of
+   them probed: `core.pager` / `GIT_PAGER` on any command that can paginate,
+   `credential.helper` on anything that can touch a remote, `diff.*.textconv`
+   and `diff.*.command` on any diff path, `core.editor` / `GIT_EDITOR`,
+   `uploadpack.packObjectsHook`, `safe.directory` interactions, and
+   `protocol.*.allow` with `ext::`.)**
 2. **The `ToolExecution` mechanism removes the parameter but keeps ~12 explicit
    `enter()` calls.** The failure *direction* is safe by construction. Is the
    failure *probability* better than the class marker it replaces, or has the
@@ -5539,8 +5919,11 @@ documented the failure mode of, one page earlier, about somebody else.
    PREPARE refusal on a large repository acceptable?
 4. **Z-2 (option A) makes the old side the pre-worker filesystem bytes.** If the
    checkout transform was itself hostile, the *starting state* is attacker-chosen.
-   §5.8 is the only thing standing there. Is that gate sufficient, or should
-   `dispatcher_raw` be the default despite being untested from the worker's side?
+   §5.8 is the only thing standing there. **The escape hatch revision 4 offered
+   here is now closed:** `dispatcher_raw` cannot be the default, because Z5
+   measured it from the worker's side and it does not work (§5.5.5(c)). **So the
+   question has no alternative answer left — is §5.8's gate sufficient, and if
+   it is not, what is?**
 5. **Reconciliation-time termination** (§7.8) is the first destructive act the
    dispatcher takes against a process it did not start in this lifetime. Is the
    *"the deadline is the caller's own contract"* argument sound?
@@ -5561,7 +5944,11 @@ All measurements read-only, in disposable `mktemp -d` repositories, git
 **`/home/dev/full-voice-agent` verified `06bfcd61` with exactly 11 dirty entries
 before and after every measurement. No worker, real or fake, was run against it.**
 
-### A.1 The two execution surfaces
+### A.1 The first two execution surfaces (S-α, S-β)
+
+> **The heading is kept as it was written, because the count in it was wrong.**
+> Revision 3 measured two, revision 4 added **S-γ** (A.2), and Lane Z5 added
+> **S-δ** (A.2A). This section measures the first two only.
 
 ```
 ===== poison = filter.myf.clean ONLY =====      ===== poison = core.fsmonitor ONLY =====
@@ -5627,6 +6014,104 @@ $ od -c < wt5/thing.dat
 > silently fixed, because a design whose central discipline is "a negative result
 > needs a positive control" must show its own violation of it.**
 
+### A.2A S-δ — promisor lazy fetch, the fourth surface (Lane Z5)
+
+Repository armed with `core.sshCommand`, `core.gitProxy` and an `ext::` remote,
+plus a **deleted base blob** so the object is genuinely absent:
+
+```
+POSITIVE CONTROL  fetch                         rc=128  EXEC:sshcommand-prog
+cat-file blob <missing>                         rc=128  EXEC:sshcommand-prog
+cat-file --batch  <missing>                     rc=0    EXEC:sshcommand-prog   <-- SILENT
+ls-tree -r -z --long <base>                     rc=0    EXEC:sshcommand-prog   <-- SILENT
+ls-tree -r -z <base>          [no --long]       rc=0    clean
+rev-parse --verify HEAD^{commit}                rc=0    clean
+
+--- attempted mitigations ---
+blank extensions.partialClone                   rc=0    EXEC  (still fires)
+blank remote.origin.promisor                    rc=0    EXEC  (still fires)
+blank fetch.negotiationAlgorithm                rc=0    EXEC  (still fires)
+GIT_NO_LAZY_FETCH=1                             rc=128  clean (whole column closed)
+```
+
+**Two of these commands — `cat-file --batch` and `ls-tree --long` — were on this
+design's permitted post-worker list, and two of them return `rc=0` while
+executing a worker-named program.** A caller checking only the return code sees
+success. `--long` is what arms `ls-tree`: it prints the blob **size**, which
+requires the **object**, which triggers the fetch. `ls-tree -r -z` without it
+reads only the tree.
+
+**PIN 1 = `GIT_NO_LAZY_FETCH=1`** on every dispatcher git invocation (§5.4.3A).
+Note the return code: the pin does not make the read succeed, it makes it
+**fail closed**. Config-blanking does not work and must not be substituted.
+
+### A.2B The four-surface repertoire matrix
+
+Every command in §5.4.3's permitted set, against all four surfaces armed
+simultaneously, each with its own positive control:
+
+| Command | S-α smudge | S-β fsmonitor | S-γ ref-txn | S-δ promisor |
+|---|---|---|---|---|
+| `ls-tree -r -z <commit>` *(no `--long`)* | clean | clean | clean | **clean** |
+| ~~`ls-tree -r -z --long`~~ | clean | clean | clean | **FIRES, silent, rc=0** |
+| `cat-file blob <oid>` | clean | clean | clean | **FIRES, rc=128** — permitted only under PIN 1 |
+| `cat-file --batch` | clean | clean | clean | **FIRES, silent, rc=0** — permitted only under PIN 1 |
+| `rev-parse --verify <rev>^{commit}` | clean | clean | clean | **clean** |
+| `rev-parse --absolute-git-dir` / `--git-common-dir` | clean | clean | clean | **clean** |
+| `worktree list --porcelain` | clean | clean | clean | **clean** |
+| `rev-list --max-parents=0 HEAD` | clean | clean | clean | **clean** |
+| `config --get remote.origin.url` | clean | clean | clean | **clean** |
+| `worktree add …` *(mutating; PREPARE only)* | clean w/ `-c core.fsmonitor=false` | clean w/ same | **FIRES** unless PIN 2 | clean |
+| **positive control** (`diff`, `fetch`, `git branch`) | **FIRED** | **FIRED** | **FIRED** | **FIRED** |
+
+**Every row's clean verdict is bounded by four armed surfaces. It is not a claim
+about a fifth.**
+
+### A.2C The fire-nothing materialisation, and why it is unusable
+
+```
+raw admin files + ls-tree/cat-file bytes, 28 hooks + 11 exec keys armed
+                                                        ZERO sentinels fired
+  worker view: git status  -> every tracked file listed  D  and  ??
+  worker edits a file, then git status                   UNCHANGED
+                          git diff                       EMPTY
+
+giving it an index:
+  read-tree BASE                                  rc=0  HOOK:post-index-change
+  GIT_INDEX_FILE=<tmp> read-tree BASE             rc=0  HOOK:post-index-change
+  update-index --index-info < stdin               rc=0  HOOK:post-index-change
+  GIT_INDEX_FILE=<tmp> read-tree + PIN 2          rc=0  clean
+
+per-worktree hook namespace:
+  $GIT_DIR/worktrees/<n>/hooks/reference-transaction   NOT OBSERVED (control fired)
+
+worker core.hooksPath survives dispatcher hook-dir deletion:
+  hooks dir deleted, worker core.hooksPath set    rc=0  WORKERHOOK:reference-transaction
+  same, via include.path indirection              rc=0  INCHOOK:reference-transaction
+  same, + PIN 2 on the argv                       rc=0  clean
+```
+
+**Raw-DIRC index written by the dispatcher: NOT TESTED** — see T-8.
+
+### A.2D `git apply` against dispatcher-composed patches
+
+```
+empty new file                 --check ok   apply ok   bytes match
+new file with content          --check ok   apply ok   bytes match
+path with spaces               --check ok   apply ok   bytes match
+path with newline (C-quoted)   --check ok   apply ok   bytes match
+delete to empty                --check ok   apply ok   bytes match
+
+rejected shapes (so the renderer never emits them):
+empty new file with @@ -0,0 +0,0 @@            corrupt patch
+empty new file without `new file mode`         no valid patch
+a/"new\nline.txt"  (quote inside the prefix)   rejected
+```
+
+git's own output for a spaced path appends a **trailing TAB** after
+`+++ b/<path>`; the **tab-less form applies identically**, and the renderer emits
+the tab-less form (§5.5.8).
+
 ### A.3 Checkout transform on an ordinary repository
 
 Committed `.gitattributes`: `* text eol=crlf` and `*.dat filter=lfsish`
@@ -5638,7 +6123,11 @@ blob bytes thing.dat    : p a y l o a d \n
 worktree bytes thing.dat: S M U D G E D : p a y l o a d \r \n
 ```
 
-### A.4 `ls-tree -r -z --long` path encoding, and the dispatcher-side blob oid
+### A.4 `ls-tree -r -z` path encoding, and the dispatcher-side blob oid
+
+*(measured with `--long`, before Z5 established that `--long` arms S-δ; the path
+encoding is unaffected by the flag — `--long` adds a size field to the head, not
+to the path)*
 
 Under `-z`, `café.txt` is raw `caf 303 251 . t x t \0`; `-c core.quotePath=false`
 produced **byte-identical** output. Without `-z`: `"caf\303\251.txt"`.
@@ -5757,7 +6246,30 @@ byte-identical, sha256 `e41ef3bd…d498e`, 1286 B.
 
 ---
 
-## Appendix C — Revision 4 change log
+## Appendix C — Revision 5 change log
+
+| Section | Change | Driver |
+|---|---|---|
+| header | revision 5; the **honest framing** the fourth reviewer is owed — *"closed structurally"* → *"closed by an enumerated, argv- and env-pinned defence on four measured surfaces, with no proof that four is all of them"*; the surface count has been wrong **twice** | Z5 |
+| §0 | **`NOT TESTED` / `NOT OBSERVED`** adopted as marked vocabulary, distinct from `REQUIRES-PROBE` | Z5 item 6 |
+| §5.4.1 | **S-δ — a fourth execution surface.** Revision 4's *"structural property of object-store reads"* paragraph is **quoted and deleted**; the count is corrected from three to four | Z5 item 2 |
+| §5.4.3 | repertoire matrix re-measured on **four** columns; `ls-tree --long` **struck**; `cat-file` rows permitted **only under PIN 1**; Lane X's TIER-0 table **corrected** — `core.sshCommand` / `core.gitProxy` are executed, not inert | Z5 item 2 |
+| §5.4.3A *(new)* | the **global git invocation policy** in one block: **PIN 1** `GIT_NO_LAZY_FETCH=1` on every invocation, **PIN 2** `-c core.hooksPath=<empty dir>` on every mutating one, with the measured caveats and the `GIT_CONFIG_KEY0` **NOT TESTABLE** note | Z5 items 1–2 |
+| §5.4.5 | the invocation journal is **blind** to `git.py:776` — a live `subprocess.run(["git","diff",…])` outside `_run_git` | Z5 item 3 |
+| §5.4.6 | **`test_no_direct_git_subprocess_in_src`** specified (AST over the whole tree), and stated to **fail against `HEAD`**, with `git.py:776` as the **day-one killer** | Z5 item 3 |
+| §5.5.2 | **`--long` removed** from `BaseTreeSnapshot`'s argv; `blob_size: int \| None`; the `ls-tree` parser no longer assumes a size field; **ZM-D7…ZM-D10** added | Z5 item 2 |
+| §5.5.5 | **rewritten.** (a) the ordering fix **does not work** — worker `core.hooksPath`, direct or via `include.path`, survives deleting `$GIT_COMMON_DIR/hooks`, and there is no per-worktree hooks namespace; **filesystem quarantine is not a defence, only argv pinning is**; (b) Z-3 revised to gate **and** pin; (c) **Z-4 RETIRED, not rescued** — fire-nothing only when unusable, usable only when it fires; (d) the exact default argv | Z5 item 1 |
+| §5.5.8 | the `git apply --check` **`REQUIRES-PROBE` is RETIRED** — every §9 edge case applies byte-exactly — and **three measured format constraints** become renderer rules | Z5 items 4–5 |
+| §10.3 | two new rows: revision 4's **own** falsified "structural property" paragraph, and its unmeasured "structural" claim for Z-4 | Z5 items 1–2 |
+| §10.4 | the `read-tree` probe hazard is worse than recorded — the `read-tree` itself fires | Z5 item 1 |
+| §18.1 | Z1's list: item (2) retired **negatively**, item (3) retired **positively**; caveat (10) *"proven twice"* | Z5 |
+| §18.3A | **T-2 superseded** (the fourth surface arrived before Sol's ruling); **T-2A** ratify PIN 1/PIN 2; **T-2B** remove `--long`; **T-3 closed negatively**; **T-6** corrected argv and `--is-inside-work-tree` dropped; **T-8** raw-DIRC index — commission or close; **T-9** `git.py:776` as Wave-0 work | Z5 items 1–3 |
+| §18.5 | attack item 1 rewritten: *answered NO twice*; **no structural argument remains**; seven un-probed candidate fifth surfaces named for the reviewer | Z5 |
+| Appendix A | **A.1** retitled (its count was wrong); **A.2A** S-δ measurements; **A.2B** the four-surface matrix; **A.2C** the fire-nothing/index dichotomy and the hooks-survival result; **A.2D** `git apply` results and the rejected shapes; **A.4** retitled | Z5 |
+
+---
+
+## Appendix C1 — Revision 4 change log (retained)
 
 | Section | Change | Driver |
 |---|---|---|
@@ -5770,7 +6282,7 @@ byte-identical, sha256 `e41ef3bd…d498e`, 1286 B.
 | §5.5.2 | B2's post-worker `rev-parse` stated **explicitly** as the second permitted post-worker command | B-1 |
 | §5.4.1 | **S-γ (ref update)** added as a third execution surface; "measured against BOTH" → **ALL THREE** | **B-2** |
 | §5.4.3 | three surfaces; three `REQUIRES-PROBE` rows **retired as clean**; three live-but-unlisted commands **added**; `read-tree` and `config --get` contradictions **resolved** | B-2, N-1, N-2 |
-| §5.5.5 | `# executes NOTHING` **deleted**; Z-4 **demoted from "structural" to "gated"**; **OPEN pending Lane Z5** | B-2 |
+| §5.5.5 | `# executes NOTHING` **deleted**; Z-4 **demoted from "structural" to "gated"**; **OPEN pending Lane Z5** *(closed negatively in revision 5)* | B-2 |
 | Appendix A.2 | **methodological correction** — what the experiment could and could not have detected, with the re-run and its positive control | B-2 |
 | §5.5.9, §5.5.9A, §5.6.5, §5.11.5 | **ZI-25/26/27** — a base-ignored path that is *modified* is represented **in full**, never rolled up, and is **scope-checked**; only bulk **creation** rolls up, and **the rollup clears `patch_file_complete`** | **B-3** |
 | §8, §12.1–§12.5, §17 Y-7 | **D-24** — the PREPARE mechanism and §8 row 0 **move into Wave 0** | **B-4** |
