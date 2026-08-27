@@ -1,0 +1,87 @@
+==============================================================================
+git binary  : /usr/bin/git
+git version : git version 2.43.0
+python      : 3.12.3
+uid         : 1000
+==============================================================================
+
+### A. WHERE DOES GIT PLACE THE MULTI-PACK-INDEX?
+    The design (revision 8) says objects/info/multi-pack-index.
+    Positive control: the file must EXIST somewhere after the write,
+    or the experiment measured nothing and is reported DEAD.
+
+  git multi-pack-index write
+    rc=0
+    new entries under objects/ : ['pack/multi-pack-index']
+    multi-pack-index found at  : ['pack/multi-pack-index']
+    CONTROL FIRED (file exists): True
+      under objects/info/ ? False
+      under objects/pack/ ? True
+  git repack -a -d --write-midx
+    rc=0
+    new entries under objects/ : ['pack/multi-pack-index']
+    multi-pack-index found at  : ['pack/multi-pack-index']
+    CONTROL FIRED (file exists): True
+      under objects/info/ ? False
+      under objects/pack/ ? True
+
+### B. WHAT ELSE LIVES IN objects/pack/ ?
+    Each sidecar is created by a real git command or a real file write.
+    Positive control: the entry must APPEAR, or the row is DEAD.
+
+  after repack --write-bitmap-index : ['pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.bitmap', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.idx', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.pack', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.rev']
+  after multi-pack-index write      : ['multi-pack-index', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.bitmap', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.idx', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.pack', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.rev']
+  after PLAIN FILE WRITES           : ['multi-pack-index', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.bitmap', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.idx', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.keep', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.mtimes', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.pack', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.promisor', 'pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.rev']
+  CONTROL FIRED (sidecars present)  : True
+  classification of every entry seen:
+    pack/multi-pack-index                                     matches loose-object shape? False
+    pack/pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.bitmap matches loose-object shape? False
+    pack/pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.idx    matches loose-object shape? False
+    pack/pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.keep   matches loose-object shape? False
+    pack/pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.mtimes matches loose-object shape? False
+    pack/pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.pack   matches loose-object shape? False
+    pack/pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.promisor matches loose-object shape? False
+    pack/pack-9cb2bbf18449564b7d9341a4c78d0c6f3485d0c8.rev    matches loose-object shape? False
+
+### C. SIZE-PRESERVING ALTERATION OF A BASELINE LOOSE OBJECT
+    This is F7-1. A name+size capture must MISS it; sha256 must CATCH it.
+
+  object                      : 01/2263f05b2e24775aadf5540b2e78997ff98b21
+  size before / after         : 117 / 117
+  SIZE IS UNCHANGED           : True
+  sha256 before               : 7d87cdb8b135c6165d48aeeb59245f7432aa92cc45778d3c1a0a411ef8ba0200
+  sha256 after                : 2af168743974255897db02b95a5c610325f701d9f657f8b2421707c842a590f9
+  DIGEST CHANGED              : True
+  name set unchanged          : True
+  => a capture of (sorted names + per-file size) is BYTE-FOR-BYTE
+     IDENTICAL before and after. It CANNOT detect this mutation.
+  git cat-file -p <oid>       : rc=128  error: inflate: data stream error (incorrect data check)
+error: corrup
+  CONTROL FIRED (git agrees the object is now broken): True
+
+### D. THE LITERAL LOOSE-OBJECT PATH SHAPE
+  loose object count          : 9
+  ALL match ^[0-9a-f]{2}/[0-9a-f]{38}$ : True
+  sample                      : ['01/2263f05b2e24775aadf5540b2e78997ff98b21', '15/a40aca621d2dc731ed2a28ba1726834459dbaf', '1b/0d418c5e0142b839223d1811f8f43811f5c1bf']
+  object format on this host  : sha1  (sha1 => 38 hex tail)
+  NOTE: a sha256 repository would give a 62-hex tail. The regex below is
+        therefore FAIL-CLOSED for sha256 repositories, which is stated
+        in the design rather than silently widened.
+  regex rejects    'ab/NOTHEX0000000000000000000000000000000000' : True
+  regex rejects      'abc/0000000000000000000000000000000000000' : True
+  regex rejects   'ab/0123456789abcdef0123456789abcdef012345678' : True
+
+### E. DOES ORDINARY MAINTENANCE REMOVE BASELINE LOOSE OBJECTS?
+    This prices clause 1: 'removal is divergence'.
+
+  loose before repack -a -d   : 9
+  loose after  repack -a -d   : 0
+  REMOVED                     : 9
+  CONTROL FIRED (repack really removed loose objects): True
+  => `git gc` / `git repack -d` in the PRIMARY repository is a
+     DIVERGENCE under clause 1. That is a real operational cost and
+     the design must state it, not discover it in production.
+
+==============================================================================
+END OF PROBE
+==============================================================================

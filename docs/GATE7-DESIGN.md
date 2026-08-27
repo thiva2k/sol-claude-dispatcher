@@ -2,7 +2,8 @@
 
 **Lifecycle, evidence and recovery integrity.**
 
-Status: **DESIGN — REVISION 8. NOT APPROVED FOR IMPLEMENTATION.**
+Status: **DESIGN — REVISION 9. NOT APPROVED FOR IMPLEMENTATION.**
+**REVISION 9 IS NOT SELF-APPROVED AND REQUIRES AN INDEPENDENT GATE 7 REVIEW.**
 
 Revision 1 (`d098d4b`) was independently reviewed (Lane W) → *APPROVED WITH
 REQUIRED CHANGES*, six blocking findings. Revision 2 (`619b63e`) applied Sol's
@@ -35,11 +36,12 @@ execution surface.** Revision 5 integrates it.
 > from reasoning. Nothing in this document should be read as asserting that the
 > enumeration is complete.
 
-> **NO SOURCE CODE MAY BE WRITTEN until a SEVENTH independent review returns
+> **NO SOURCE CODE MAY BE WRITTEN until an EIGHTH independent review returns
 > ZERO blocking findings and WAVE 0 APPROVED TO IMPLEMENT: YES.** That is
 > directive T, its mandate is **§21**, and it is not discretionary. **Wave 0 has
-> not begun and this revision does not claim its approval.** The production freeze
-> remains absolute.
+> NOT begun, is NOT approved, and this revision does not claim its approval.**
+> **Revision 9 repairs three blockers; repairing blockers is not approval, and a
+> revision may not approve itself.** The production freeze remains absolute.
 
 Revision 5 (`d197bf08`, pushed and verified as `origin/main`) received a
 **fourth** independent review: **F-1 … F-7**. Sol accepted it and issued
@@ -155,6 +157,17 @@ non-blocking findings **N6-1 … N6-7**. Sol accepted the verdict and ruled.
 **Revision 8 is an ARCHITECTURE-ONLY CLOSURE REVISION: it repairs those twelve
 findings, applies Sol's rulings, and changes nothing else.**
 
+Revision 8 (`9a55546`, pushed and verified as `origin/main`) received a
+**seventh** independent review: **REJECTED**, exactly three blocking findings
+**F7-1 … F7-3**. **Revision 9 repairs those three and nothing else.** All three
+were the same shape — **a specification that could not be implemented from the
+evidence beside it**: a digest predicate over a capture that recorded only names
+and sizes; an append-only class named by a *directory* that turned out to hold
+administrative metadata, with the `multi-pack-index` recorded at a path git does
+not use; and a claim resting on a probe whose own printed control said it proved
+nothing. **Each repair is backed by a probe committed in the same commit, with
+its output preserved and its positive control printed.**
+
 > ### WHAT THE SIXTH REVIEW VERIFIED, AND WHAT REVISION 8 THEREFORE DOES NOT TOUCH
 >
 > Post-worker **`{}`** on the dispatch path — **VERIFIED, by two mechanisms that
@@ -184,6 +197,71 @@ findings, applies Sol's rulings, and changes nothing else.**
 > in this revision, and superseded prose is removed rather than preserved beside
 > its replacement.**
 
+### What revision 9 changes — THREE BLOCKERS, AND NOTHING ELSE
+
+**Revision 9 is a surgical repair of the seventh review's three blocking
+findings.** No section outside §5.8.2, §5.8.3, §5.4.3A's `PATH` box and their
+reconciled downstream references is touched. **No wave, no mechanism, no new
+architecture.** **Wave 0 has not begun, is not approved, and this revision does
+not claim it is.**
+
+**All three findings had the same shape, and it is worth naming before the
+table:** *a specification that could not be implemented from the evidence beside
+it.* F7-1's predicate needed a digest the capture never produced. F7-2's
+append-only class was named by a **directory** rather than by a measured
+property, and the directory contained administrative metadata. F7-3's claim
+rested on a probe whose own printed control said it proved nothing.
+
+| Blocker | The repair | Where | Evidence |
+|---|---|---|---|
+| **F7-1** — §5.8.2 recorded **sorted names and sizes**; ZI-86 required **byte-identity by digest**; the named killer had to read a field that did not exist | **the `ObjectEntry` record: `relative_path` · `entry_type` · `size` · `sha256_digest`, on every protected path.** Clause 2 is now conjunctive over type, size **and** digest. **Directories, symlinks and other entry types are specified explicitly and fail closed**; a read error sets `capture_incomplete` and is a divergence, never an absence | **§5.8.2C** (new), §5.8.2, ZI-86 clause 2, §16 | **MEASURED, control fired:** a one-bit flip leaves `size` **117 → 117** and the name set identical while sha256 changes; `git cat-file` then reports the object corrupt at `rc=128`. **A name+size capture is byte-for-byte identical across that mutation** |
+| **F7-2** — append-only covered all of `objects/pack/`, which holds `multi-pack-index`, `*.promisor`, `*.keep`, `*.bitmap`, `*.rev`, `*.mtimes`; and the spec put the multi-pack-index under `objects/info/` | **append-only is narrowed to regular files matching exactly `^objects/[0-9a-f]{2}/[0-9a-f]{38}$`.** **ALL of `objects/pack/**` becomes exact bidirectional equality.** Clause 4 refuses every other new path, **including a symlink whose name matches the shape perfectly**. **`multi-pack-index` is reclassified at its real location** | **ZI-86** (rewritten), §5.8.2, the class table, the comparison algorithm, §16, A.2S | **MEASURED, control fired, BOTH creation routes:** `git multi-pack-index write` → **`objects/pack/multi-pack-index`**; `git repack -a -d --write-midx` → the same; **`objects/info/` receives nothing.** A capture watching `objects/info/` would never have seen the file. **`.keep`, `.promisor` and `.mtimes` were created by PLAIN FILE WRITES with no git process** |
+| **F7-3** — `exp8_path.py`'s positive control is dead (`PATH=<shimdir>` alone, and the shim calls external `touch`/`cat`), yet revision 8 claimed a corrected run that was never committed | **the revision-8 claim is DELETED, and Lane Z18's repaired experiment REPLACES it with a measurement in which BOTH LEGS FIRE.** **Its two boundary legs NARROW the claim rather than confirming it** — see the box below. **The four propositions that never depended on the broken probe are preserved and each is now measured:** the allowlist closes **inherited environment variables**; it does **not** close **displaced argv `git -c`**; **ZI-71 remains required**; **T-40 requires absolute git executable resolution** | §5.4.3A, A.2T, **A.2V**, §16, §18.3D, §2 | **Lane V reproduced the DEAD control verbatim** (`commissioning/gate7-v9-probes/exp8_path_rerun.out`), then **Lane Z18 repaired it** (`2d35172`): leg A `filter_EXECUTED=True`, leg C `False`, **and legs D and E both `True`** |
+
+> **Revision 9 adds three escalations that did not exist before its measurements
+> were run.** **T-41 — A CHOICE FOR SOL, NOT A NOTE:** Lane Z18 built a real
+> `--object-format=sha256` repository and measured a **62-character** loose tail,
+> so **the specified regex refuses EVERY loose object in such a repository, on
+> the first dispatch.** Sol must choose between admitting both digest lengths and
+> refusing SHA-256 at onboarding with a named error; **shipping as written
+> produces a refusal that names the WRONG CAUSE**, which is worse than a refusal.
+> **T-42:** `git repack -a -d` removes **all nine** loose objects, so **ordinary
+> git maintenance is a clause-1 divergence requiring an operator re-baseline** —
+> accepted deliberately, because the alternative is exempting deletions and
+> losing ZI-60. **T-43:** a `--filter` clone over `file://` on 2.43.0 **does not
+> write `extensions.partialClone`**, so no predicate may key on it alone.
+
+> ### THE TWO Z18 MEASUREMENTS THAT NARROW WHAT REVISION 9 MAY CLAIM
+>
+> **Both fired; both are boundaries, not confirmations, and neither may be
+> over-read:**
+>
+> **Leg D — with the allowlist in force and NO `PATH` in the child, a repository
+> config naming the smudge program by an ABSOLUTE PATH still executed it.**
+> **Dropping `PATH` closes BARE-NAME RESOLUTION; it does NOT close the filter
+> surface.** T-40's justification is written in exactly those terms throughout
+> this revision. ***"The allowlist closes filter drivers" is measured FALSE.***
+>
+> **Leg E — with the allowlist in force, no `PATH`, and a CLEAN repository
+> config, one displaced `-c` before the pin block executed an attacker-named
+> program.** **This is the direct measurement that ZI-71 is not retired by the
+> allowlist** — Z17 measured the displaced-`-c` hazard against a config *value*;
+> **Z18 measures it against a program EXECUTION.**
+>
+> **And one `NOT TESTED`, flagged rather than assumed:** whether this design's
+> repository-configuration seal closes leg D. **The probe grants the worker
+> config control in order to arm its own positive control, so it cannot also
+> measure the seal that would remove that control.** The design's claim is that
+> `PREPARE_ADMIN_GATE` catches a planted `filter.*.smudge` at R6 before any
+> checkout — **and that claim is the design's, not Z18's.**
+
+> **Every experimental claim added by revision 9 has a probe in source control
+> and its output beside it** — `commissioning/gate7-v9-probes/exp_objects.py`
+> with `exp_objects.out`, and `exp8_path_rerun.out`. **Every row carries a
+> positive control and the probe prints whether it fired.** **No row in this
+> revision reports PASS on a control that did not fire**, which is the failure
+> F7-3 exists to punish.
+
 ### What revision 8 changes
 
 | Blocker | Sol's ruling | The repair, and where |
@@ -211,7 +289,7 @@ not confirm the F6-2 and F6-4 repairs — it CORRECTED them.**
 | **220 `GIT_*` names swept in three columns; five survive revision 7's denylist, ZERO survive the allowlist; 157 of 220 ungoverned, fourteen measured to change a row or execute** | ZI-85's generated test is re-specified over **220** names **with a mandatory `GIT_DIR`-through-a-bypassed-allowlist control**. **`GIT_ALLOC_LIMIT`/`GIT_MMAP_LIMIT` — one number in an operator profile, all nine rows to `rc=128` — appear in no revision-7 list and in none of the six reviews** |
 | **`GIT_PROXY_COMMAND` measured EXECUTING A PROGRAM through revision 7's denylist** | **Review 4's N-6, open four revisions, is DISCHARGED — and was under-described the entire time as a config read.** §10.3 gains the row |
 | **The `GIT_CONFIG_*` hazard SPLITS: the environment half disappears; the argv half is untouched** | **ZI-71 is NOT retired.** §5.4.3A carries an explicit trap box, because *"the env hazard is gone, so the pin block can relax"* is the most likely wrong thing a reader will do with this result |
-| **`PATH` is an OWED DEFECT, not a candidate entry.** Dropping it works here only because git is inside `os.defpath`; admitting it re-opens a `.gitattributes` filter-driver EXECUTION surface PIN 2 does not close | **T-40 — resolve the git binary to an absolute path once at start-up.** New, owed, `UNMEASURABLE` |
+| **`PATH` is an OWED DEFECT, not a candidate entry.** Dropping it works here only because git is inside `os.defpath` (**control fired**); admitting it is argued to re-open a `.gitattributes` filter-driver execution surface PIN 2 does not close — **and REVISION 9 WITHDRAWS the measurement behind that second half: F7-3, the control did not fire** | **T-40 — resolve the git binary to an absolute path once at start-up.** New, owed, `UNMEASURABLE`. **The `os.defpath` half stands; the filter-driver half awaits Lane Z18** |
 | **`checkout -b` has FIVE false positives, and the deny costs three legitimate HEAD-neutral file restores** | **T-38's pattern is four Bash prefixes** (`checkout`, `switch`, `symbolic-ref`, `update-ref`); **the `git restore` sentence in `prompts/worker-policy.md` is a HARD PRECONDITION shipping in the same commit**; and **the deny is stated plainly as NOT a boundary** — Z17 broke it six ways, one with no git process at all |
 
 **Z17 reported five of its own control failures rather than fixing them quietly**
@@ -312,9 +390,11 @@ items, carried for Sol.
 | Author | Lane V (integrator). **This lane wrote no `src/**`, no `tests/**`.** |
 | Drafting lanes | **Z1** (evidence authority, §A–F) · **Z2** (phase & ownership, §G–J, §P) · **Z3** (structure & policy, §K–S, Y-mapping) |
 | Probes | `GATE7-CAPABILITY-PROBE.md` (U) · `GATE7-V1-ADJACENT-PROBE.md` (X) · `GATE7-Z5-PREPARE-PROBE.md` (Z5) · `GATE7-Z7-SEALING-PROBE.md` (Z7) · **`GATE7-Z12-DETACHED-PROBE.md` (Z12, scripts at `commissioning/gate7-z12-probes/`)** |
-| Reviews | `GATE7-DESIGN-REVIEW.md` (W) · `-2.md` (Y) · `-3.md` (Z4) · `-4.md` (Z6) · `-5.md` (Z11) — REJECTED · **`-6.md` (Z16) — REJECTED, F6-1 … F6-5, N6-1 … N6-7** |
+| Reviews | `GATE7-DESIGN-REVIEW.md` (W) · `-2.md` (Y) · `-3.md` (Z4) · `-4.md` (Z6) · `-5.md` (Z11) — REJECTED · `-6.md` (Z16) — REJECTED, F6-1 … F6-5, N6-1 … N6-7 · **seventh review — REJECTED, exactly three blockers F7-1 … F7-3** |
 | Drafting lanes (rev 6) | **Z8** sealing · **Z9** attribution · **Z10** policy |
 | Drafting lanes (rev 7) | **Z13** identity/pins/orders (§1, §2, §10–§12, §15–§18) · **Z14** detached/`.git`/snapshots (§3–§6) · **Z15** Fable/matrix/Y-9/Y-10 (§7–§9, §13, §14, §19) |
+| Measuring lane (rev 9) | **Lane Z18 — LANDED at `2d35172f3863a8afc2216d6f13738db1539d03c2`**, fifteen files under `commissioning/gate7-z18-probes/` (three probes, `run.sh`, `environment.txt`, `exit-codes.txt` all **0**, complete stdout+stderr per probe, `Z18-EVIDENCE.md`). It repaired F7-3's dead control — **both legs now fire** — measured the multi-pack-index location with **three cross-checks**, enumerated **nine** pack classes, and demonstrated the size-preserving alteration **with an arming leg first**. **It also found two boundary facts that NARROW what this document may claim (legs D and E) and one incidental correction (T-43).** |
+| Own probes (rev 9) | **`commissioning/gate7-v9-probes/` — `exp_objects.py` and its committed output** (multi-pack-index location, pack sidecars, the size-preserving alteration, the loose-object shape, and the cost of clause 1), **plus `exp8_path_rerun.out`**, Lane V's verbatim re-run of the committed Z17 probe reproducing F7-3. **Every row prints whether its positive control fired.** |
 | Measuring lane (rev 8) | **Lane Z17, `GATE7-Z17-ENV-ALLOWLIST.md` — LANDED, probes `8ba92b7` under `commissioning/gate7-z17-probes/`.** It owns ZI-85's allowlist membership (**MEASURED EMPTY**) and T-38's deny pattern (**four Bash prefixes, three restores collaterally denied**). **It also discharged review 4's N-6 — `GIT_PROXY_COMMAND` measured EXECUTING A PROGRAM through revision 7's denylist — and reported five of its own control failures rather than fixing them quietly.** |
 | Published probes | **Z5, Z7, Z12 and Z17 are published and cited.** **Where a probe and a draft disagree, the PROBE governs and the disagreement is recorded, not smoothed** — and in revision 7 that rule fired four times (§10.3). |
 | Installed clients | Claude Code **2.1.237**, Codex CLI **0.149.0** |
@@ -920,8 +1000,10 @@ repository at the authorized realpath is a different repository than the one the
 approval was granted against — the whole checkout was replaced.* That is caught at
 **R6**, not by identity: `PREPARE_ADMIN_GATE` compares the whole raw capture
 against an operator-established baseline, and a wholesale replacement moves
-`$GIT_COMMON_DIR/config`, `packed-refs`, the `refs/**` listing and the
-`objects/pack/` listing. It lands `RepositoryAdministrationUnreconciled` at **row
+`$GIT_COMMON_DIR/config`, `packed-refs`, the `refs/**` listing and **every
+`ObjectEntry` under `objects/pack/**`, which is EXACT BIDIRECTIONAL EQUALITY
+under ZI-86 — so a replaced pack set diverges on addition as well as on
+removal.** It lands `RepositoryAdministrationUnreconciled` at **row
 0, before any git process** — strictly earlier and strictly rawer than the graph
 walk it replaces.
 
@@ -2889,6 +2971,18 @@ promisor remote unreachable, GIT_NO_LAZY_FETCH=1:
 > still fired.** A defence that disarms the promisor *configuration* rather than
 > the *fetch* does not work; only refusing to fetch does.
 >
+> **AND A SECOND REASON NOT TO KEY ON THE CONFIGURATION, MEASURED IN REVISION 9
+> (T-43):** Lane Z18 verified twice that a `--filter` clone over `file://` on
+> 2.43.0 **does not write `extensions.partialClone` at all** — the signals
+> actually written are `core.repositoryformatversion=1`,
+> `remote.origin.promisor`, `remote.origin.partialclonefilter` and
+> `objects/pack/*.promisor`. **Z7 independently measured the same absence**
+> (Appendix: `extensions.partialClone : (none)` beside `remote.origin.promisor :
+> true`). **So a predicate keyed on `extensions.partialClone` alone would read
+> "not a partial clone" on a repository that IS one.** **§5.4.1A's raw
+> precondition reads the promisor signals as well, so it is correct in
+> substance** — but no new predicate may be written against that key alone.
+>
 > **PIN 2 — `-c core.hooksPath=<empty dir>` on every invocation.** Measured to
 > neutralise **every one of the 28 hooks**, with a negative control. `/dev/null`
 > and a nonexistent path behave identically; **the directory need not exist.** It
@@ -3381,42 +3475,101 @@ falsifies something rather than where it is convenient:**
   failed at connect before any credential prompt) and Z17 reported that rather
   than scoring the row.
 
-> ### THE `PATH` DEFECT — OWED, AND IT IS NOT AN ARGUMENT FOR ADMITTING `PATH`
+> ### THE `PATH` SURFACE — F7-3, NOW MEASURED BY LANE Z18 WITH BOTH LEGS FIRING
 >
-> **Dropping `PATH` does not break `exec` HERE only because `/usr/bin/git` lies
-> inside CPython's `os.defpath` (`/bin:/usr/bin`).** Z17's positive control fired:
-> a copy of the binary placed outside `defpath` gave `rc=0` with `PATH` admitted
-> and **`FileNotFoundError` with `PATH` denied.**
+> **Revision 8 asserted this from a probe whose own printed control said
+> `filter_EXECUTED=False` on every leg, and cited a corrected run that was never
+> committed. The seventh review was right to reject it.** **Lane Z18 has now
+> repaired and re-run the experiment. Its evidence is committed at
+> `2d35172f3863a8afc2216d6f13738db1539d03c2` — fifteen files under
+> `commissioning/gate7-z18-probes/`: the probes, `run.sh`, `environment.txt`,
+> `exit-codes.txt` (all four **0**), a complete stdout and stderr per probe, and
+> `Z18-EVIDENCE.md`.** *(The `.stderr.txt` files are 0 bytes and that IS the
+> complete stderr — each probe captures git's stderr into its own transcript.)*
 >
-> **On a host where git is installed outside `/bin:/usr/bin` — `/usr/local/bin`,
-> Homebrew, Nix, conda, an `asdf`/`mise` shim — an allowlist that drops `PATH`
-> makes EVERY DISPATCH FAIL at the first git command.** This document records that
-> as a **defect it owes a fix for (T-40)**, not as a caveat.
->
-> **The fix is NOT to admit `PATH`**, because admitting it **re-opens an execution
-> surface PIN 2 does not close.** PIN 2 pins `core.hooksPath`; it does **not**
-> neutralise in-tree `.gitattributes` **filter drivers**, which run during the
-> `worktree add` checkout and are resolved as shell command strings — hence
-> through `PATH`. Z17's measurement, with PIN 2 applied on every leg:
+> **VERBATIM, from `exp8b_path_fixed.stdout.txt`:**
 >
 > ```
->   worktree add, PATH = <shimdir>:<system>   rc=0  filter EXECUTED = TRUE   <-- CONTROL FIRED
->   worktree add, PATH = <system> only        rc=0  filter EXECUTED = False
->   worktree add, PATH DENIED  (allowlist)    rc=0  filter EXECUTED = False
+> [A]  POSITIVE CONTROL — hostile PATH admitted, built-ins-only shim
+>      PATH='/tmp/z18bin.ebp4u3j5' · filter.z18.smudge='z18filter'
+>      argv[0]='/usr/bin/git' (absolute)
+>      -> rc=0  filter_EXECUTED=True   f.txt='HOSTILE_SMUDGE_RAN'
+> [A2] POSITIVE CONTROL 2 — measured-absolute shim (pass-through)
+>      -> rc=0  filter_EXECUTED=True   f.txt='payload'
+> [C]  DEFENDED CONTROL — final child env (allowlist, NO PATH) + absolute git
+>      PATH='(ABSENT)' · filter.z18.smudge='z18filter'
+>      -> rc=0  filter_EXECUTED=False  f.txt='payload'
+>      stderr[0]: error: cannot run z18filter: No such file or directory
 > ```
 >
-> **Under this threat model the worker controls both halves of that fixture** —
-> the committed `.gitattributes` and the repository config naming the driver. And
-> separately, `PATH` in the child makes any `git <word>` that is not a builtin a
-> **program lookup**: Z17 ran a planted `git-z17probe` at `rc=0` with `PATH`
-> admitted, `rc=1` with it denied.
+> **The repair that made the control fire:** shim A uses **only `dash`
+> built-ins**, so it needs nothing on `PATH`; shim B uses `/usr/bin/touch` and
+> `/usr/bin/cat` **measured at run time**. Revision 8's shim called bare `touch`
+> and `cat` with `PATH` set to the shim directory alone, so **the marker the
+> harness read could never be written** and all three legs collapsed to `False`.
 >
-> **T-40 — resolve the git binary to an absolute path ONCE at start-up**
-> (`shutil.which("git")` against the **dispatcher's** environment), record it in
-> the sealed identity record (§5.4.3B ORDER 4), journal it, and **refuse at the
-> gate if it cannot be resolved.** That converts a hidden dependency on an
-> un-admitted variable into a declared, journalled, one-time fact — **the same
-> move §1A makes for the graph walk.** **NOT IMPLEMENTED; `UNMEASURABLE` in §16.**
+> **AND A SECOND DEFECT NOBODY NAMED, WHICH IS THE MORE IMPORTANT ONE: THE
+> ORIGINAL PROBE EXITS 0 WITH ITS CONTROL DEAD.** It printed *"the first leg MUST
+> show `filter_EXECUTED=True`, or this experiment proves nothing"* — **as prose,
+> to a human, and then returned success to the shell.** Nothing mechanical
+> distinguished it from a probe that worked. **Z18's replacement exits `2` if leg
+> A does not fire and `3` if leg C is breached**, and the dead original is
+> preserved unmodified at `exp8_ORIGINAL_dead_control.stdout.txt`. **A control
+> that is only checked by a reader is not a control** — that is the general
+> lesson, and it applies to every probe this gate has accepted.
+
+> ### THE TWO BOUNDARY MEASUREMENTS — READ THESE BEFORE RE-STATING WHAT THE ALLOWLIST CLOSES
+>
+> **Both are MEASURED, both fired, and both narrow the claim revision 8 would
+> have made:**
+>
+> ```
+> [D] allowlist (NO PATH), repo config names the smudge program by an ABSOLUTE PATH
+>     filter.z18.smudge = '/tmp/z18bin.ebp4u3j5/z18filter'
+>     -> rc=0  filter_EXECUTED=True   f.txt='HOSTILE_SMUDGE_RAN'
+>
+> [E] allowlist (NO PATH), repo config CLEAN, one DISPLACED argv element before the pin block
+>     displaced: ['-c','filter.z18.smudge=/tmp/z18bin…/z18filter','-c','filter.z18.required=false']
+>     -> rc=0  filter_EXECUTED=True   f.txt='HOSTILE_SMUDGE_RAN'
+> ```
+>
+> **LEG D — DROPPING `PATH` CLOSES BARE-NAME RESOLUTION. IT DOES NOT CLOSE THE
+> FILTER SURFACE.** Write T-40's justification in exactly those terms and no
+> wider. **"The allowlist closes filter drivers" is FALSE and is measured false**
+> — a smudge command naming its program absolutely runs with no `PATH` in the
+> child at all. What the empty allowlist removes is the attacker's ability to
+> have a **bare name** resolved for them.
+>
+> **LEG E — THIS IS THE DIRECT MEASUREMENT THAT ZI-71 IS NOT RETIRED BY THE
+> ALLOWLIST.** With a perfect allowlist, no `PATH`, and a **clean repository
+> config**, a single displaced `-c` before the pin block executes an
+> attacker-named program. **Z17 measured the displaced-`-c` hazard against a
+> config VALUE; Z18 measures it against a PROGRAM EXECUTION.** **`PIN_BLOCK` as a
+> closed, ordered, terminal prefix with `GitArgvPinDisplaced` is the only thing
+> standing there, and it must not be relaxed on the strength of the allowlist
+> result.**
+>
+> > **`NOT TESTED`, and flagged rather than assumed: whether this design's
+> > repository-configuration seal closes leg D.** The probe **grants the worker
+> > config control in order to arm its own positive control**, so it **cannot
+> > also measure the seal that would take that control away.** §5.8's
+> > `PREPARE_ADMIN_GATE` hashes `$GIT_COMMON_DIR/config` and prints every
+> > `filter.*.{clean,smudge,process}` key to the operator at baseline time, and
+> > **the intended reading is that a worker-planted absolute-path smudge is a
+> > divergence at R6 before any checkout** — **but that is the design's claim,
+> > not Z18's measurement, and the two must not be conflated.** It is recorded
+> > here as `NOT TESTED` with the reason, and it is the sharpest single
+> > experiment a later lane could run.
+
+> ### WHAT SURVIVES, AND WHAT IS NOW MEASURED RATHER THAN ARGUED
+>
+> | Proposition | Status after Z18 |
+> |---|---|
+> | The allowlist closes **inherited environment variables** | **MEASURED (Z17).** Nine rows byte-identical under `env -i`; 220 names swept; zero survive. Untouched by F7-3 |
+> | The allowlist does **NOT** close **displaced argv `git -c`** | **MEASURED TWICE.** Z17 leg (e) on a config value; **Z18 leg E on a PROGRAM EXECUTION** |
+> | **`ZI-71` remains REQUIRED** | **strengthened.** Leg E is a direct execution through a displaced `-c` with everything else defended |
+> | **`T-40` requires absolute git executable resolution** | **MEASURED, and its justification is NARROWED.** Z18: bare `argv[0]='git'` survives an absent `PATH` **only because git lies inside `os.defpath` on this host** — `rc=0` with the parent `PATH` emptied. **A host property, not a guarantee.** The reason is portability plus removing bare-name resolution — **NOT** "the allowlist closes filters", which leg D falsifies |
+> | Admitting `PATH` re-opens a `.gitattributes` filter-driver **EXECUTION** surface PIN 2 does not close | **MEASURED (Z18 legs A and B).** Leg A executed the shim through an admitted hostile `PATH` **with PIN 2 in force on every leg**; leg B, ordinary `PATH`, did not resolve it. **This is the claim revision 8 could not support and revision 9 can** |
 
 > ### AND THE TRAP: THE ALLOWLIST'S SUCCESS DOES NOT RETIRE ZI-71
 >
@@ -3450,7 +3603,7 @@ falsifies something rather than where it is convenient:**
 > revision 7's attack vector 4 exactly as it was measured.** This paragraph exists
 > because that is the most likely wrong thing a reader will do with Z17's result.
 
-> ### Z17 REPORTED FIVE OF ITS OWN CONTROL FAILURES RATHER THAN FIXING THEM QUIETLY
+> ### Z17 REPORTED FIVE OF ITS OWN CONTROL FAILURES — AND THE SEVENTH REVIEW FOUND A SIXTH IT REPORTED AS REPAIRED WHEN IT WAS NOT
 >
 > Carried because the discipline is the reason the results above are usable, and
 > because the caveats are part of the result:
@@ -3471,6 +3624,17 @@ falsifies something rather than where it is convenient:**
 >   permitted row**. Scored `NOT ATTEMPTED`.
 > - **`GIT_ATTR_NOSYSTEM` and `GIT_TRACE_PACKET` are `NOT ATTEMPTED`** — the first
 >   needs root to create `/etc/gitattributes`, the second a live transport.
+> - **AND THE SIXTH, FOUND BY THE SEVENTH REVIEW RATHER THAN BY Z17 — F7-3.**
+>   Z17 recorded the `PATH` filter-driver control as **dead and then re-armed**
+>   *("leg 1 `filter_EXECUTED=True`, control fired")*. **The committed probe is
+>   the DEAD version, the re-armed probe and its output were never committed,
+>   and Lane V's verbatim re-run reproduces `False` on all three legs.**
+>   **The claim is WITHDRAWN in revision 9 and Lane Z18 owns the repair.**
+>   **This is the sharpest available lesson about the difference between
+>   reporting a control failure and repairing one:** Z17's five disclosures were
+>   exemplary and made its results trustworthy, and the sixth item — the one it
+>   said it had FIXED — is the one that was wrong. **A disclosed failure is
+>   safer than an undisclosed repair.**
 >
 > ### AND ONE Z17 TABLE THAT MUST NOT BE READ AS IF IT PROVED SOMETHING
 >
@@ -7058,7 +7222,7 @@ under a `subprocess.Popen` audit hook.
 | filters / diff drivers | every `filter.*.{clean,smudge,process}`, `diff.*.{textconv,command}`, `diff.external` | key, value, source file |
 | index bits (report only) | `<gitdir>/index` | hash + `mtime_ns` + size. **Not parsed** — ZI-19 makes the flags irrelevant; the hash exists so "the index moved" is visible. |
 | worktree registrations | `$GIT_COMMON_DIR/worktrees/*/{gitdir,commondir,HEAD}` | contents |
-| **transport and promisor keys** | any config reached above | `remote.*.url`, `url.*.insteadOf`, `extensions.partialClone`, `remote.*.promisor`, `remote.*.partialclonefilter`, `core.alternateRefsCommand`, `credential.helper` — **recorded and PRINTED VERBATIM to the operator** (see below) |
+| **transport and promisor keys** | any config reached above | **`core.repositoryformatversion`** *(MEASURED in revision 9 to be one of the four signals a `--filter` clone actually writes, where `extensions.partialClone` is NOT — T-43)*, `remote.*.url`, `url.*.insteadOf`, `extensions.partialClone`, `remote.*.promisor`, `remote.*.partialclonefilter`, `core.alternateRefsCommand`, `credential.helper` — **recorded and PRINTED VERBATIM to the operator** (see below) |
 | **`.git` indirection** | `<worktree>/.git` **and** `<root>/.git` | **`lstat` MODE BITS** (the classification) · **`shape ∈ {directory, gitfile, symlink, other}`** · raw bytes + sha256 **IF AND ONLY IF `shape == "gitfile"`** · **`readlink` raw bytes IF `shape == "symlink"`** · resolved gitdir realpath · **`(st_dev, st_ino)` of the resolved gitdir**. **`is-file-or-dir` is DELETED as a field name AND as a concept: it is a two-valued field describing a four-valued world, and it is what made the symlink invisible. A boolean where an enum belongs is the shape of this bug** |
 | **worktree gitdir `HEAD`** | `<gitdir>/HEAD` | raw bytes · sha256. **NEW — was allowlisted** |
 | **the sealed worktree authority** | `<gitdir>/HEAD`, `<gitdir>/commondir`, `<gitdir>/gitdir`, and the gitdir's own `(st_dev, st_ino)` | raw bytes · sha256 · mode bits · **inode identity**. **B2's eight comparisons read these and nothing else** (§5.5.2C) |
@@ -7071,11 +7235,12 @@ under a `subprocess.Popen` audit hook.
 | **`info/grafts`** | `$GIT_COMMON_DIR/info/grafts` | raw bytes + sha256. **NEW — MEASURED live on 2.43.0, forges the root commit** |
 | **`packed-refs`** | `$GIT_COMMON_DIR/packed-refs` | full bytes + hash. **NEW** — a worker `pack-refs --all` moves the chain without moving a value |
 | **`refs/` listing** | `$GIT_COMMON_DIR/refs/**` and `<gitdir>/refs/**` | names + per-file sha256. **NEW** |
-| **object presence** | `$GIT_COMMON_DIR/objects/pack/` listing (names + sizes) and the 256 loose-object fan-out directory listings | sorted raw names + per-file size. **NEW — this is what makes a deleted base blob DETECTABLE rather than INFERRED** (§5.12) |
+| **object entries — loose** | every entry under `$GIT_COMMON_DIR/objects/` that is **not** under `objects/pack/` or `objects/info/` | **an `ObjectEntry` PER ENTRY: `relative_path` · `entry_type` · `size` · `sha256_digest`** (§5.8.2C). **REVISION 9: revision 8 recorded sorted names + sizes, and ZI-86 requires byte-identity by DIGEST. MEASURED, control fired: a one-bit flip in a loose object leaves `size` 117 → 117 and the name set identical while the sha256 changes — a name+size capture is PROVABLY BLIND to it** (F7-1, Appendix A.2U). Still **what makes a deleted base blob DETECTABLE rather than INFERRED** (§5.12) |
+| **object entries — pack and its sidecars** | every entry under `$GIT_COMMON_DIR/objects/pack/`, whatever its extension | **the same `ObjectEntry` per entry.** `.pack`, `.idx`, `.rev`, `.bitmap`, `.keep`, `.promisor`, `.mtimes`, **`multi-pack-index`**, and anything unrecognised. **MEASURED: `.keep`, `.promisor` and `.mtimes` are created by PLAIN FILE WRITES with no git process at all** (F7-2, Appendix A.2U) |
 | `shallow` | `$GIT_COMMON_DIR/shallow`, `<gitdir>/shallow` | raw bytes + sha256 |
 | **cached parentage, single-file** | `$GIT_COMMON_DIR/objects/info/commit-graph` **and each gitdir's** | **raw-bytes sha256** + `st_size` + `st_mode`. **`MEASURED — FIRES`** |
 | **cached parentage, split chain** | `objects/info/commit-graphs/commit-graph-chain` **and EVERY `objects/info/commit-graphs/graph-*.graph`** | **the sorted listing AND a sha256 PER FILE.** **`MEASURED — FIRES`** |
-| **multi-pack index** | `objects/info/multi-pack-index`, `multi-pack-index-*.bitmap` | sorted listing + per-file sha256. **`NOT TESTED` as a substitution vector — no experiment exists.** Protected on **uniformity**, not on a measurement. **T-30** |
+| **multi-pack index** | **`$GIT_COMMON_DIR/objects/pack/multi-pack-index`** and `objects/pack/multi-pack-index-*.bitmap` | `ObjectEntry` per file. **REVISION 9 CORRECTS THE PATH. Revisions 5–8 placed this file under `objects/info/`, and that is WRONG on git 2.43. MEASURED, both creation routes, control fired: `git multi-pack-index write` → `pack/multi-pack-index`; `git repack -a -d --write-midx` → `pack/multi-pack-index`; `objects/info/` receives NOTHING** (F7-2, Appendix A.2U). **A capture watching only `objects/info/` would never have seen this file at all**, which is a capture defect and not only a wording defect. Still **`NOT TESTED` as a substitution vector** — no experiment exists; protected on **uniformity and its REAL location**, not on a substitution measurement. **T-30** |
 | `modules/**` (submodule admin) | `$GIT_COMMON_DIR/modules/**` | **`NOT ATTEMPTED` — testable with a synthetic superproject, deliberately not run because neither host repository has a submodule and a synthetic negative would prove nothing about production.** Escalated as **T-18** |
 
 > ### THE PER-FILE CONTENT HASH IS THE MECHANISM; THE LISTING IS NOT — AND HERE IS WHY
@@ -7465,6 +7630,140 @@ of this very section to read as permission — the same discipline §1A.6 applie
 the manifest's `identity_check` string. **The availability cost of the refusal is
 `NOT ATTEMPTED` (T-35): the disk scan is forbidden by the hard lines.**
 
+#### 5.8.2C The `ObjectEntry` record — the capture ZI-86's predicate can actually be implemented from
+
+> **F7-1, and it is a capture defect rather than a wording defect.** Revision 8's
+> object row recorded **sorted filenames and per-file sizes**. ZI-86 clause 2
+> requires baseline objects to remain **byte-identical**, and
+> `test_altered_baseline_object_refuses` was specified to assert *"over the
+> recorded **digest**, not `st_size`"* — **a digest the capture never produced.**
+> **The predicate could not be implemented from the specified capture**, and the
+> named killer would have had to read a field that did not exist.
+
+**MEASURED TWICE, INDEPENDENTLY, BOTH WITH THEIR CONTROLS FIRED.** Lane Z18's
+is the stronger of the two because it **arms the detector first** — and it is the
+citation of record: `2d35172f3863a8afc2216d6f13738db1539d03c2`,
+`commissioning/gate7-z18-probes/exp10_loose_object.stdout.txt`:
+
+```
+object       : 9fc7f661153c7971be5eec436e495430e5e9f581      file size 41 B  mode 0444
+
+--- ARMING LEG: a SIZE-CHANGING alteration. The name+size detector MUST
+    catch this, or its silence below means nothing. ---
+  appended 1 byte -> size 41 -> 42
+  detector differs from golden: True   -> ARMED (control FIRED)
+  restored; sha256 back to golden: True
+
+--- THE LEG UNDER TEST: a SIZE-PRESERVING byte alteration ---
+  byte offset 20 of 41: 0xc8 -> 0x37   (XOR 0xFF, length unchanged)
+  path unchanged     : True
+  size  41 -> 41     identical: True
+  mode  0444 -> 0444 identical: True
+  mtime_ns           identical: True
+  sha256 2aafef80… -> 57f4a00e…   identical: False
+
+  NAME+SIZE detector       : SILENT — the alteration is INVISIBLE to it
+  NAME+SIZE+MTIME detector : SILENT   (mtime restored by the same actor)
+  SHA256-of-bytes detector : FIRED
+```
+
+> **The arming leg is what makes the silence mean something.** A detector that
+> reports "no difference" is worthless until it has been shown to report a
+> difference on the same fixture. **`mtime_ns` is also measured identical** —
+> because the actor that edits the file can restore it — **so a capture cannot
+> escape this by adding `mtime`, and revision 9 does not add one.**
+
+**Lane V's independent second measurement** (Appendix A.2U,
+`commissioning/gate7-v9-probes/exp_objects.py`) reproduces the same result on a
+different object with a different mutation:
+
+```
+object                      : 01/2263f05b2e24775aadf5540b2e78997ff98b21
+one bit flipped in the last byte of the zlib stream
+size before / after         : 117 / 117        SIZE IS UNCHANGED : True
+sha256 before               : 7d87cdb8…0200
+sha256 after                : 2af16874…90f9   DIGEST CHANGED    : True
+name set unchanged          : True
+git cat-file -p <oid>       : rc=128  error: inflate: data stream error
+                                      CONTROL FIRED — git agrees it is corrupt
+```
+
+> ### GIT DETECTS THIS TOO — BY A DIFFERENT MECHANISM, AND THE DIFFERENCE MATTERS
+>
+> `git cat-file` returns `rc=128` and `git fsck` returns `rc=1` on the mutated
+> object, **because a loose object's NAME IS ITS CONTENT HASH.** **That is not
+> the capture's mechanism and the capture must not lean on it** — the gate is
+> specified to run **no git command at all** (§5.8.2), so "git would have
+> noticed" is unavailable to it by construction.
+>
+> **And the same fact retires a question rather than leaving it open:**
+> substituting **valid, different, well-formed content at an unchanged loose
+> path** is **`NOT ATTEMPTED` because it is ARITHMETICALLY EXCLUDED** — it would
+> require a SHA-1 preimage. **That is a different label from `NOT TESTED`, and
+> the distinction is the point: nobody needs to run it.**
+
+> **A capture of `(sorted names + per-file size)` is byte-for-byte identical
+> before and after that mutation.** The gate's `!=` returns `False`. **The
+> repository is corrupt and the gate says reconciled.**
+
+##### The record
+
+Every protected object path — loose, packed, and every pack sidecar — is
+captured as **one `ObjectEntry`**, and **no comparison anywhere in this design
+may read fewer than all four fields**:
+
+| Field | Type | How it is obtained | Why it is load-bearing |
+|---|---|---|---|
+| `relative_path` | `str`, POSIX separators, relative to `$GIT_COMMON_DIR/objects/` | directory walk | identity of the entry; **removal and addition are both differences of the path SET** |
+| `entry_type` | `Literal["regular", "directory", "symlink", "other"]` | **`lstat`, never `stat`** | **a symlink that resolves to the right bytes is NOT the same entry as a regular file with those bytes.** This is ZI-80's `lstat`-first rule applied to the object store |
+| `size` | `int` (`st_size`) | `lstat` | **kept, and it is NOT the mechanism.** It is a cheap first-difference and an operator-legible number. **Clause 2 does not pass on size** |
+| `sha256_digest` | `str`, 64 lowercase hex, or `None` **only** when `entry_type != "regular"` | `hashlib.sha256` over `open(path,"rb").read()` | **THE MECHANISM.** It is the only field that detects a size-preserving alteration |
+
+**Digest of the FILE BYTES, not of the object.** The dispatcher does **not**
+inflate the zlib stream, does not parse a loose-object header, and does not ask
+git for the oid. **It hashes the file exactly as it lies on disk.** *(That is why
+a corrupt object is still capturable: the probe's mutated object is unreadable by
+`git cat-file` at `rc=128` and its `ObjectEntry` is produced without difficulty.
+A capture that had to inflate would fail on precisely the file it most needs to
+record.)*
+
+##### Directories and non-regular entries — FAIL-CLOSED, stated explicitly
+
+**F7-1 requires directory and symlink handling to be stated rather than left to
+an implementer.** It is:
+
+1. **Directory entries are RECORDED, never followed as content.** A directory
+   gets `entry_type="directory"`, `sha256_digest=None`, and `size` as reported by
+   `lstat`. The walk **descends** into it, so its children are recorded as their
+   own entries.
+2. **`entry_type` is obtained by `lstat`, so a symlink is classified as a
+   symlink** and **never resolved**. `sha256_digest` is `None`;
+   **`readlink` raw bytes are recorded in a separate `link_target_bytes`
+   field for the operator.** **The digest is NOT taken through the link** —
+   hashing the target would let a redirected symlink present the right bytes.
+3. **Any entry that is neither regular, directory, nor symlink is
+   `entry_type="other"`** — FIFOs, sockets, device nodes — with
+   `sha256_digest=None`, and it is a **divergence on sight** at any path where
+   the baseline had a regular file, and a **divergence on sight anywhere it is
+   new**, because no legitimate git operation creates one.
+4. **A read error is never a missing entry.** `PermissionError`, `OSError`, a
+   file that disappears mid-walk, or a digest that cannot be computed sets
+   **`capture_incomplete = True`**, which is treated as a **divergence
+   (fail-closed)** by the same rule §5.8.2 already applies to
+   `parse_incomplete`. **"We could not read it" must never compare equal to "it
+   was not there."**
+5. **`entry_type` change at an existing path is a divergence in ITSELF**, before
+   any digest is consulted — a baseline regular file that is now a symlink
+   **refuses even if the link resolves to identical bytes.**
+
+> **What this record does NOT establish.** It proves the *file* did not change.
+> **It does not prove the OBJECT the file encodes is the object git will serve** —
+> `refs/replace/**`, `info/grafts`, alternates and the commit-graph all change
+> what a name resolves to without touching a byte in `objects/`. **That class is
+> closed by the routing rows at exact equality, by PIN 1 / PIN 3 / PIN 4, and by
+> the §5.5.2A seal — not by this record, and this record does not borrow their
+> credit.**
+
 #### 5.8.3 The trusted baseline, the FOUR captures, and the gate
 
 ##### `pre_run` named two different captures, and the design asserted both
@@ -7617,47 +7916,157 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 > `worktree remove --force` **and** `worktree prune`, **three loose objects
 > survive**.
 
-> ### INVARIANT ZI-86 — THE R6 EQUIVALENCE RELATION IS APPEND-ONLY FOR CONTENT-ADDRESSED OBJECTS AND EXACT EQUALITY FOR EVERYTHING ELSE
+> ### INVARIANT ZI-86 — APPEND-ONLY IS SCOPED TO VALID LOOSE OBJECT PATHS AND NOTHING ELSE. EVERY OTHER CLASS, INCLUDING ALL OF `objects/pack/**`, IS EXACT BIDIRECTIONAL EQUALITY.
+>
+> **REVISION 9 NARROWS THIS INVARIANT. Revision 8 gave append-only treatment to
+> all of `objects/pack/`, and `objects/pack/` is NOT content-addressed storage.**
+> It holds `multi-pack-index`, `*.promisor`, `*.keep`, `*.bitmap`, `*.rev` and
+> `*.mtimes` — **administrative and routing metadata, three of which a worker
+> creates with a plain file write and no git process at all** (MEASURED,
+> Appendix A.2U). **Revision 8 therefore violated its own adopted rule** — *only
+> content-addressed objects get append-only; routing and administrative classes
+> require exact equality — in the same invariant that states it.**
 >
 > `current != baseline` means exactly this, class by class, and **nothing in the
-> gate is decided by a filename prefix**:
+> gate is decided by a filename prefix or an extension guess**:
 >
 > | Capture class | Relation | Keyed on |
 > |---|---|---|
 > | `config`, `config.worktree`, `include.path` targets, attributes, excludes, hooks, `core.hooksPath` dir, fsmonitor / filter / diff keys | **EXACT EQUALITY** | nothing; total |
-> | `objects/info/alternates`, `http-alternates`, `objects/info/` **listing**, `refs/replace/**`, `info/grafts`, **cached parentage** (`commit-graph`, `commit-graphs/**` per file, `multi-pack-index`) | **EXACT EQUALITY** | nothing; total |
+> | `objects/info/**` — `alternates`, `http-alternates`, the directory listing, `commit-graph`, `commit-graphs/**` per file | **EXACT EQUALITY** | nothing; total |
+> | `refs/replace/**`, `info/grafts` | **EXACT EQUALITY** | nothing; total |
+> | **ALL of `objects/pack/**`** — **all NINE classes MEASURED — OBSERVED by Lane Z18** (`2d35172`), each with the command that produced it: `*.pack` · `*.idx` · `*.rev` *(**default** on 2.43.0, not opt-in)* · `*.bitmap` · `*.mtimes` *(cruft repack)* · `*.keep` · `*.promisor` · **`multi-pack-index`** · `multi-pack-index-*.bitmap`; **and every unrecognised sidecar** | **EXACT BIDIRECTIONAL EQUALITY of the `ObjectEntry` SET** | nothing; total. **NEW, REVISION 9** |
 > | `packed-refs`, `<common>/refs/**`, `<gitdir>/refs/**`, `shallow` | **EXACT EQUALITY** | nothing; total |
 > | `worktrees/*/` registrations | **EXACT EQUALITY of the set of worktree ids the dispatcher's own `state.json` does NOT account for**, plus exact equality of every file under an unaccounted id | **the dispatcher's own durable task records — PROVENANCE, not naming** |
-> | **`objects/` loose fan-out listings and `objects/pack/`** | **APPEND-ONLY** | **the file-type class, not a name** |
+> | **loose object paths matching `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` and REGULAR** | **APPEND-ONLY, under the four clauses below** | **the LITERAL PATH SHAPE plus `entry_type == "regular"` — the ONLY append-only class in this design** |
 > | `<gitdir>/index`, `logs/**` | **REPORT ONLY** (unchanged) | the class |
 >
 > ### APPEND-ONLY, DEFINED SO AN IMPLEMENTER CANNOT GUESS WRONG
 >
-> For the object classes, `current` reconciles with `baseline` **if and only if**:
+> Write **`L`** for the set of paths matching **exactly**
+> `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` whose `entry_type` is `"regular"`.
+> **`L` is the entire domain of append-only.** `current` reconciles with
+> `baseline` **if and only if all four clauses hold**:
 >
-> 1. **Every object name in `baseline` is PRESENT in `current`** — a name in
->    `baseline` and absent from `current` is **`RepositoryAdministrationUnreconciled`,
->    NOT retryable.** *(This is what preserves ZI-60's deleted-base-blob
->    detection.)*
-> 2. **Every object present in both is BYTE-IDENTICAL** — same size, same
->    recorded digest. **An altered object at an existing name REFUSES.**
-> 3. **A name in `current` and absent from `baseline` is ALLOWED AND REPORTED.**
->    It is enumerated in the run's administrative record and in the gate report's
->    `new objects` row. **Allowed is not silent.**
+> 1. **Every baseline entry is PRESENT at its path, whatever its class.** A
+>    baseline `relative_path` absent from `current` is
+>    **`RepositoryAdministrationUnreconciled`, NOT retryable** — for a loose
+>    object, for a pack, for a sidecar, for a routing file. *(This preserves
+>    ZI-60's deleted-base-blob detection.)*
+> 2. **Every entry present in both retains its `entry_type`, its `size` AND its
+>    `sha256_digest`.** All three, conjunctively. **A type change refuses before
+>    the digest is consulted; a size-preserving byte alteration refuses on the
+>    digest.** **No comparison in this design may rely on `relative_path` and
+>    `size` alone** — that combination is MEASURED blind (§5.8.2C).
+> 3. **A path in `current` and absent from `baseline` is ALLOWED AND REPORTED IF
+>    AND ONLY IF it is in `L`** — regular file, exactly two lowercase hex, `/`,
+>    exactly thirty-eight lowercase hex. It is enumerated in the run's
+>    administrative record and in the gate report's `new objects` row.
+>    **Allowed is not silent.**
+> 4. **EVERY OTHER NEW PATH IS A DIVERGENCE.** A new file under
+>    `objects/pack/`, a new `multi-pack-index`, a new `*.promisor`, `*.keep`,
+>    `*.bitmap`, `*.rev` or `*.mtimes`, a new `objects/info/` entry, a new
+>    `refs/replace/**` entry, a new `commit-graph` layer, a new `packed-refs`
+>    line — **all refuse.** And **inside `objects/` itself**: a new path whose
+>    fan-out name is not exactly two hex, whose tail is not exactly thirty-eight
+>    hex, **or whose `entry_type` is `directory`, `symlink` or `other`, refuses**
+>    — including a **symlink whose name matches the shape perfectly.**
 >
-> **All routing and administrative authority remains EXACT EQUALITY**, in both
-> directions, including addition. **A new file under `objects/info/`, a new
-> `refs/replace/**` entry, a new `commit-graph` layer or a new `packed-refs` line
-> is a DIVERGENCE, not an append.** The append-only relation is scoped to
-> **content-addressed object storage and nothing else.**
+> **The append-only relation is scoped to content-addressed loose object storage
+> and nothing else. NO routing or administrative class receives append-only
+> treatment, in either direction.**
+>
+> ### THE REGEX HAS A MEASURED GAP, AND IT IS ESCALATED RATHER THAN PATCHED
+>
+> **`[0-9a-f]{38}` is the SHA-1 tail, and Lane Z18 MEASURED what it does to a
+> SHA-256 repository** (`2d35172`, `exp10_loose_object.stdout.txt`) — **it did
+> not reason about it, it built one:**
+>
+> ```
+>   $ git init -q -b main --object-format=sha256 .        rc=0
+>   git reports object-format: sha256
+>   loose path : .git/objects/33/6ffda477610b1d1b6cba645da7e7d9adca4998e4d2424ed631fadd6f4c47f8
+>   tail len   : 62
+>   matches objects/[0-9a-f]{2}/[0-9a-f]{38} : False
+> ```
+>
+> **EVERY loose object in a SHA-256 repository falls under clause 4 and the gate
+> REFUSES the repository entirely.** Not one object; all of them; on the first
+> dispatch.
+>
+> > ### **T-41 — SOL MUST CHOOSE. THIS DOCUMENT DOES NOT SHIP THE REGEX AS WRITTEN WITHOUT SAYING WHICH.**
+> >
+> > **Option (i) — admit both digest lengths:** the shape becomes
+> > `^objects/[0-9a-f]{2}/([0-9a-f]{38}|[0-9a-f]{62})$`, **and the length is then
+> > checked against the repository's own measured object format** rather than
+> > accepted as an alternation, so a 62-hex name in a SHA-1 repository still
+> > refuses. **Cost: the object format becomes a captured, sealed fact that the
+> > comparison depends on** — one more thing to get right, in the gate that must
+> > not run git.
+> > **Option (ii) — declare SHA-256 repositories OUT OF SCOPE for Wave 0 and
+> > REFUSE THEM AT ONBOARDING**, with a named refusal
+> > (`UnsupportedObjectFormat`), **so the operator is told once, at trust-
+> > establishment time, instead of every dispatch failing at R6 with a
+> > reconciliation error that names the wrong problem.**
+> >
+> > **RECOMMENDED: (ii) for Wave 0.** The failure mode of shipping as-written is
+> > **not** a safe refusal — it is a **misleading** one: a SHA-256 repository
+> > would land `RepositoryAdministrationUnreconciled`, which tells the operator
+> > their repository is untrusted when the truth is that this gate does not
+> > support their object format. **A refusal that names the wrong cause is worse
+> > than a refusal, and that is the whole reason this is an escalation and not a
+> > footnote.**
+> >
+> > **Until Sol rules, the regex stands as written and this box stands with it.**
 >
 > ### AUTOMATIC RE-BASELINING IS FORBIDDEN
 >
 > **The baseline is written once, by an operator command.** The gate never
-> updates it, never merges the new names into it, and never records the reconciled
-> state as a new baseline. `test_divergence_persists_across_dispatches` — the
-> killer for automatic re-baselining — **remains green and is not weakened by this
-> ruling**, because reconciling under clause 3 changes no stored baseline byte.
+> updates it, never merges the new names into it, and never records the
+> reconciled state as a new baseline. `test_divergence_persists_across_dispatches`
+> — the killer for automatic re-baselining — **remains green and is not weakened
+> by this ruling**, because reconciling under clause 3 changes no stored baseline
+> byte.
+
+> ### TWO THINGS THE PACK MEASUREMENT FORBIDS THIS DESIGN FROM ASSUMING
+>
+> **1. THERE IS NO MODE INVARIANT, AND NONE MAY BE SPECIFIED.** Z18 measured the
+> modes and **they are not uniform**: `multi-pack-index` **0664**, packs and
+> their `.idx`/`.rev`/`.bitmap` **0444**, `.keep` and `.promisor` **0600**.
+> **`entry_type` and `sha256_digest` are the comparison; `st_mode` is recorded
+> for the operator and MUST NOT become a predicate**, or a legitimate repository
+> whose umask differs refuses.
+>
+> **2. A `.promisor` IS NOT ALWAYS EMPTY.** Z18 measured **103 B and 0 B from one
+> clone.** **Any check written as "a `.promisor` is a zero-byte marker" is
+> measured false**, and the `ObjectEntry` digest covers both cases without
+> needing to know which.
+
+> ### THE COST OF CLAUSE 1, MEASURED AND STATED HERE RATHER THAN DISCOVERED IN PRODUCTION
+>
+> **Ordinary git maintenance in the PRIMARY repository is a DIVERGENCE.**
+> MEASURED, control fired (Appendix A.2U):
+>
+> ```
+>   loose before `git repack -a -d` : 9
+>   loose after                     : 0
+>   REMOVED                         : 9
+> ```
+>
+> **`git gc`, `git repack -d`, and an above-threshold `gc --auto` delete baseline
+> loose objects and pack them.** Under clause 1 every one of those removals
+> refuses, and under clause 4 the resulting new `.pack`/`.idx` refuses too.
+> **After ordinary maintenance the repository requires an operator
+> re-baseline.**
+>
+> **This is a real operational cost and the design accepts it deliberately:** the
+> alternative is exempting the deletions, which is exactly what would let a
+> deleted base blob through, **and clause 1 is the only thing standing between
+> this gate and ZI-60's loss.** **It is escalated as `T-42`** so that the
+> operator runbook says so, rather than an on-call engineer discovering it after
+> a nightly `gc`. **The `NOT TESTED` row for an above-threshold `gc --auto`
+> (T-30's neighbour) is now the row that decides how often this fires**, and it
+> is still `NOT TESTED`.
 
 **Why append-only and not the two alternatives, with each cost named:**
 
@@ -7688,6 +8097,22 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 > alone the answer is no — a new oid is a new name — and clauses 1 and 2 mean no
 > EXISTING name's answer can change.**
 >
+> **REVISION 9 SHARPENS EXACTLY THIS SENTENCE, AND IT IS THE REPAIR F7-2 ASKED
+> FOR.** *"For `objects/` alone"* was written in revision 8 and then implemented
+> as *"`objects/` loose fan-out listings **and `objects/pack/`**"* — **and
+> `objects/pack/` is not a set of oids.** `multi-pack-index` is an **object
+> LOCATION index**; `*.promisor` marks a pack as lazily-fetchable and is **the
+> on-disk half of the S-δ surface PIN 1 exists to close**; `*.keep` changes what
+> maintenance may do; `*.bitmap` and `*.rev` are reachability and ordering
+> caches. **None of them is named by its content, and three of them
+> — `.keep`, `.promisor`, `.mtimes` — were MEASURED to be creatable by a plain
+> file write with no git process at all.** **A new `*.promisor` beside an
+> existing pack is precisely "a new file that changes what an existing name
+> resolves to", which is the one thing the judgement above claims cannot
+> happen.** So the judgement is unchanged and its SCOPE is corrected to the only
+> class the argument was ever true of: **regular files at valid loose-object
+> paths.**
+>
 > **This is Sol's ruling and not a lane's derivation. It is recorded here as a
 > judgement so that a later reader can attack the judgement rather than mistake it
 > for a proof**, which is the discipline §10.3 exists to enforce.
@@ -7696,10 +8121,13 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 
 | Test | Proves | **Could it pass while the property is false?** |
 |---|---|---|
-| **`test_second_dispatch_against_the_same_repository_succeeds`** — **NO LONGER RED. It is now a required green** | a complete dispatch, `worktree remove --force`, `worktree prune`, then a second dispatch **reconciles and proceeds**, with the three surviving loose objects **reported as new** | **YES if the fixture's first dispatch created no new objects** — closed by asserting the reported new-object set is **non-empty** and equals the three the fixture's worker created, computed independently by the test from the object directory. **A vacuous pass is exactly what a bare "it proceeded" assertion would give** |
+| **`test_second_dispatch_against_the_same_repository_succeeds`** — **NO LONGER RED. It is now a required green** | a complete dispatch, `worktree remove --force`, `worktree prune`, then a second dispatch **reconciles and proceeds**, with the surviving objects **reported as new** | **YES if the fixture's first dispatch created no new objects** — closed by asserting the reported new-object set is **non-empty** and equals what the fixture's worker created, computed independently by the test from the object directory. **A vacuous pass is exactly what a bare "it proceeded" assertion would give.** **AND REVISION 9 ADDS THE CLAUSE THAT MAKES IT NON-VACUOUS IN THE RIGHT DIRECTION: the measured legitimate drift was THREE LOOSE OBJECTS — `objects/<xx>/<38 hex>`, nothing else.** It was **NOT** pack metadata, **NOT** a `multi-pack-index`, **NOT** a sidecar. **The test must assert every reported new path matches `^objects/[0-9a-f]{2}/[0-9a-f]{38}$`**, so that a build which reconciled by giving `objects/pack/**` an append-only exemption **fails this test rather than passing it.** **That single assertion is what stops the F7-2 defect being re-introduced by whoever next makes this test green** |
 | **`test_removed_baseline_object_refuses`** — **clause 1's killer** | delete one loose object present in the baseline; the gate must land `RepositoryAdministrationUnreconciled`, **NOT retryable**, row 0 | **NO.** And it is the test that distinguishes append-only from report-only: **under option (a) it is green while the object is gone** |
-| **`test_altered_baseline_object_refuses`** — clause 2's killer | rewrite an object's bytes at an existing name; refuse | **NO** for a digest comparison. **YES for a size-only comparison** — so the assertion is over the recorded **digest**, not `st_size` |
-| **`test_new_routing_file_is_a_divergence_not_an_append`** | a **new** file under `objects/info/`, a **new** `refs/replace/**` entry, a **new** `commit-graph-chain` layer: each must **refuse** | **NO** — and this is the test that stops append-only leaking out of the object classes. **Parameterised over every routing row, generated from the capture table** so a new routing class cannot be silently omitted |
+| **`test_size_preserving_altered_baseline_object_refuses`** — clause 2's killer, **RENAMED AND RE-SPECIFIED IN REVISION 9** | flip **one bit** in a baseline loose object so that **`st_size` is provably unchanged**, then run the gate; it must land `RepositoryAdministrationUnreconciled`. **The test asserts the size equality FIRST** — `assert before.size == after.size` — **so that it fails loudly if the fixture ever stops being size-preserving** | **NO** for a digest comparison. **YES for a size-only comparison, which is exactly the defect F7-1 found** — and the mandatory size-equality assertion is what makes the digest comparison **provably load-bearing** rather than merely present. **A paired control completes it: with the digest field removed from the comparison the SAME fixture must RECONCILE**, proving the digest is the field that changed the verdict. *(The old name `test_altered_baseline_object_refuses` is RETAINED as a separate row for a length-changing alteration, so the pair covers both shapes.)* |
+| **`test_new_pack_file_is_divergence`**, **`test_new_multi_pack_index_is_divergence`**, **`test_new_promisor_sidecar_is_divergence`** — clause 4's killers for `objects/pack/**` | a new `*.pack`/`*.idx`, a new `objects/pack/multi-pack-index`, a new `*.promisor` beside an untouched pack: **each must refuse** | **NO under revision 9. YES UNDER REVISION 8, where all three were appends** — which is why they are named separately rather than folded into one parameterised row. **`test_new_multi_pack_index_is_divergence` MUST create the file at `objects/pack/multi-pack-index`**; a fixture that writes it under `objects/info/` tests a path git never uses and would pass against a build that ignores the real one |
+| **`test_loose_object_symlink_is_divergence`** · **`test_invalid_loose_object_name_is_divergence`** — clause 4's killers **inside** `objects/` | a **symlink** whose name matches `^[0-9a-f]{2}/[0-9a-f]{38}$` **perfectly and resolves to valid object bytes**; and a regular file at `ab/NOTHEX…`, at a three-character fan-out, and at a 39-hex tail | **NO.** The symlink row is the load-bearing one: **a name-only check passes it**, and it is the shape that turns append-only into arbitrary file placement. **`entry_type` from `lstat` is what refuses it**, and the test asserts the link's target bytes ARE valid so that "it refused because the bytes were wrong" cannot be the reason |
+| **`test_new_valid_loose_object_is_permitted`** — clause 3's only positive | a new regular file at a valid `^[0-9a-f]{2}/[0-9a-f]{38}$` path reconciles **and is REPORTED in the `new objects` row** | **YES if it asserted only "the gate passed"** — closed by asserting the reported set **equals** the planted path exactly. **Without this row the whole invariant could be satisfied by a gate that refuses everything**, which is the trivial way to pass clauses 1, 2 and 4 |
+| **`test_new_routing_file_is_a_divergence_not_an_append`** | a **new** file under `objects/info/`, a **new** `refs/replace/**` entry, a **new** `commit-graph-chain` layer: each must **refuse** | **NO** — and this is the test that stops append-only leaking out of the one class it belongs to. **Parameterised over every non-append-only row, GENERATED from the capture table**, so a new routing class cannot be silently omitted — **and the generator must assert its own row count is non-zero**, or an empty parameterisation is a green test that ran nothing |
 | **`test_divergence_persists_across_dispatches`** *(retained, unchanged)* | no automatic re-baselining | **NO.** **This ruling is constrained from both sides: the relation must make the second dispatch green AND leave this test green**, and clause 3 does so because it stores nothing |
 | **`test_unaccounted_worktree_registration_is_unreconciled`** | the `worktrees/*` provenance rule | **NO.** Plant `worktrees/sol-evil/` with **no task record**; a prefix match would exempt it, **a provenance match does not** |
 
@@ -7789,7 +8217,7 @@ Sol §14 requires the determination to come from **actual dispatcher dependence*
 | worktree `HEAD` + chain incl. `packed-refs` and `refs/**` | **YES** — B2's entire verdict | **YES** |
 | `objects/info/alternates`, `http-alternates`, `objects/info/` listing | **YES at PREPARE** — Route B's `cat-file` resolves through them, and the seal's contents are decided by them | **YES** |
 | `refs/replace/**`, `info/grafts` | **YES at PREPARE** — they change what every G-row read resolves to | **YES** |
-| `objects/pack/` and loose-object listings | **NO for correctness** (nothing is read post-seal) — **YES for attribution**: it is what turns a deleted base blob from an unexplained failure into a named worker act | **YES, as evidence, not as a dependency** |
+| `objects/pack/**` and loose object **entries** | **NO for correctness** (nothing is read post-seal) — **YES for attribution**: it is what turns a deleted base blob from an unexplained failure into a named worker act | **YES, as evidence, not as a dependency** |
 | `<gitdir>/index` | **NO** — ZI-19 deleted every index dependence; no index is read | **REPORT ONLY** |
 | `<gitdir>/logs/**` (reflogs) | **NO** — nothing reads a reflog, and reflogs move as an ordinary consequence of the worker's own legitimate commits | **LISTING + hash only; a change is REPORTED, not a violation** |
 | hooks | **YES at PREPARE** — `worktree add` is the one exec vector and the hook survives directory quarantine | **YES** |
@@ -11495,6 +11923,22 @@ GATE 7 .............................. PASS/FAIL
                                        /usr/lib/git-core (220 on git 2.43), and
                                        the GIT_DIR bypass control MUST have fired
       git argv[0] is an absolute path  <yes/no / UNMEASURABLE -- T-40 not implemented>
+      PATH filter-driver surface ..... MEASURED by Lane Z18 (2d35172): both
+                                       legs fire. Leg A executed a hostile
+                                       smudge driver through an admitted PATH
+                                       WITH PIN 2 IN FORCE; leg C held.
+      leg D -- absolute-path smudge,
+        NO PATH in the child ......... EXECUTED=True. Dropping PATH closes
+                                       BARE-NAME RESOLUTION ONLY. This row must
+                                       NEVER be reported as "the allowlist
+                                       closes filter drivers".
+      leg E -- displaced argv -c,
+        clean repo config, no PATH ... EXECUTED=True. ZI-71 is NOT retired.
+      does the repo-config seal close
+        leg D? ....................... NOT TESTED -- the probe must grant config
+                                       control to arm its own control, so it
+                                       cannot measure the seal. Do NOT print
+                                       PASS here.
       PIN_BLOCK is a frozen tuple .... <yes/no>; caller `-c` refused <yes/no>
       -- ZI-71 IS NOT RETIRED BY THE ALLOWLIST. Z17 measured a displaced caller
          `-c` still winning under a perfect allowlist. A report that prints the
@@ -11514,13 +11958,31 @@ GATE 7 .............................. PASS/FAIL
                                       fired <yes/no>; assertions over ROW SETS
   detached worktree ................. HEAD is 40hex+\n <yes/no>; refs/heads/sol-*
                                       absent <yes/no>; B2 comparisons 8/8
-  R6 relation ....................... APPEND-ONLY for objects/ ; EXACT for all
-                                      routing and administrative classes  (ZI-86)
-      baseline objects present ....... must be ALL      (clause 1)
-      baseline objects byte-identical  must be ALL      (clause 2)
-      new objects since baseline ..... <n>  ENUMERATED, allowed, REPORTED (clause 3)
+  R6 relation ....................... APPEND-ONLY for VALID LOOSE OBJECT PATHS
+                                      ONLY; EXACT BIDIRECTIONAL for everything
+                                      else, INCLUDING ALL objects/pack/**  (ZI-86)
+      capture carries 4 fields ....... relative_path, entry_type, size,
+                                       sha256_digest ... must be ALL FOUR.
+                                       ANY comparison reading only name+size is
+                                       a FAILED row -- MEASURED blind (F7-1)
+      baseline entries present ....... must be ALL      (clause 1)
+      baseline entry_type retained ... must be ALL      (clause 2)
+      baseline digest retained ....... must be ALL      (clause 2)
+      size-preserving alteration ..... must REFUSE, and the test must assert
+                                       size equality FIRST, or it proves nothing
+      new paths in L (loose, regular,
+        ^[0-9a-f]{2}/[0-9a-f]{38}$) .. <n> ENUMERATED, allowed, REPORTED (clause 3)
+      new paths NOT in L ............. must be ZERO ALLOWED  (clause 4) --
+                                       objects/pack/**, multi-pack-index,
+                                       *.promisor/.keep/.bitmap/.rev/.mtimes,
+                                       objects/info/**, symlinks, bad fan-out
+      object format of the repository  <sha1 / sha256>. sha256 => the gate
+                                       REFUSES by design; NOT a pass  (T-41)
       baseline re-written this run ... must be NO       (no automatic re-baselining)
   second dispatch ................... PASS   (no longer red-by-design; T-36 RULED)
+      reported new paths ............. ALL must match ^objects/[0-9a-f]{2}/[0-9a-f]{38}$
+                                       -- the measured drift was THREE LOOSE
+                                       OBJECTS, not pack metadata  (F7-2)
   branch-creating checkout denied ... <yes/no>  patterns: git checkout, git switch,
                                        git symbolic-ref, git update-ref  (Z17 §6.2)
       all FIVE false-positive shapes . must be denied, not just `checkout -b`
@@ -12124,7 +12586,12 @@ population is unmeasured here and stated as unmeasured.
 > remains EXACT EQUALITY**; **automatic re-baselining is FORBIDDEN.**
 >
 > **The normative specification is ZI-86 (§5.8.3)**, class by class, with
-> append-only defined in three clauses so an implementer cannot guess wrong. The
+> append-only defined in **four** clauses so an implementer cannot guess wrong.
+> **REVISION 9 NARROWED IT: the seventh review found that revision 8 had given
+> append-only treatment to all of `objects/pack/`, which is administrative and
+> routing metadata rather than content-addressed storage — a violation of this
+> very ruling inside the invariant that states it. Append-only is now scoped to
+> regular files at `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` and to nothing else.** The
 > sixth review ruled T-36 blocking **not because a test was red** but because
 > *"the gate is written `if current != baseline` and the relation giving `!=` its
 > meaning is not adopted"* — **an undefined normative predicate in a Wave-0
@@ -12210,19 +12677,107 @@ one, which is the strongest form of the answer, not the absence of one.** *(§5.
 carries the full Z17 integration, including the four results that changed what
 this document says.)*
 
+**T-41 — NEW, AND IT IS A CHOICE FOR SOL RATHER THAN A NOTE: the loose-object
+regex REFUSES EVERY SHA-256 REPOSITORY.** **MEASURED by Lane Z18 against a real
+`--object-format=sha256` repository** (`2d35172`): the loose tail is **62
+characters** and does not match `[0-9a-f]{38}`. **Every loose object in such a
+repository is a clause-4 divergence, so the gate refuses the repository outright
+on its first dispatch.** **Sol must choose (i) admit both digest lengths, with
+the length checked against the repository's own measured object format, or (ii)
+declare SHA-256 out of scope for Wave 0 and REFUSE AT ONBOARDING with a named
+`UnsupportedObjectFormat`.** **RECOMMENDED: (ii).** Shipping as written is not a
+safe refusal but a **misleading** one — the operator is told their repository is
+*unreconciled* when the truth is that this gate does not support their object
+format, **and a refusal that names the wrong cause is worse than a refusal.**
+**This document does not ship the regex as written without saying which; the
+choice is escalated, and until it is ruled the regex stands as written.**
+
+**T-43 — NEW: `extensions.partialClone` IS THE WRONG KEY TO WATCH, AND IT IS
+MEASURED WRONG.** Lane Z18 verified twice that a `--filter` clone over `file://`
+on git 2.43.0 **does not write `extensions.partialClone` at all** (`rc=1` when
+queried). **The signals actually written are `core.repositoryformatversion=1`,
+`remote.origin.promisor`, `remote.origin.partialclonefilter`, and
+`objects/pack/*.promisor`.** **§5.4.1A's raw promisor precondition already reads
+three of those four** — `remote.*.promisor`, `remote.*.partialclonefilter` and
+`objects/pack/*.promisor` — **so the precondition is correct in substance and it
+is the `extensions.partialClone` conjunct that is dead weight.** **Any section
+that keys a DECISION on `extensions.partialClone` alone is keying on a value git
+does not write for this shape**, and must read the promisor signals instead.
+*(The capture is unaffected: it hashes the whole config file, so the keys are
+recorded either way. What changes is what a predicate may rely on.)*
+
+**T-42 — NEW, AND IT IS AN OPERATIONAL COST, NOT A DEFECT: ordinary git
+maintenance in the primary repository requires an operator re-baseline.**
+**MEASURED, control fired:** `git repack -a -d` removed **all nine** loose
+objects from the fixture. Under ZI-86 clause 1 every removal refuses, and under
+clause 4 the resulting new `.pack`/`.idx` refuses too. **`git gc`, `git repack
+-d` and an above-threshold `gc --auto` therefore land
+`RepositoryAdministrationUnreconciled` until an operator re-baselines.** **The
+alternative — exempting deletions — is exactly what would lose ZI-60's
+deleted-base-blob detection, so the cost is accepted deliberately.** **It must
+be in the operator runbook**, not discovered by an on-call engineer after a
+nightly `gc`. *(How often `gc --auto` crosses its threshold in production remains
+`NOT TESTED`, and that is what decides how often this is felt.)*
+
 **T-40 — NEW, AND OWED: the git binary must be resolved to an ABSOLUTE PATH once
 at start-up.** Z17 measured that dropping `PATH` breaks nothing **here** only
 because `/usr/bin/git` lies inside CPython's `os.defpath`. **On a host where git
 is installed outside `/bin:/usr/bin` — Homebrew, Nix, conda, `asdf`/`mise` — the
 empty allowlist makes EVERY DISPATCH FAIL at the first git command with
-`FileNotFoundError`** (positive control fired). **The fix is NOT to admit `PATH`:
-Z17 measured that admitting it re-opens a `.gitattributes` filter-driver
-EXECUTION surface that PIN 2 does not close**, and makes any non-builtin
-`git <word>` a program lookup. **The fix is `shutil.which("git")` against the
+`FileNotFoundError`**. **Lane Z18 MEASURED the mechanism precisely** (`2d35172`):
+bare `argv[0]="git"` returns `rc=0` even with the parent `PATH` emptied,
+**because git lies inside `os.defpath` (`/bin:/usr/bin`) on this host** — **a
+host property, not a guarantee.**
+
+**T-40'S JUSTIFICATION, WRITTEN IN THE EXACT TERMS Z18'S MEASUREMENTS PERMIT AND
+NO WIDER.** Two reasons, and the second is narrower than revision 8 claimed:
+
+1. **PORTABILITY.** On a host where git is outside `/bin:/usr/bin` — Homebrew,
+   Nix, conda, `asdf`/`mise` — the empty allowlist makes **every dispatch fail at
+   the first git command**. An absolute path resolved once at start-up removes
+   that dependency and makes it a declared, journalled fact.
+2. **IT REMOVES BARE-NAME RESOLUTION — AND THAT IS ALL IT REMOVES.** Admitting
+   `PATH` lets an attacker have a **bare program name** resolved for them:
+   Z18 leg A executed a hostile `.gitattributes` smudge driver through an
+   admitted `PATH` **with PIN 2 in force**, and leg B did not resolve it on an
+   ordinary `PATH`.
+
+> **AND THE CORRECTION THAT MUST TRAVEL WITH IT: `Leg D`.** With **no `PATH` at
+> all** in the child, a repository config naming the smudge program **by absolute
+> path** executed it anyway — `filter_EXECUTED=True`. **So dropping `PATH` does
+> NOT close the filter surface as such**, and **no sentence in this document may
+> say that it does.** The filter surface is closed — if it is closed — by
+> **§5.8's repository-configuration seal at R6**, and **whether that seal
+> actually closes leg D is `NOT TESTED`**, because Z18's probe must grant the
+> worker config control in order to arm its own positive control. **The fix is `shutil.which("git")` against the
 DISPATCHER's environment, once, recorded in the sealed identity record,
 journalled, and refused at the gate if unresolvable.** **NOT IMPLEMENTED —
 `UNMEASURABLE` in §16.** *(This is a real portability defect, recorded as owed
 rather than as a caveat.)*
+
+**REVISION 9 — CLOSED HERE:** **F7-1** (the capture now carries
+`relative_path` · `entry_type` · `size` · `sha256_digest`, and the size-preserving
+mutation is MEASURED to defeat name+size), **F7-2** (append-only narrowed to
+`^objects/[0-9a-f]{2}/[0-9a-f]{38}$` regular files; **all** of `objects/pack/**`
+exact bidirectional; `multi-pack-index` MEASURED at its real location
+`objects/pack/multi-pack-index`), and **F7-3** (the unsupported filter-driver
+claim WITHDRAWN, Lane Z18 cited as the owner of the re-run).
+**NEWLY OPEN FROM REVISION 9: T-41** (**a CHOICE Sol must make** — SHA-256
+repositories are refused entirely by the specified regex, and the refusal names
+the wrong cause), **T-42** (ordinary maintenance requires an operator
+re-baseline) and **T-43** (`extensions.partialClone` is not written by a
+`--filter` clone on 2.43.0). **None of the three existed before the measurements
+in Appendices A.2U and A.2V were run** — which is the argument for commissioning
+measurement lanes rather than reasoning further.
+
+**AND ONE NEW `NOT TESTED` THAT IS SHARPER THAN ANY OF THEM:** **whether this
+design's repository-configuration seal closes Z18's leg D** — a worker-planted
+`filter.*.smudge` naming its program by ABSOLUTE PATH, which executes with no
+`PATH` in the child at all. **The design claims `PREPARE_ADMIN_GATE` catches it
+at R6 before any checkout. That claim is untested**, and Z18 could not test it
+because its probe must grant the worker config control in order to arm its own
+positive control. **It is the single sharpest experiment a later lane could
+run.**
 
 **Closed by revision 8:** **T-36** and **T-37** are RULED above. **T-38** is
 RULED **and its pattern and cost are now MEASURED, not pending**. **T-39 is
@@ -12241,7 +12796,9 @@ rows (`multi-pack-index` substitution, above-threshold `gc --auto`, reftable as 
 live B2 vector, submodule `modules/**`) plus the `NOT ATTEMPTED` rows (the ctypes
 spawn bypass, the symlinked-`.git` disk scan, and now **whether a git child can
 acquire a `GIT_*` variable by a route other than `env=`**, which is `NOT TESTED`).
-**NEWLY OPEN: T-40** (absolute git path), and **two OWED measurements Z17 names
+**NEWLY OPEN: T-40** (absolute git path), **T-41** (SHA-256 loose-object shape),
+**T-42** (maintenance re-baseline), **the Lane Z18 dependency for the `PATH`
+filter-driver leg**, and **two OWED measurements Z17 names
 and this document adopts rather than absorbs** — a **genuine partial clone**
 (`NOT ATTEMPTED`; the sixth VOID filed on that vector by the sixth party) and **a
 repository owned by a DIFFERENT uid**, where `GIT_CONFIG_NOSYSTEM=1` plus
@@ -12266,7 +12823,7 @@ below are retained for provenance only.
 ### 18.5 The gate on implementation
 
 **No `src/**` or `tests/**` change may be written for Gate 7 until this revision
-receives a SEVENTH independent architecture review returning ZERO blocking
+receives an EIGHTH independent architecture review returning ZERO blocking
 findings **and `WAVE 0 APPROVED TO IMPLEMENT: YES`.** The reviewer must not be
 the author, must not be a prior reviewer, and must not implement the fixes.
 **This is directive T, and §21 is its mandate — twenty attack vectors and a
@@ -12364,9 +12921,29 @@ weakening. A preservation clause with no detector is a wish.**
 
 ---
 
-## 21. THE SEVENTH INDEPENDENT ARCHITECTURE REVIEW — REQUIRED ATTACK LIST
+## 21. THE EIGHTH INDEPENDENT ARCHITECTURE REVIEW — REQUIRED ATTACK LIST
 
-### 21.0 What revision 8 changed, and what the seventh review must attack first
+### 21.0A What revision 9 changed, and what the EIGHTH review must attack first
+
+**Revision 9 repaired exactly three blocking findings and touched nothing else.
+Attack the three repairs first, and attack them in this order, because the third
+is the one most likely to have been repaired in words rather than in substance:**
+
+| Blocker | Attack this |
+|---|---|
+| **F7-2** | **the domain `L`.** Append-only is now `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` **plus `entry_type == "regular"`**. **Find a path admitted by that predicate that is not a content-addressed object**, or a routing effect a new such file can have while all routing bytes are identical. Then check the reverse: **has any class that SHOULD be append-only been swept into exact equality**, so that a legitimate dispatch now refuses? |
+| **F7-1** | **the four fields, and the fail-closed clauses.** `sha256_digest` is `None` for non-regular entries — **is there any comparison in this document that would treat `None == None` as "these two entries match"?** That is the readmission route for the exact defect F7-1 found, one level in. And check that `capture_incomplete` really is a divergence everywhere it is reachable, not only where §5.8.2 says so |
+| **F7-3** | **whether the NARROWING is real.** Lane Z18 landed and both legs fire — **but legs D and E narrow the claim, and the likely failure is a sentence somewhere that still reads "the allowlist closes filter drivers".** **Leg D executed an absolute-path smudge with NO `PATH` in the child.** Search for any surviving sentence that credits the allowlist, or T-40, with closing the filter surface **as such** rather than closing **bare-name resolution**. Then check the `NOT TESTED` that carries the weight: **does `PREPARE_ADMIN_GATE` actually close leg D?** The design asserts it; nothing has measured it |
+
+> **And the general instruction that produced all three findings: for every
+> assertion, ask whether the evidence beside it could produce the field the
+> assertion reads.** F7-1 was a predicate over a digest that was never captured;
+> F7-2 was a class named by a directory rather than by a measured property; F7-3
+> was a conclusion drawn from a control that printed `False`. **All three were
+> visible without running anything, by reading the specification against its own
+> evidence.**
+
+### 21.0 What revision 8 changed, and what the seventh review attacked first
 
 **Revision 8 is an architecture-only closure revision.** It repairs the sixth
 review's five blockers and its seven non-blocking findings, and it changes
@@ -12381,7 +12958,7 @@ repaired nothing.**
 | **F6-2** | the denylist is **DELETED**. **ZI-85: the git child environment is ALLOWLIST-CONSTRUCTED and no ambient `GIT_*` survives** — and **Lane Z17 measured the allowlist EMPTY**, so `child_env = dict(DISPATCHER_GIT_ENV)` and **nothing at all is inherited** | §5.4.3A | `test_no_ambient_git_variable_reaches_a_git_child` (**with a `GIT_ZI85_CANARY` no denylist could contain**, and **set equality** on the child's keys) · `test_allowlist_contains_no_git_name` (import-time) · `test_pin4_survives_every_git_env_name_in_the_installed_binary` (**generated** over the **220** names Z17 swept, **with the `GIT_DIR`-through-a-bypassed-allowlist control**) · `test_every_permitted_row_is_byte_identical_under_env_i` (9/9) |
 | **F6-3** | ORDER 3's V6 is re-specified over the **four sealed `WorktreeAuthorityRecord` paths**; the impossible *"zero opens"* assertion is replaced by **exact set equality plus a live positive control**; the tripwire's condition is reconciled with its premise | §5.4.3B ORDER 3 | `test_review_path_reads_exactly_the_sealed_authority_paths` — canary-armed audit, **set equality**, and a build-flag control that adds **one** extra repository read and **must fail** |
 | **F6-4** | ZI-77 **unchanged**; branch-creating symbolic-HEAD transitions **DENIED** on **four** measured Bash prefixes; the false positive is stated **where the invariant is stated**, the headline no longer reads *"MISSES: 0"* alone, and A.2M carries a named false-positive row. **F6-4 named ONE false positive; Z17 measured FIVE**, and the deny costs **three legitimate HEAD-neutral file restores** whose `git restore` mitigation is a **hard precondition, not a follow-up** | §5.5.2C, A.2M | `test_branch_creating_checkout_is_denied_before_it_runs` (**over all five shapes**, **paired control** with the pattern removed) · `test_git_restore_is_not_denied` (with a refusal in the same fixture) · `test_symref_plant_is_still_a_mismatch_under_the_deny_list` (**over Z17's six evasion shapes**) |
-| **F6-5** | **T-36 RULED: append-only** for content-addressed objects, exact equality for everything else, **no automatic re-baselining** (ZI-86). **T-37 RULED** | §5.8.3 | `test_second_dispatch_against_the_same_repository_succeeds` (**now a required GREEN**, with a non-vacuity assertion) · `test_removed_baseline_object_refuses` · `test_altered_baseline_object_refuses` · `test_new_routing_file_is_a_divergence_not_an_append` · `test_divergence_persists_across_dispatches` (**still green**) |
+| **F6-5** | **T-36 RULED: append-only** for content-addressed objects, exact equality for everything else, **no automatic re-baselining** (ZI-86). **T-37 RULED.** ***REVISION 9 NARROWED THE SCOPE — the seventh review found the revision-8 text applying append-only to all of `objects/pack/`. The authoritative statement is ZI-86 as rewritten, and the test set below is superseded by the one in §5.8.3.*** | §5.8.3 | `test_second_dispatch_against_the_same_repository_succeeds` (**required GREEN**, non-vacuity **plus the revision-9 path-shape assertion**) · `test_removed_baseline_object_refuses` · **`test_size_preserving_altered_baseline_object_refuses`** (revision 9, with `test_altered_baseline_object_refuses` retained for the length-changing shape) · **`test_new_valid_loose_object_is_permitted`** · **`test_new_pack_file_is_divergence`** · **`test_new_multi_pack_index_is_divergence`** · **`test_new_promisor_sidecar_is_divergence`** · **`test_loose_object_symlink_is_divergence`** · **`test_invalid_loose_object_name_is_divergence`** · `test_new_routing_file_is_a_divergence_not_an_append` · `test_divergence_persists_across_dispatches` (**still green**) |
 
 **AND ONE INPUT THAT ARRIVED MID-REVISION.** **Lane Z17 landed after the five
 repairs were drafted, and it changed three of them rather than confirming them:**
@@ -12400,8 +12977,8 @@ against the thing it guarded.** The *could it pass while false?* answer for ever
 test above is stated at the site of the test, and **three of them are specified
 with a mandatory control leg without which they would be vacuous.**
 
-> **NO `src/**` or `tests/**` change may be written for Gate 7 until revision 8
-> receives a **SEVENTH** independent architecture review returning **ZERO blocking
+> **NO `src/**` or `tests/**` change may be written for Gate 7 until revision 9
+> receives an **EIGHTH** independent architecture review returning **ZERO blocking
 > findings** and **`WAVE 0 APPROVED TO IMPLEMENT: YES`**. The reviewer must not be
 > the author, must not be a prior reviewer, and must not implement the fixes.
 > **This is directive T.**
@@ -12559,11 +13136,16 @@ the fifth review's hardest finding.**
 > judgement that produced the allowlist ZI-57 deleted."* **Sol has now ruled it.
 > That makes it authoritative; it does not make it derived.** §5.8.3 states it as
 > a judgement so a reader can attack the judgement rather than mistake it for a
-> proof. **The place to attack is clause 3's scope: append-only is scoped to
-> content-addressed object storage and NOTHING else, and every routing class is
-> exact-equality in both directions. If a route exists by which a NEW object
-> changes what an EXISTING name resolves to, with routing byte-identical, that is
-> the finding.**
+> proof. **REVISION 9 NARROWED ITS SCOPE, because the seventh review found the
+> revision-8 text applying append-only to all of `objects/pack/` — administrative
+> and routing metadata — inside the invariant that forbids exactly that.**
+> **The place to attack is clause 3's domain `L`, which is now the LITERAL path
+> shape `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` plus `entry_type == "regular"`. If a
+> route exists by which a NEW file admitted by that predicate changes what an
+> EXISTING name resolves to, with all routing byte-identical, that is the
+> finding** — and the reviewer should start where revision 8 was wrong, by asking
+> what else in this document is classified by a directory name rather than by a
+> measured property.
 >
 > **(2) The allowlist is MEASURED EMPTY, and the danger is now the OPPOSITE of
 > what revision 8 first expected.** Z17 landed and answered the membership
@@ -13418,7 +14000,19 @@ diff(baseline, capture):
 
 **Under ZI-86 clause 3 these three are ALLOWED AND REPORTED, so dispatch 2
 reconciles and proceeds. Under clause 1 their REMOVAL would still refuse, and
-under clause 2 an ALTERATION at an existing name would still refuse.** The
+under clause 2 an ALTERATION at an existing name — including a SIZE-PRESERVING
+one — would still refuse.**
+
+> **REVISION 9 — READ THE THREE PATHS, BECAUSE THEY ARE THE ARGUMENT FOR THE
+> NARROWED SCOPE AND NOT JUST AN ILLUSTRATION OF IT.** Every one is
+> `objects/<two hex>/<thirty-eight hex>`. **The measured legitimate drift is
+> THREE LOOSE OBJECTS. It is not a pack, not a `multi-pack-index`, not a
+> `*.promisor`, not a `*.keep`, not any sidecar.** **Nothing in this measurement
+> ever required `objects/pack/` to be append-only**, and revision 8 made it so
+> anyway. `test_second_dispatch_against_the_same_repository_succeeds` therefore
+> asserts that every reported new path matches
+> `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` — **so the test that exists to make this
+> drift reconcile cannot be made green by re-opening F7-2.** The
 `worktrees/**` set is not permanent drift — `worktree remove` + `prune` removes
 it entirely, and under `--detach` there is no `refs/heads/sol-<id>` and no
 `logs/refs/heads/sol-<id>` to remove at all.
@@ -13489,14 +14083,47 @@ an arriving variable WOULD have won)
   (e) THE ARGV HALF?             allowlist + displaced caller -c -> DECOY
   ==> ZI-71 REMAINS FULLY NECESSARY. The allowlist does not touch argv.
 
-PATH — MEASURED, AND IT IS T-40 RATHER THAN AN ALLOWLIST ENTRY
-  gitZ17 (a copy) placed OUTSIDE os.defpath:
-     PATH admitted -> rc=0        PATH denied -> FileNotFoundError   <-- fired
-  .gitattributes FILTER DRIVER, PIN 2 (core.hooksPath) APPLIED ON EVERY LEG:
-     G4, PATH = <shimdir>:<system>   rc=0  filter EXECUTED = TRUE    <-- fired
-     G4, PATH = <system> only        rc=0  filter EXECUTED = False
-     G4, PATH DENIED (allowlist)     rc=0  filter EXECUTED = False
-  git z17probe with a git-z17probe shim on an admitted PATH: rc=0; denied: rc=1
+PATH — PART WITHDRAWN IN REVISION 9. READ THE THREE ROWS SEPARATELY.
+
+  (i)  gitZ17 (a copy of the binary) placed OUTSIDE os.defpath:
+          PATH admitted -> rc=0     PATH denied -> FileNotFoundError  <-- fired
+       RETAINED. This is the row T-40 rests on, and it is a Python-level exec
+       result that does not involve the filter-driver harness at all.
+
+  (ii) git z17probe with a git-z17probe shim on an admitted PATH: rc=0;
+       denied: rc=1.
+       RETAINED AS REPORTED BY Z17. Lane V did NOT re-run this leg; no probe
+       file in commissioning/gate7-z17-probes/ contains it. It is INHERITED
+       from Z17's report, not independently reproduced here, and it is
+       labelled that way rather than presented as this document's measurement.
+
+  (iii) .gitattributes FILTER DRIVER through an admitted PATH:
+       *** WITHDRAWN -- F7-3. THE POSITIVE CONTROL DID NOT FIRE. ***
+       The committed probe (commissioning/gate7-z17-probes/exp8_path.py) gives
+       the child PATH=<shimdir> alone, and the shim calls the external programs
+       `touch` and `cat`, which cannot resolve. Lane V re-ran it verbatim:
+
+         PATH ADMITTED (contains the filter program)  filter_EXECUTED=False
+             stderr: /tmp/z17pbin.XXXX/z17filter: 2: touch: not found
+         PATH ADMITTED (normal system PATH)           filter_EXECUTED=False
+         PATH DENIED   (Sol's allowlist without PATH) filter_EXECUTED=False
+
+       ALL THREE LEGS ARE IDENTICAL. The experiment separates nothing.
+       Revision 8 printed `filter EXECUTED = TRUE` from a re-armed run whose
+       probe and output are NOT in source control; that claim is DELETED.
+       Preserved verbatim: commissioning/gate7-v9-probes/exp8_path_rerun.out
+
+       *** SUPERSEDED BY LANE Z18 (2d35172), WHOSE BOTH LEGS FIRE. ***
+       The replacement is NOT a restatement of what revision 8 claimed --
+       it is NARROWER, and the two boundary legs are the reason:
+         [A] hostile PATH admitted, built-ins-only shim  -> EXECUTED=True
+         [C] allowlist, NO PATH                          -> EXECUTED=False
+         [D] allowlist, NO PATH, ABSOLUTE-PATH smudge    -> EXECUTED=True
+         [E] allowlist, NO PATH, clean config,
+             one displaced argv -c before the pin block  -> EXECUTED=True
+       READ [D]: dropping PATH closes BARE-NAME RESOLUTION, not the filter
+       surface. READ [E]: ZI-71 is not retired by the allowlist.
+       Full evidence and the NOT TESTED that follows: Appendix A.2V.
 
 HOME, AND THE INSERTION WHOSE JUSTIFICATION CHANGES
   HOME admitted, GIT_CONFIG_GLOBAL=/dev/null   z17.globalhit rc=1 ''
@@ -13520,6 +14147,154 @@ HOME, AND THE INSERTION WHOSE JUSTIFICATION CHANGES
 > because `-z` disables the `core.quotePath` quoting its control flipped, and
 > four legs **VOIDED** by a malformed argv that left a bare `-c`. **Every number
 > above is from a re-armed or rebuilt run.**
+
+### A.2U The object store, measured for revision 9 (seventh review, F7-1 and F7-2)
+
+**Probe: `commissioning/gate7-v9-probes/exp_objects.py`. Output:
+`commissioning/gate7-v9-probes/exp_objects.out`. Both COMMITTED in the same
+commit as this revision.** git 2.43.0 (`/usr/bin/git`), CPython 3.12.3, uid 1000.
+**Every fixture is created fresh under `mktemp` and removed; no repository on
+this host was opened.** **Every row below carries a positive control, and the
+probe prints whether it FIRED — a row whose control did not fire is reported
+dead, never as a pass.**
+
+```
+### A. WHERE DOES GIT PLACE THE MULTI-PACK-INDEX?
+  git multi-pack-index write
+    rc=0
+    new entries under objects/ : ['pack/multi-pack-index']
+    multi-pack-index found at  : ['pack/multi-pack-index']
+    CONTROL FIRED (file exists): True
+      under objects/info/ ? False
+      under objects/pack/ ? True
+  git repack -a -d --write-midx
+    rc=0
+    new entries under objects/ : ['pack/multi-pack-index']
+    multi-pack-index found at  : ['pack/multi-pack-index']
+    CONTROL FIRED (file exists): True
+      under objects/info/ ? False
+      under objects/pack/ ? True
+
+### B. WHAT ELSE LIVES IN objects/pack/ ?
+  after repack --write-bitmap-index : [.bitmap, .idx, .pack, .rev]
+  after multi-pack-index write      : [multi-pack-index, .bitmap, .idx, .pack, .rev]
+  after PLAIN FILE WRITES           : [multi-pack-index, .bitmap, .idx, .keep,
+                                       .mtimes, .pack, .promisor, .rev]
+  CONTROL FIRED (sidecars present)  : True
+  every entry, matched against the loose-object shape:
+    pack/multi-pack-index                   matches loose-object shape? False
+    pack/pack-9cb2bbf1….bitmap              matches loose-object shape? False
+    pack/pack-9cb2bbf1….idx                 matches loose-object shape? False
+    pack/pack-9cb2bbf1….keep                matches loose-object shape? False
+    pack/pack-9cb2bbf1….mtimes              matches loose-object shape? False
+    pack/pack-9cb2bbf1….pack                matches loose-object shape? False
+    pack/pack-9cb2bbf1….promisor            matches loose-object shape? False
+    pack/pack-9cb2bbf1….rev                 matches loose-object shape? False
+
+### C. SIZE-PRESERVING ALTERATION OF A BASELINE LOOSE OBJECT      [F7-1]
+  object                      : 01/2263f05b2e24775aadf5540b2e78997ff98b21
+  one bit flipped in the last byte of the zlib stream
+  size before / after         : 117 / 117
+  SIZE IS UNCHANGED           : True
+  sha256 before               : 7d87cdb8b135c6165d48aeeb59245f7432aa92cc45778d3c1a0a411ef8ba0200
+  sha256 after                : 2af168743974255897db02b95a5c610325f701d9f657f8b2421707c842a590f9
+  DIGEST CHANGED              : True
+  name set unchanged          : True
+  git cat-file -p <oid>       : rc=128  error: inflate: data stream error
+  CONTROL FIRED (git agrees the object is now broken): True
+
+### D. THE LITERAL LOOSE-OBJECT PATH SHAPE
+  loose object count                     : 9
+  ALL match ^[0-9a-f]{2}/[0-9a-f]{38}$   : True
+  object format on this host             : sha1   (sha1 => 38 hex tail)
+  regex rejects 'ab/NOTHEX00000000000000000000000000000000'  : True
+  regex rejects 'abc/0000000000000000000000000000000000000'  : True
+  regex rejects 'ab/0123456789abcdef0123456789abcdef01234567 8' : True
+
+### E. DOES ORDINARY MAINTENANCE REMOVE BASELINE LOOSE OBJECTS?
+  loose before `git repack -a -d`  : 9
+  loose after                      : 0
+  REMOVED                          : 9
+  CONTROL FIRED                    : True
+```
+
+**What each row establishes, and what it does not:**
+
+| Row | Establishes | Does NOT establish |
+|---|---|---|
+| **A** | **`multi-pack-index` lives at `objects/pack/multi-pack-index` on git 2.43, by BOTH creation routes.** Revisions 5–8 placed it under `objects/info/` and were wrong; a capture watching only `objects/info/` would never have seen the file | anything about **other git versions**. `NOT TESTED` beyond 2.43.0, like every measurement in this document |
+| **B** | `objects/pack/` holds at least eight distinct entry kinds, and **`.keep`, `.promisor` and `.mtimes` were created here BY PLAIN FILE WRITES with no git process at all** — which is exactly how a worker with Bash creates one | that the list is **complete**. It is a list of what this probe made appear. **Clause 4 is written to refuse EVERY new path outside `L`, precisely so that completeness of this list is not load-bearing** |
+| **C** | **a name+size capture is PROVABLY blind to a size-preserving alteration, and sha256 catches it.** This is F7-1's whole content | that a **1-bit flip is the only** size-preserving mutation. It is the cheapest one; a re-compressed same-length stream would do as well and needs no separate measurement, because the digest comparison does not care how the bytes moved |
+| **D** | the literal shape holds for all nine objects on a **sha1** repository, and three malformed shapes are rejected | **anything about a sha256 repository**, whose 62-hex tail this regex REFUSES. **That refusal is deliberate and fail-closed** — see T-41 |
+| **E** | **`git repack -a -d` removes every loose object**, so ordinary maintenance is a clause-1 divergence and needs an operator re-baseline | **how often `gc --auto` crosses its threshold in production** — still `NOT TESTED`, and it is what decides how often T-42 is felt |
+
+> **The probe asserts on its own fixtures and raises `SystemExit` rather than
+> continuing if one fails to build** — written that way because this gate has
+> repeatedly been given results from a fixture that silently did not exist.
+
+### A.2V Lane Z18 — the repaired `PATH` control and the pack layout (revision 9)
+
+**Commit `2d35172f3863a8afc2216d6f13738db1539d03c2`, fifteen files under
+`commissioning/gate7-z18-probes/`: three probes, `run.sh`, `environment.txt`,
+`exit-codes.txt` (all four **0**), a complete stdout and stderr per probe, and
+`Z18-EVIDENCE.md`.** **The `.stderr.txt` files are 0 bytes and that IS the
+complete stderr** — each probe captures git's stderr into its own transcript.
+**Cited by commit, not by prose.**
+
+**The multi-pack-index location, with three independent cross-checks** — because
+this is the fact revisions 5–8 got wrong:
+
+```
+  MEASURED LOCATION: objects/pack/multi-pack-index   mode=0664  size=1504 B
+  objects/info/ contains only: packs        (0664, 54 B)
+  objects/info/multi-pack-index DOES NOT EXIST
+  cross-check 1: git rev-parse --git-path
+  cross-check 2: first 12 bytes = b'MIDX\x01\x01\x04\x00\x00\x00\x00\x01'
+  cross-check 3: git multi-pack-index verify -> rc=0
+```
+
+**Three checks rather than one, because a file existing at a path is weaker than
+a file existing at a path AND being the thing you think it is.**
+
+**The nine pack-directory classes, each MEASURED — OBSERVED with the command
+that produced it**, and their measured modes:
+
+```
+  0444  pack-<hash>.pack     0444  pack-<hash>.idx      0444  pack-<hash>.rev
+  0444  pack-<hash>.bitmap   ????  pack-<hash>.mtimes   0600  pack-<hash>.keep
+  0600  pack-<hash>.promisor
+  0664  multi-pack-index     0444  multi-pack-index-<hash>.bitmap
+```
+
+- **`.rev` is written by DEFAULT on 2.43.0**, not on request.
+- **`.mtimes`** comes from a **cruft** repack.
+- **Modes are NOT uniform** — 0664 / 0444 / 0600 — **so no mode invariant may be
+  specified** (§5.8.3).
+- **A `.promisor` is not always empty**: 103 B and 0 B measured from one clone.
+
+**And the incidental finding that corrects a key this document has cited since
+revision 5 (T-43):** a `--filter` clone over `file://` on 2.43.0 **does not write
+`extensions.partialClone`** (`rc=1` when queried). The signals actually written
+are **`core.repositoryformatversion=1`, `remote.origin.promisor`,
+`remote.origin.partialclonefilter`, and `objects/pack/*.promisor`.** **Verified
+twice by Z18, and independently consistent with Z7's own transcript**, which
+printed `extensions.partialClone : (none)` beside `remote.origin.promisor :
+true` and which nobody read that way at the time.
+
+> ### Z18'S OWN SELF-REPORTED DEFECT, CARRIED BECAUSE IT IS A TRAP THIS DOCUMENT COULD STILL FALL INTO
+>
+> **Its first `exp9` draft took the class roll-up from the FINAL-STATE directory
+> listing and reported `*.bitmap NOT OBSERVED` — which is wrong**, because the
+> later cruft repack **deletes the bitmap that an earlier `repack -b` created.**
+> The fix was a **cumulative** roll-up, and **the trap is documented in the probe
+> source rather than quietly corrected.**
+>
+> **The general shape is the one this gate keeps meeting: a measurement taken at
+> the end of a sequence is not a measurement of the sequence.** It is the same
+> error as scoring a negative from an experiment whose control never fired, one
+> step removed — **and it would have produced a capture specification with a
+> missing class**, which is exactly the F7-2 failure mode arriving by a different
+> route.
 
 ### A.3 Checkout transform on an ordinary repository
 
@@ -13655,7 +14430,36 @@ byte-identical, sha256 `e41ef3bd…d498e`, 1286 B.
 
 ---
 
-## Appendix C — Revision 8 change log
+## Appendix C — Revision 9 change log
+
+**Three blockers. Four files: this document and three probe artefacts. No
+`src/**`, no `tests/**`.**
+
+| Section | Change | Driver |
+|---|---|---|
+| **§5.8.2C (NEW)** | **the `ObjectEntry` record — `relative_path` · `entry_type` · `size` · `sha256_digest` on every protected path**, with the digest taken over the FILE BYTES (no inflate, no oid). **Directory, symlink, `other` and read-error handling specified explicitly and fail-closed**; `entry_type` from `lstat`, never `stat`; a type change refuses **before** the digest is consulted | **F7-1** |
+| §5.8.2 | the object row split into **loose** and **pack-and-sidecars**, both carrying `ObjectEntry`. **The `multi-pack-index` row's path CORRECTED from `objects/info/` to `objects/pack/`** | **F7-1, F7-2** |
+| **§5.8.3 ZI-86** | **rewritten.** Append-only narrowed to the domain `L` = regular files matching `^objects/[0-9a-f]{2}/[0-9a-f]{38}$`. **ALL of `objects/pack/**` moved to exact bidirectional equality**, sidecars enumerated. **Four clauses, not three** — clause 4 refuses every new path outside `L`, including a shape-matching **symlink**. The regex's SHA-1 limit stated as **fail-closed** rather than widened | **F7-2** |
+| §5.8.3 | the judgement paragraph **sharpened at the exact sentence that was over-applied**, naming why `multi-pack-index`, `*.promisor`, `*.keep`, `*.bitmap` and `*.rev` are not oids; **the measured cost of clause 1 added** (`repack -a -d` removes all nine loose objects → T-42) | **F7-2** |
+| §5.8.3 tests | `test_altered_baseline_object_refuses` **re-specified and renamed** `test_size_preserving_altered_baseline_object_refuses`, asserting **size equality FIRST** plus a **paired control** with the digest removed. **Five new rows**: `test_new_pack_file_is_divergence`, `test_new_multi_pack_index_is_divergence`, `test_new_promisor_sidecar_is_divergence`, `test_loose_object_symlink_is_divergence`, `test_invalid_loose_object_name_is_divergence`, `test_new_valid_loose_object_is_permitted`. **The second-dispatch test now asserts every reported path matches the loose shape** | **F7-1, F7-2** |
+| §5.4.3A | **revision 8's claim DELETED and REPLACED by Lane Z18's repaired experiment (`2d35172`), in which BOTH LEGS FIRE.** The dead control is explained from the probe's source; **the second defect nobody named — the original probe exits 0 with its control dead — is recorded**; and **Z18's two boundary legs NARROW the claim**: leg D (absolute-path smudge, no `PATH`) and leg E (displaced argv `-c`, clean config) both executed | **F7-3** |
+| §5.4.3A / §16 | **T-40's justification re-written in Z18's exact terms: portability, plus removing BARE-NAME RESOLUTION — and nothing wider.** ***"The allowlist closes filter drivers" is measured FALSE.*** **Whether the repository-config seal closes leg D is `NOT TESTED`, with the reason** | **F7-3** |
+| §5.8.3 | **no MODE invariant may be specified** — measured 0664 / 0444 / 0600 across the pack classes — and **a `.promisor` is not always empty** (103 B and 0 B measured) | Z18 |
+| §5.4.3A, §5.8.2, §18.3D | **T-43: a `--filter` clone over `file://` on 2.43.0 does NOT write `extensions.partialClone`.** The signals actually written are `core.repositoryformatversion=1`, `remote.origin.promisor`, `remote.origin.partialclonefilter`, `objects/pack/*.promisor`. **Z7's own transcript already showed this and nobody read it that way** | Z18 |
+| **Appendix A.2V (NEW)** | Lane Z18's evidence: the multi-pack-index location with **three cross-checks**, the nine pack classes with their measured modes, T-43, and **Z18's own self-reported defect** — a roll-up taken from the final-state listing that wrongly reported `*.bitmap NOT OBSERVED` | Z18 |
+| §5.4.3A | the Z17 self-disclosure block records **the sixth control failure — the one Z17 reported as REPAIRED** — and the lesson that a disclosed failure is safer than an undisclosed repair | **F7-3** |
+| §16 | object rows re-stated over the four fields; **`new paths NOT in L` must be ZERO ALLOWED**; the object-format row; the second-dispatch path-shape row; **a `PATH filter-driver surface` row that must NEVER print PASS** | F7-1, F7-2, F7-3 |
+| §18.3D | **T-41** (SHA-256 loose-object shape) and **T-42** (maintenance re-baseline) added; the revision-9 closure block | new measurements |
+| §21 | retitled to the **EIGHTH** review; **§21.0A** names what to attack in each of the three repairs, hardest-first | Directive T |
+| **Appendix A.2U (NEW)** | the full revision-9 probe output, with a row-by-row *establishes / does NOT establish* table | F7-1, F7-2 |
+| Appendix A.2T | the `PATH` block split into three rows — one **RETAINED**, one **INHERITED and not re-run**, one **WITHDRAWN** | **F7-3** |
+| Appendix A.2S | the three drift paths read as the argument for the narrowed scope: **all three are loose objects, none is pack metadata** | **F7-2** |
+| Header, §2 | revision 9 status; **"not self-approved"**; the three-blocker table with its evidence column | Directive T |
+| `commissioning/gate7-v9-probes/` **(NEW)** | `exp_objects.py` + `exp_objects.out` (the F7-1/F7-2 measurements, every control printed) and `exp8_path_rerun.out` (the verbatim F7-3 reproduction) | **all three** |
+
+---
+
+## Appendix C-8 — Revision 8 change log (retained)
 
 **Architecture-only closure revision. Twelve findings repaired, four rulings
 applied, nothing else changed.**
@@ -13670,7 +14474,7 @@ applied, nothing else changed.**
 | §5.4.3B ORDER 4 | the two missing columns — **positive control** and **why it is permissible** — supplied in the table rather than in prose | N6-7 |
 | §5.5.2C | the *"MISSES: 0"* headline corrected to **false positives, stated where the invariant is stated — ONE as first drafted, FIVE after Z17**; **T-38: branch-creating symbolic-HEAD transitions are DENIED on four measured Bash prefixes, with the `git restore` mitigation a HARD PRECONDITION and the deny stated plainly as NOT a boundary (six evasions, one with no git process)**; the `ORIG_HEAD` refinement **rejected with its reason**; the deletion table's traversal row **scoped to the task-worktree path**; `test_head_chain_traversal_is_refused` **moved, not deleted** | **F6-4**, N6-1 |
 | §5.8.2B | the stale *"a symlinked `.git` is accepted … `REQUIRES-PROBE`"* paragraph **deleted** — every clause of it was false by revision 7's own §5.8.2A | N6-2 |
-| §5.8.3 | **ZI-86 — the R6 equivalence relation, RULED.** Append-only for content-addressed objects in **three defined clauses**; **exact equality for every routing and administrative class, in both directions**; **automatic re-baselining forbidden**; the two rejected options costed; **the judgement stated AS a judgement**; **REQ-1 discharged**; **T-37 ruled** | **F6-5** |
+| §5.8.3 | **ZI-86 — the R6 equivalence relation, RULED.** *(Revision 9 narrowed it to four clauses over valid loose-object paths — see Appendix C.)* Append-only for content-addressed objects in **three defined clauses**; **exact equality for every routing and administrative class, in both directions**; **automatic re-baselining forbidden**; the two rejected options costed; **the judgement stated AS a judgement**; **REQ-1 discharged**; **T-37 ruled** | **F6-5** |
 | §5.9.2 | the **allowlist regex and traversal constraint RETAINED** where the reader that needs them lives, with the moved test and the honest note that the direction was always fail-closed | N6-1 |
 | §5.11.5 | **the completeness columns are DELETED.** One table answers completeness. **The two axes stated once**, with `inventory_complete` on a separate field and an AST test asserting **no predicate reads it** | **F6-1** |
 | §10.3 | **nine new rows — three added by Z17 mid-revision, one of them against revision 8's OWN first draft of the F6-2 repair** — including a named killer that could not pass against its own mechanism **inside the fix for the fifth review's hardest finding**, a heading that claimed a repair that did not repair, a ratified ruling contradicted by a table in its own implementing section, a matrix scoring a false positive as a hit, and a guard deleted on a justification true of one path and asserted of the document | F6-1…F6-4 |
