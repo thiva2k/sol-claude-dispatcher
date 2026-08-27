@@ -2,7 +2,7 @@
 
 **Lifecycle, evidence and recovery integrity.**
 
-Status: **DESIGN — REVISION 7. NOT APPROVED FOR IMPLEMENTATION.**
+Status: **DESIGN — REVISION 8. NOT APPROVED FOR IMPLEMENTATION.**
 
 Revision 1 (`d098d4b`) was independently reviewed (Lane W) → *APPROVED WITH
 REQUIRED CHANGES*, six blocking findings. Revision 2 (`619b63e`) applied Sol's
@@ -35,10 +35,11 @@ execution surface.** Revision 5 integrates it.
 > from reasoning. Nothing in this document should be read as asserting that the
 > enumeration is complete.
 
-> **NO SOURCE CODE MAY BE WRITTEN until a SIXTH independent review returns ZERO
-> blocking findings and WAVE 0 APPROVED TO IMPLEMENT: YES.** That is directive T,
-> its mandate is **§21**, and it is not discretionary. The production freeze
-> remains absolute until then.
+> **NO SOURCE CODE MAY BE WRITTEN until a SEVENTH independent review returns
+> ZERO blocking findings and WAVE 0 APPROVED TO IMPLEMENT: YES.** That is
+> directive T, its mandate is **§21**, and it is not discretionary. **Wave 0 has
+> not begun and this revision does not claim its approval.** The production freeze
+> remains absolute.
 
 Revision 5 (`d197bf08`, pushed and verified as `origin/main`) received a
 **fourth** independent review: **F-1 … F-7**. Sol accepted it and issued
@@ -148,7 +149,77 @@ can revoke.
 > A sentence saying *"PIN 4 is defence-in-depth"* without this exception would be
 > false, and §5.4.3A does not carry one.
 
-### What revision 7 changes
+Revision 7 (`a32e8bd`, pushed and verified as `origin/main`) received a **sixth**
+independent review: **REJECTED**, five blockers **F6-1 … F6-5** and seven
+non-blocking findings **N6-1 … N6-7**. Sol accepted the verdict and ruled.
+**Revision 8 is an ARCHITECTURE-ONLY CLOSURE REVISION: it repairs those twelve
+findings, applies Sol's rulings, and changes nothing else.**
+
+> ### WHAT THE SIXTH REVIEW VERIFIED, AND WHAT REVISION 8 THEREFORE DOES NOT TOUCH
+>
+> Post-worker **`{}`** on the dispatch path — **VERIFIED, by two mechanisms that
+> both deliver** · **detached B2 — SOUND**, F5-1's class closed by the right
+> mechanism · the **`PREPARE_ADMIN_GATE` / `WORKER_START_AUTHORITY` split —
+> CORRECT**, both F5-4 readings structurally impossible · **Y-9 — correctly
+> integrated** · the base snapshot's **A ∪ B partition — total**, with **G2
+> measured byte-identical under a forged commit-graph** · the **`worker_delta`
+> closure theorem — sound** · **exactly four MCP tools, forever** · **sealed
+> identity** · and every previously accepted invariant. **None of these is
+> weakened here.**
+
+> ### THE FAILURE MODE THIS REVISION EXISTS TO END
+>
+> **Four of the five blockers were CONTRADICTIONS** — between a ruling and a
+> table, or between two sections, or between a named test and the mechanism it
+> guards. **`UNTEXTUAL` carried the value Sol's freshly ratified ruling forbids,
+> seven lines above a box asserting the opposite. ORDER 3's own named test
+> asserted zero repository opens while step V6 makes three. A heading said "one
+> line makes it true again" about a claim that was still false after the line.**
+>
+> **The repair for a contradiction is not to correct the losing side. It is to
+> DELETE the superseded normative answer**, so that exactly one remains — the
+> rule this document already applied to `IGNORED_BY_BASE` and
+> `BULK_CREATED_IGNORED`, and did not apply to itself. **Every affected table,
+> normative order, test specification, Y-map row and acceptance row is reconciled
+> in this revision, and superseded prose is removed rather than preserved beside
+> its replacement.**
+
+### What revision 8 changes
+
+| Blocker | Sol's ruling | The repair, and where |
+|---|---|---|
+| **F6-1** | **`UNTEXTUAL` clears completeness and blocks Fable, consistent with normative Y-10. Inventory completeness remains a separate axis.** | **§5.11.5's completeness columns are DELETED, not corrected** — §5.8.5's own rule for mutually exclusive designs, applied to this document. **§5.5.9's seven rules are now the only table that answers the completeness question.** The two axes are stated once, on separate fields, with `test_no_predicate_reads_inventory_complete` asserting no predicate reads the second |
+| **F6-2** | **Replace inherited-environment scrubbing with an explicit git child-environment ALLOWLIST. No ambient `GIT_*` variable may survive. Do not add four more names to a denylist. Delete the falsified heading.** | **§5.4.3A: ZI-85.** The strip list and the scrub list are **DELETED**. The child environment is **constructed** from a non-git allowlist that **cannot contain a `GIT_*` name**, plus six explicit dispatcher-owned variables. **This answers a CLASS, not four instances** — `GIT_GRAFT_FILE` and `GIT_SHALLOW_FILE` survive the whole pin block **including PIN 4**, change **G9's** output, and `GIT_SHALLOW_FILE` leaves **no in-repository artefact** for the capture or the gate to see. **Lane Z17 owns the membership and has not landed; the dependency is marked, not guessed** |
+| **F6-3** | **Re-specify ORDER 3's V6 over the exact sealed worktree-authority path set. Replace the impossible "zero repository opens" assertion with exact set equality plus a live positive control that proves any additional repository read is detected.** | **§5.4.3B ORDER 3.** The assertion becomes **set equality against the four paths in `WorktreeAuthorityRecord`** — a **dispatcher-written, pre-worker, sealed record**, not a name pattern, so it is a **provenance** test and does not re-create ZI-57's exemption. The tripwire's condition is reconciled with its premise, and the *"does V6 belong here at all"* question is answered rather than left open |
+| **F6-4** | **Ratify denial of `git checkout -b`** and equivalent branch-creating symbolic-HEAD transitions for task workers. | **§5.5.2C, A.2M.** ZI-77's byte rule is **ratified unchanged** — the `ORIG_HEAD` refinement is **rejected because it re-introduces a resolution into the function whose entire value is that it contains none.** The **action** is denied instead. The false positive is stated **where the invariant is stated**; the headline no longer reads *"MISSES: 0"* alone; A.2M carries a named **false-positive** row. **T-38.** Z17 owns the exact pattern |
+| **F6-5** | **T-36 — adopt the append-only object-store relation.** Baseline objects must remain **present and byte-identical**; removal or alteration **refuses**; **new content-addressed objects are allowed but reported**; all routing and administrative authority stays **exact-equality**; **automatic re-baselining is forbidden.** **T-37 — the Fable path does not run the operator R6 baseline gate; it validates against the task's sealed authority.** | **§5.8.3: ZI-86**, specified class by class with append-only defined in three clauses. **`test_second_dispatch_against_the_same_repository_succeeds` is no longer deliberately RED — it is a required GREEN** with a non-vacuity assertion; **`test_divergence_persists_across_dispatches` stays green** because clause 3 stores nothing. **REQ-1 is DISCHARGED**, so §1A.3's substitution coverage is no longer conditional. T-37 is **ruled**, and ORDER 3 cites the ruling rather than presuming it |
+
+**And the seven non-blocking findings, all repaired:** N6-1 the traversal guard's
+scope and its **moved** test · N6-2 §5.8.2B's stale symlink paragraph · N6-3
+§16's row over three deleted concepts · N6-4 §2A.5's and §2's stale counts · N6-5
+§12.6 item 5 restated as the **JOIN** · N6-6 an explicit `.git` classification
+step in **ORDER 2 and ORDER 3** · N6-7 ORDER 4's two missing columns.
+
+### And what LANE Z17 changed, after those repairs were already drafted
+
+**`GATE7-Z17-ENV-ALLOWLIST.md` landed mid-revision (probes `8ba92b7`) and it did
+not confirm the F6-2 and F6-4 repairs — it CORRECTED them.**
+
+| Z17 result | What it changed here |
+|---|---|
+| **The measured minimum allowlist is EMPTY.** All nine permitted rows byte-identical at `rc=0` from `env -i` plus the six pins; leave-one-out over fifteen candidates broke nothing; `necessary by single ablation: (NONE)` | **§5.4.3A now specifies `_GIT_ENV_ALLOWLIST = ()` and `child_env = dict(DISPATCHER_GIT_ENV)`.** Revision 8's own first draft illustrated `PATH HOME LANG LC_* TZ TMPDIR` — **a guess, in the section whose whole point was not to guess.** It is recorded as a §10.3 row against this revision, not quietly replaced |
+| **220 `GIT_*` names swept in three columns; five survive revision 7's denylist, ZERO survive the allowlist; 157 of 220 ungoverned, fourteen measured to change a row or execute** | ZI-85's generated test is re-specified over **220** names **with a mandatory `GIT_DIR`-through-a-bypassed-allowlist control**. **`GIT_ALLOC_LIMIT`/`GIT_MMAP_LIMIT` — one number in an operator profile, all nine rows to `rc=128` — appear in no revision-7 list and in none of the six reviews** |
+| **`GIT_PROXY_COMMAND` measured EXECUTING A PROGRAM through revision 7's denylist** | **Review 4's N-6, open four revisions, is DISCHARGED — and was under-described the entire time as a config read.** §10.3 gains the row |
+| **The `GIT_CONFIG_*` hazard SPLITS: the environment half disappears; the argv half is untouched** | **ZI-71 is NOT retired.** §5.4.3A carries an explicit trap box, because *"the env hazard is gone, so the pin block can relax"* is the most likely wrong thing a reader will do with this result |
+| **`PATH` is an OWED DEFECT, not a candidate entry.** Dropping it works here only because git is inside `os.defpath`; admitting it re-opens a `.gitattributes` filter-driver EXECUTION surface PIN 2 does not close | **T-40 — resolve the git binary to an absolute path once at start-up.** New, owed, `UNMEASURABLE` |
+| **`checkout -b` has FIVE false positives, and the deny costs three legitimate HEAD-neutral file restores** | **T-38's pattern is four Bash prefixes** (`checkout`, `switch`, `symbolic-ref`, `update-ref`); **the `git restore` sentence in `prompts/worker-policy.md` is a HARD PRECONDITION shipping in the same commit**; and **the deny is stated plainly as NOT a boundary** — Z17 broke it six ways, one with no git process at all |
+
+**Z17 reported five of its own control failures rather than fixing them quietly**
+— including one experiment that was **worthless as run** because `-z` disables the
+quoting its control flipped — **and declines to claim its 220-name list is
+complete. Both halves are carried: the discipline and the caveat.**
+
+### What revision 7 changed
 
 | # | Sol's directive | What this revision does |
 |---|---|---|
@@ -236,14 +307,16 @@ items, carried for Sol.
 | Revision 3 | `d268f70` — **pushed, `origin/main` verified**; reviewed a third time |
 | Revision 4 | `165aa93` — closed B-1…B-4 and N-1…N-7 |
 | Revision 5 | `d197bf08` — reviewed a fourth time (F-1 … F-7) |
-| Revision 6 | `4a0ae9f` — **pushed, `origin/main` verified**; reviewed a fifth time → **REJECTED, F5-1 … F5-6**; **the artefact this revision replaces** |
+| Revision 6 | `4a0ae9f` — reviewed a fifth time → **REJECTED, F5-1 … F5-6** |
+| Revision 7 | `a32e8bd` — **pushed, `origin/main` verified**; reviewed a sixth time → **REJECTED, F6-1 … F6-5 + N6-1 … N6-7**; **the artefact this revision replaces** |
 | Author | Lane V (integrator). **This lane wrote no `src/**`, no `tests/**`.** |
 | Drafting lanes | **Z1** (evidence authority, §A–F) · **Z2** (phase & ownership, §G–J, §P) · **Z3** (structure & policy, §K–S, Y-mapping) |
 | Probes | `GATE7-CAPABILITY-PROBE.md` (U) · `GATE7-V1-ADJACENT-PROBE.md` (X) · `GATE7-Z5-PREPARE-PROBE.md` (Z5) · `GATE7-Z7-SEALING-PROBE.md` (Z7) · **`GATE7-Z12-DETACHED-PROBE.md` (Z12, scripts at `commissioning/gate7-z12-probes/`)** |
-| Reviews | `GATE7-DESIGN-REVIEW.md` (W) · `-2.md` (Y) · `-3.md` (Z4) · `-4.md` (Z6) — F-1 … F-7 · **`-5.md` (Z11) — REJECTED, F5-1 … F5-6** |
+| Reviews | `GATE7-DESIGN-REVIEW.md` (W) · `-2.md` (Y) · `-3.md` (Z4) · `-4.md` (Z6) · `-5.md` (Z11) — REJECTED · **`-6.md` (Z16) — REJECTED, F6-1 … F6-5, N6-1 … N6-7** |
 | Drafting lanes (rev 6) | **Z8** sealing · **Z9** attribution · **Z10** policy |
 | Drafting lanes (rev 7) | **Z13** identity/pins/orders (§1, §2, §10–§12, §15–§18) · **Z14** detached/`.git`/snapshots (§3–§6) · **Z15** Fable/matrix/Y-9/Y-10 (§7–§9, §13, §14, §19) |
-| Pending probe | **none.** Z5, Z7 and Z12 are published and cited. **Where a probe and a draft disagree, the PROBE governs and the disagreement is recorded, not smoothed** — and in revision 7 that rule fired four times (§10.3). |
+| Measuring lane (rev 8) | **Lane Z17, `GATE7-Z17-ENV-ALLOWLIST.md` — LANDED, probes `8ba92b7` under `commissioning/gate7-z17-probes/`.** It owns ZI-85's allowlist membership (**MEASURED EMPTY**) and T-38's deny pattern (**four Bash prefixes, three restores collaterally denied**). **It also discharged review 4's N-6 — `GIT_PROXY_COMMAND` measured EXECUTING A PROGRAM through revision 7's denylist — and reported five of its own control failures rather than fixing them quietly.** |
+| Published probes | **Z5, Z7, Z12 and Z17 are published and cited.** **Where a probe and a draft disagree, the PROBE governs and the disagreement is recorded, not smoothed** — and in revision 7 that rule fired four times (§10.3). |
 | Installed clients | Claude Code **2.1.237**, Codex CLI **0.149.0** |
 
 ---
@@ -964,7 +1037,8 @@ undeclared exception is how the review path came to run six.
               └───────────────────────┬───────────────────────────────────┘
                                       │ establishment marker written
   PREPARE     ┌───────────────────────▼───────────────────────────────────┐
-              │ G1…G10  the TEN enumerated git commands (§5.4.3)          │
+              │ G1…G10  the SEVEN enumerated git commands (§5.4.3;        │
+              │         G5, G6 and G7 are deleted in revision 7)          │
               │ then    SEAL: base identity + EXACT CONTENT BYTES + the   │
               │         HEAD chain + the manifest, written LAST (§5.5.2A) │
               └───────────────────────┬───────────────────────────────────┘
@@ -1142,8 +1216,10 @@ discovered later**).
 ZI-51 is **a closure for a class of question, and it is exact about which class**.
 It says nothing about anything else. In particular it does **not** close:
 
-- **the PREPARE window.** Ten enumerated git commands run there (§5.4.3), gated
-  by §5.8's raw establishment and pinned by three argv/env pins. That window is
+- **the PREPARE window.** **SEVEN** enumerated git commands run there on the
+  dispatch path and **ONE** on resume (§5.4.3 — G5, G6 and G7 are deleted), gated
+  by §5.8's raw establishment, pinned by **FOUR** argv/env pins, and run in an
+  **allowlist-constructed child environment** (ZI-85). That window is
   defended by **enumeration**, and the enumeration has been wrong twice.
 - **the worker's own capability.** The worker has Bash and its own git and can do
   anything a same-uid process can do, including to the seal.
@@ -2838,7 +2914,9 @@ write, whichever file is written.**
 > **`GIT_NO_LAZY_FETCH`, `GIT_NO_REPLACE_OBJECTS`, `core.hooksPath` and
 > `attr-source` have ZERO hits in `src/**`** (Z7 §4.2a, grep). `_git_env()`
 > (`git.py:126-136`) strips eight `GIT_*` redirect variables and sets exactly
-> `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`. **There are zero
+> `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0` — **and Lane Z17 measured
+> that eight-name strip list leaving FIVE names live out of 220, one of which
+> executes a program.** **There are zero
 > `-c key=value` occurrences in `src/**`.** And
 > **`test_no_direct_git_subprocess_in_src` does not exist in `tests/`** — no file
 > matches that name or `addaudithook`.
@@ -2970,23 +3048,46 @@ unconditionally. **Every line is an enumerated defence and is labelled as one.**
 > subcommand set.
 
 ```
-env:   GIT_NO_LAZY_FETCH=1        # PIN 1 — closes the whole S-δ column (measured)
-       GIT_NO_REPLACE_OBJECTS=1   # PIN 3 — closes refs/replace/** (measured)
-       GIT_CONFIG_NOSYSTEM=1      # ignore /etc/gitconfig
-       GIT_CONFIG_GLOBAL=/dev/null# ignore ~/.gitconfig
-       GIT_TERMINAL_PROMPT=0      # existing
-       GIT_OPTIONAL_LOCKS=0       # existing — suppresses post-index-change for
-                                  #   `status` ONLY; measured NOT to for read-tree
-       + existing redirect-var stripping (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR,
-         GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES,
-         GIT_CEILING_DIRECTORIES, GIT_NAMESPACE)
-       + scrubbing (hygiene, not a worker path under this threat model):
-         GIT_CONFIG_COUNT, GIT_CONFIG_KEY_*, GIT_CONFIG_VALUE_*,
-         GIT_CONFIG_PARAMETERS,        <-- ADDED IN REVISION 7
-         GIT_TEST_*  (PREFIX, NOT AN ENUMERATION)   <-- ADDED IN REVISION 7,
-                                       and it is the one that makes PIN 4 true
-         GIT_EXTERNAL_DIFF, GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, GIT_PAGER,
-         GIT_ATTR_NOSYSTEM
+env:   THE GIT CHILD ENVIRONMENT IS CONSTRUCTED, NOT INHERITED-AND-FILTERED.
+       (See ZI-85. This is the revision-8 repair of F6-2.)
+
+       _GIT_ENV_ALLOWLIST: tuple[str, ...] = ()      # MEASURED EMPTY — Z17 §1
+
+       child_env = { k: os.environ[k] for k in _GIT_ENV_ALLOWLIST
+                                       if k in os.environ }
+       child_env.update(DISPATCHER_GIT_ENV)          # explicit, dispatcher-owned
+
+       ==> BECAUSE THE ALLOWLIST IS MEASURED EMPTY, THIS REDUCES TO
+           child_env = dict(DISPATCHER_GIT_ENV)
+           and the git child inherits NOTHING. Not PATH, not HOME, not LANG,
+           not TMPDIR, not TZ, not SSL_CERT_*. Z17 ran all nine permitted rows
+           under `env -i` plus these six insertions and every row was
+           BYTE-IDENTICAL to its full-ambient golden at rc=0; a leave-one-out
+           over fifteen candidates broke nothing. NO VARIABLE EARNED AN ENTRY,
+           BECAUSE NONE PRODUCED A FAILURE WHEN REMOVED.
+
+       DISPATCHER_GIT_ENV  -- the ONLY variables of any kind in the child:
+         GIT_NO_LAZY_FETCH=1        # PIN 1 — closes the whole S-δ column (measured)
+         GIT_NO_REPLACE_OBJECTS=1   # PIN 3 — closes refs/replace/** (measured)
+         GIT_CONFIG_NOSYSTEM=1      # ignore /etc/gitconfig
+         GIT_CONFIG_GLOBAL=/dev/null# ignore ~/.gitconfig
+         GIT_TERMINAL_PROMPT=0
+         GIT_OPTIONAL_LOCKS=0       # suppresses post-index-change for `status`
+                                    #   ONLY; measured NOT to for read-tree
+
+       THERE IS NO STRIP LIST AND NO SCRUB LIST. `_GIT_ENV_REDIRECTS` — the
+       eight-name strip tuple at git.py:104 — is DELETED, NOT EXTENDED. Keeping
+       a denylist beside an allowlist would leave a reader to wonder which one
+       is the defence. A denylist answers "did we think of this name?"; an
+       allowlist answers "is this name one of ours?" — and only the second
+       question has an answer that a git upgrade cannot change.
+
+       git IS INVOKED BY ABSOLUTE PATH. `argv[0]` is the path resolved ONCE at
+       start-up (`shutil.which("git")` against the DISPATCHER's own environment),
+       recorded in the sealed identity record and journalled; the gate REFUSES
+       if it cannot be resolved. This is OWED and is not yet implemented — see
+       T-40. It is the reason PATH is not on the allowlist rather than a reason
+       to put it there.
 
 argv:  git -c core.hooksPath=<empty dir>       # PIN 2 — neutralises all 28 hooks
            -c core.commitGraph=false           # PIN 4a — MEASURED
@@ -3090,43 +3191,306 @@ argv:  git -c core.hooksPath=<empty dir>       # PIN 2 — neutralises all 28 ho
 > **silently wins** — measured. **That is a real hazard and not a hypothetical
 > one, because `validation.py:228` already accepts a caller-supplied `argv[0]`.**
 
-> ### SOL'S §16 REQUIREMENT IS FALSIFIED AS LITERALLY WORDED, AND ONE LINE MAKES IT TRUE AGAIN
+> ### SOL'S §16 REQUIREMENT WAS FALSIFIED, AND THE "ONE LINE" REPAIR WAS ITSELF FALSE. THE DENYLIST IS DELETED.
 >
 > Sol's directive: *"no environment or config source can override a later
 > command-line pin."*
 >
-> **Every genuine CONFIG source loses to the pin — measured, seven of them.** But:
+> **Every genuine CONFIG source loses to the pin — measured, seven of them.**
+> Revision 7 then found one environment lever that does not (`GIT_TEST_COMMIT_GRAPH`),
+> added it to a scrub list as a prefix, and wrote a heading saying **"one line
+> makes it true again."** **That heading was false, and the sixth review
+> falsified it in one harness:**
 >
 > ```
-> no pin, no env                                    -> DECOY (pin LOST)
-> -c core.commitGraph=false                         -> TRUE  (pin HELD)
-> GIT_TEST_COMMIT_GRAPH=1  + -c false   [rev-list]  -> DECOY (PIN LOST)
-> GIT_TEST_COMMIT_GRAPH=1  + -c false   [log]       -> DECOY (PIN LOST)
-> GIT_TEST_COMMIT_GRAPH=0  + -c false               -> TRUE  (pin HELD)
-> GIT_TEST_COMMIT_GRAPH=true + -c false             -> DECOY (PIN LOST)
+> FULL PIN BLOCK = the env above + PIN_BLOCK, i.e. PINs 1+2+3+4 together
+>
+> GIT_GRAFT_FILE=/tmp/graftfile     (an OUT-OF-REPOSITORY file, "<HEAD> <DECOY>")
+>   baseline                      rev-list --max-parents=0 HEAD -> TRUE root
+>   GIT_GRAFT_FILE only                                         -> DECOY
+>   GIT_GRAFT_FILE + FULL PIN BLOCK                             -> DECOY
+>   G9 rev-list --objects --missing=print HEAD, fully pinned:
+>        clean n=9   grafted n=8   SYMMETRIC DIFFERENCE 7
+>
+> GIT_SHALLOW_FILE=/tmp/shallow     (an OUT-OF-REPOSITORY file, "<HEAD>")
+>   clean, full pins    rev-list HEAD | wc -l                   -> 3
+>   GIT_SHALLOW_FILE + FULL PIN BLOCK                           -> 1  DAG TRUNCATED
+>   root under it, full pins  rev-list --max-parents=0 HEAD     -> HEAD itself
+>   G9 under it, full pins:   clean n=9  ->  n=5   FOUR OBJECTS HIDDEN
+>   $GIT_COMMON_DIR/shallow exists?  NO
+>
+> CONTROLS FIRED, same harness, same second: the clean legs returned 3 / 9 / TRUE.
+> NEGATIVE CONTROLS: GIT_REPLACE_REF_BASE is dominated by PIN 3;
+>                    GIT_CONFIG_SYSTEM is dominated by GIT_CONFIG_NOSYSTEM=1.
 > ```
 >
-> **`GIT_TEST_COMMIT_GRAPH` is read as a plain environment boolean, NOT through
-> the config stack**, so `--show-origin` never sees it and **no argv `-c` can
-> outrank it.** Five such names exist in the 2.43 binary
-> (`GIT_TEST_COMMIT_GRAPH`, `…_CHANGED_PATHS`, `…_DIE_ON_PARSE`,
-> `GIT_TEST_MULTI_PACK_INDEX`, `…_WRITE_BITMAP`) and a git upgrade adds more.
+> **Three things make this worse than the instance that motivated the scrub, and
+> each of them is why the repair is structural rather than another name.**
 >
-> **Scoped honestly:** under this threat model the worker controls *repository
-> content and configuration*, **not the dispatcher's process environment**, so
-> this is **not a worker-reachable bypass on its own.** It matters for two
-> concrete reasons. **(1) Adopting Sol's sentence as written would be adopting a
-> statement that is measurably false — the exact failure shape five reviews have
-> found.** **(2) The design already scrubs environment variables for precisely
-> this reason**, and `GIT_TEST_*` belongs in that list by exactly that argument.
-> **Its absence is the difference between a pin that is true and a pin that is
-> true-unless-somebody's-shell-profile.**
+> 1. **They are NOT config sources.** No `-c`, no `--show-origin` entry, no
+>    ordering rule reaches them. **The whole of §5.4.3A's precedence analysis is
+>    irrelevant to them.**
+> 2. **They point OUTSIDE the repository, so the administrative capture has
+>    nothing to capture.** `GIT_TEST_COMMIT_GRAPH` only makes git consult a graph
+>    that exists on disk and is hashed per-file by §5.8.2. **`GIT_SHALLOW_FILE`
+>    leaves NO in-repository artefact at all** — `$GIT_COMMON_DIR/shallow` does
+>    not exist, so **neither the `shallow` capture row nor the R6 gate can see
+>    it.**
+> 3. **They hit the one row PIN 4 is load-bearing for.** Both change **G9's**
+>    enumeration through the full pin block — grafts by a symmetric difference of
+>    7, shallow by hiding four objects. **G9 is §5.5.2B's promisor verifier.**
 >
-> **`GIT_TEST_*` is scrubbed as a PREFIX, not as an enumeration** — enumerating
-> the five names invites the enumeration-is-the-defence error this whole document
-> is about. **`test_pin4_survives_every_config_source` gains a
-> `GIT_TEST_COMMIT_GRAPH=1` row that must be RED before the scrub and GREEN
-> after.**
+> **And the named proof passed while the property was false.**
+> `test_pin4_survives_every_config_source` was specified to gain *"a
+> `GIT_TEST_COMMIT_GRAPH=1` row"* — **it enumerates the one variable somebody
+> found, and is green against a build in which `GIT_GRAFT_FILE` and
+> `GIT_SHALLOW_FILE` are live. A test that ranges over the members somebody
+> thought of cannot discharge a claim about all members** — which is the sentence
+> §5.4.3A itself wrote about `GIT_TEST_*` being a prefix rather than an
+> enumeration, **applied one level in and then not applied one level out.**
+
+> ### INVARIANT ZI-85 — THE GIT CHILD ENVIRONMENT IS AN ALLOWLIST. NO AMBIENT `GIT_*` VARIABLE SURVIVES.
+>
+> **The dispatcher does not inherit the process environment and filter it. It
+> CONSTRUCTS the child environment from an allowlist of non-git names — which
+> Lane Z17 measured to be EMPTY — and then inserts its own git variables
+> explicitly.**
+>
+> 1. **No environment variable whose name begins `GIT_` may be copied from
+>    `os.environ` into a git child, ever, under any condition.** The allowlist is
+>    asserted at import time to contain **no** name matching `^GIT_`, so a `GIT_*`
+>    entry is **unrepresentable in the allowlist**, not merely absent from it.
+> 2. **The only `GIT_*` variables in a git child are the six in
+>    `DISPATCHER_GIT_ENV`**, written by the dispatcher, in one place, as a frozen
+>    mapping — the same device as `PIN_BLOCK`.
+> 3. **The strip list and the scrub list are DELETED.** Not extended. Deleted.
+> 4. **`_GIT_ENV_ALLOWLIST = ()`. MEASURED EMPTY (Z17 §1), so clause 1 is not the
+>    binding constraint — NOTHING AT ALL is inherited, `GIT_*` or otherwise.**
+>    Clause 1 remains stated because it is the clause that survives someone later
+>    arguing a variable back onto the list: **it makes the `GIT_` class
+>    unrepresentable regardless of what else is admitted.** Clause 4 is the
+>    measurement; clause 1 is the guarantee that does not depend on it.
+>
+> **This is `delete the consumer` (§1A) applied to the environment.** A denylist
+> is an enumeration **of git's behaviour**, which nobody in this build controls
+> and which a git upgrade extends. **An allowlist is an enumeration of the
+> dispatcher's own requirements, which this build does control** — and that is
+> the whole difference, stated the same way §1A states it for the graph walk.
+>
+> **What it closes, as a CLASS and not as four instances:** `GIT_GRAFT_FILE`,
+> `GIT_SHALLOW_FILE`, `GIT_TEST_*`, `GIT_PROXY_COMMAND`, `GIT_TRACE*`, the eight
+> redirect variables, `GIT_CONFIG_COUNT`/`KEY_*`/`VALUE_*`,
+> `GIT_CONFIG_PARAMETERS`, `GIT_EXTERNAL_DIFF`, `GIT_SSH*`, `GIT_ASKPASS`,
+> `GIT_PAGER`, **and every `GIT_*` name in a future git that nobody in this build
+> has read.** **The list above is an illustration, not a specification** — the
+> specification is clause 1, and **a proof that cites the members has proved
+> nothing.**
+
+**Two defects in the deleted denylist that are worth recording rather than
+quietly dropping, because both are direction errors and this document's §10.3
+exists for exactly that shape:**
+
+- **`GIT_ATTR_NOSYSTEM` was in the SCRUB list, and the scrub was in the
+  PERMISSIVE direction.** Setting it *suppresses* `$(prefix)/etc/gitattributes`;
+  **scrubbing it makes git consult that file.** One line, in the list whose whole
+  purpose is direction.
+- **Review 4's N-6 was open for four revisions and is DISCHARGED IN REVISION 8 —
+  worse than it was recorded.** `GIT_PROXY_COMMAND` — the environment form of
+  `core.gitProxy`, a key Lane X's corrected TIER-0 table moves to **executed**
+  via S-δ — and `GIT_TRACE*` were recorded as missing from the scrub list **four
+  revisions ago** and appear nowhere in revisions 5, 6 or 7, while the sibling
+  `GIT_SSH_COMMAND` **was** scrubbed. **It had only ever been REASONED ABOUT as a
+  config read. Lane Z17 MEASURED IT EXECUTING A PROGRAM through revision 7's
+  denylist** — see the Z17 block below. **That asymmetry was never reasoned;
+  under ZI-85 it cannot recur, because no name is reasoned about individually.**
+
+##### How ZI-85 is PROVEN, and whether each proof could pass while the property is false
+
+| Obligation | Proof | **Could it pass while false?** |
+|---|---|---|
+| No ambient `GIT_*` reaches a git child | **`test_no_ambient_git_variable_reaches_a_git_child`** — the test **injects** into `os.environ`: `GIT_GRAFT_FILE`, `GIT_SHALLOW_FILE`, `GIT_TEST_COMMIT_GRAPH`, `GIT_PROXY_COMMAND`, `GIT_TRACE`, `GIT_DIR`, `GIT_CONFIG_PARAMETERS`, **and a name no list in this document mentions, `GIT_ZI85_CANARY`** — then runs a real permitted row and asserts the child's observed environment contains **exactly `DISPATCHER_GIT_ENV`'s six keys and no other `GIT_*` key** | **YES if it asserted only the named injections** — that is the defect it replaces. **The canary is the load-bearing element: it is a name chosen so that no denylist could contain it**, so a build that passes by enumeration fails here. **And `NOT TESTED`: whether a git child can acquire a `GIT_*` variable by a route other than `env=`** — no experiment exists |
+| The allowlist cannot acquire a `GIT_*` member | **`test_allowlist_contains_no_git_name`** — asserted at **import time** in production code, not only in a test: constructing the allowlist with a `^GIT_` name raises `EnvironmentAllowlistInvalid` (`InternalDispatcherError`) | **NO** for a literal. **YES** for a name assembled at runtime — closed by the row above, which observes the **child's** environment and does not care how the entry got there |
+| The six dispatcher variables are actually present | the same test asserts **set equality**, not containment — `{observed GIT_* keys} == {DISPATCHER_GIT_ENV keys}` | **NO.** Set equality fails in both directions; a build that dropped PIN 1 fails it as surely as one that leaked `GIT_GRAFT_FILE` |
+| The claim is not merely about the names we know | **`test_pin4_survives_every_git_env_name_in_the_installed_binary`** — the row set is **GENERATED** by extracting every `GIT_[A-Z0-9_]*` literal from the installed `git` binary **and from every file in `/usr/lib/git-core`** (Z17: **220 names** across 166 files on git 2.43) and asserting each is either **absent from the child** or **measured inert** against the forged fixture. **The body MUST also contain the positive control Z17 names: `GIT_DIR` admitted through a DELIBERATELY-BYPASSED allowlist must CHANGE a row.** | **YES for a name the binary does not contain as a literal** — stated, not argued away. It is **strictly better than a hand-written list and it is not a completeness proof**, and this document says so rather than calling it one. **The control clause is what makes the 220 green rows mean anything: Z17 reports that its absence made five of its own results worthless.** *(This test **replaces** `test_pin4_survives_every_config_source`, which enumerated one variable.)* |
+| The allowlist is genuinely empty, and emptiness costs nothing | **`test_every_permitted_row_is_byte_identical_under_env_i`** — each of the nine permitted rows run with `env = dict(DISPATCHER_GIT_ENV)` and **nothing else**, asserted byte-identical to a golden captured under the full ambient environment, at `rc=0` (Z17 §1.2 STEP A: **nine of nine**) | **YES if the golden were captured from the same empty environment** — so the golden MUST be the ambient-environment capture, and the test asserts that provenance. **NOT closed by this row: a host where `git` is not inside `os.defpath`** — there the rows do not run at all. That is **T-40**, and this test would go red on such a host, which is the correct behaviour and not a false alarm |
+
+> ### LANE Z17 HAS LANDED, AND ITS ANSWER IS THE STRONGEST FORM OF SOL'S RULING
+>
+> **`GATE7-Z17-ENV-ALLOWLIST.md` (probes `8ba92b7`, `commissioning/gate7-z17-probes/`)
+> measured the minimum allowlist and it is EMPTY.**
+>
+> **Not one inherited variable is necessary.** All nine rows — the seven ORDER 1
+> git rows, `worktree add`, and the RESUME row run in the task worktree — return
+> **byte-identical stdout at rc=0 from `env -i` plus the six dispatcher
+> insertions.** A leave-one-out across fifteen candidates (`PATH HOME LANG LC_ALL
+> TMPDIR USER LOGNAME TZ SHELL TERM SSL_CERT_FILE SSL_CERT_DIR XDG_CONFIG_HOME
+> XDG_RUNTIME_DIR PWD`) broke **nothing**. `necessary by single ablation: (NONE)`.
+>
+> **So the specification is `_GIT_ENV_ALLOWLIST = ()` and `child_env =
+> dict(DISPATCHER_GIT_ENV)`.** Written this way because the mandate asked for each
+> member to be justified by a measured failure, **and no member could be** — which
+> is a stronger result than a short list, not a weaker one. `_GIT_ENV_REDIRECTS`
+> is **deleted, not extended.**
+>
+> **The class is closed, and the closure is now quantified.** Z17 swept **all 220
+> `GIT_*` names in the installed 2.43 binary and all 166 files of
+> `/usr/lib/git-core`** in three columns — raw / revision-7 denylist / allowlist —
+> against the nine rows. **21 of 23 named-class rows carry a FIRING positive
+> control. Five names survive revision 7's denylist. ZERO survive the allowlist.**
+> **157 of the 220 names are ungoverned by revision 7's lists**, and **fourteen of
+> those are measured to change a permitted row's rc or stdout, or to execute.**
+>
+> **Z17 declines to claim its 220-name list is complete. That is the argument FOR
+> the allowlist, not against it** — and it is the same sentence F6-2 used against
+> revision 7, applied by Z17 to its own work.
+
+**Four Z17 results that change what this document says, each recorded where it
+falsifies something rather than where it is convenient:**
+
+- **`GIT_PROXY_COMMAND` EXECUTES A PROGRAM through revision 7's denylist.**
+  Review 4's N-6 has been open for four revisions and was only ever **reasoned
+  about as a config read**. Measured: `baseline proxy EXECUTED=False` ·
+  `BYPASS EXECUTED=TRUE` (control fired) · **`revision-7 DENYLIST EXECUTED=TRUE`**
+  · `ALLOWLIST EXECUTED=False`. **The scrub list did not reach it, and the thing
+  it did not reach was an execution.** Its sibling `GIT_SSH_COMMAND` *was*
+  scrubbed; the asymmetry review 4 recorded is real, and the allowlist removes the
+  need to reason about it at all.
+- **`GIT_ALLOC_LIMIT` / `GIT_MMAP_LIMIT` are a total environment-sourced denial of
+  service.** One number in an operator's shell profile turns **all nine rows into
+  `rc=128`** (`fatal: attempting to allocate …`), which this design converts to
+  `GitEvidenceCollectionFailed`. **Neither name appears in any revision-7 list,
+  nor in any of the six reviews.** Closed by the empty allowlist; recorded because
+  the *shape* — a benign-looking tuning variable that fails every row closed —
+  is one no reviewer had looked for.
+- **`GIT_TRACE2_EVENT` wrote 1,648 bytes of dispatcher-internal detail to an
+  attacker-chosen path** through the revision-7 denylist; five more `GIT_TRACE*`
+  names did the same at 91–1,343 bytes. **`GIT_EXEC_PATH` redirected git's helper
+  directory** — `git --exec-path` returned the planted directory and a planted
+  subcommand ran from it at `rc=0`. `GIT_ATTR_SOURCE`, `GIT_QUARANTINE_PATH` and
+  `GIT_COMMITTER_DATE` each take `worktree add` to `rc=128`.
+- **`GIT_CONFIG_NOSYSTEM=1` is NOT subsumed by the allowlist and must be kept.**
+  The default `/etc/gitconfig` path is **not env-sourced**, so no allowlist
+  reaches it. *(Z17 could not measure its necessity against that path — the file
+  does not exist on this host and creating it needs root: `NOT ATTEMPTED`.)*
+  Conversely **`GIT_CONFIG_GLOBAL=/dev/null` is now measured REDUNDANT** — with
+  `HOME` off the allowlist, git 2.43 **does not fall back to `getpwuid()`** for
+  the global config, so `~/.gitconfig` is already unreachable. **It is KEPT as
+  belt-and-braces and this document records that it is no longer load-bearing**,
+  rather than continuing to cite it as a defence. **`GIT_TERMINAL_PROMPT=0` is a
+  HANG-GUARD, not a measured necessity** — Z17's control did not fire (both legs
+  failed at connect before any credential prompt) and Z17 reported that rather
+  than scoring the row.
+
+> ### THE `PATH` DEFECT — OWED, AND IT IS NOT AN ARGUMENT FOR ADMITTING `PATH`
+>
+> **Dropping `PATH` does not break `exec` HERE only because `/usr/bin/git` lies
+> inside CPython's `os.defpath` (`/bin:/usr/bin`).** Z17's positive control fired:
+> a copy of the binary placed outside `defpath` gave `rc=0` with `PATH` admitted
+> and **`FileNotFoundError` with `PATH` denied.**
+>
+> **On a host where git is installed outside `/bin:/usr/bin` — `/usr/local/bin`,
+> Homebrew, Nix, conda, an `asdf`/`mise` shim — an allowlist that drops `PATH`
+> makes EVERY DISPATCH FAIL at the first git command.** This document records that
+> as a **defect it owes a fix for (T-40)**, not as a caveat.
+>
+> **The fix is NOT to admit `PATH`**, because admitting it **re-opens an execution
+> surface PIN 2 does not close.** PIN 2 pins `core.hooksPath`; it does **not**
+> neutralise in-tree `.gitattributes` **filter drivers**, which run during the
+> `worktree add` checkout and are resolved as shell command strings — hence
+> through `PATH`. Z17's measurement, with PIN 2 applied on every leg:
+>
+> ```
+>   worktree add, PATH = <shimdir>:<system>   rc=0  filter EXECUTED = TRUE   <-- CONTROL FIRED
+>   worktree add, PATH = <system> only        rc=0  filter EXECUTED = False
+>   worktree add, PATH DENIED  (allowlist)    rc=0  filter EXECUTED = False
+> ```
+>
+> **Under this threat model the worker controls both halves of that fixture** —
+> the committed `.gitattributes` and the repository config naming the driver. And
+> separately, `PATH` in the child makes any `git <word>` that is not a builtin a
+> **program lookup**: Z17 ran a planted `git-z17probe` at `rc=0` with `PATH`
+> admitted, `rc=1` with it denied.
+>
+> **T-40 — resolve the git binary to an absolute path ONCE at start-up**
+> (`shutil.which("git")` against the **dispatcher's** environment), record it in
+> the sealed identity record (§5.4.3B ORDER 4), journal it, and **refuse at the
+> gate if it cannot be resolved.** That converts a hidden dependency on an
+> un-admitted variable into a declared, journalled, one-time fact — **the same
+> move §1A makes for the graph walk.** **NOT IMPLEMENTED; `UNMEASURABLE` in §16.**
+
+> ### AND THE TRAP: THE ALLOWLIST'S SUCCESS DOES NOT RETIRE ZI-71
+>
+> **The `GIT_CONFIG_*` precedence hazard SPLITS, and only one half is closed.**
+>
+> **The environment half disappears entirely.** Z17 ran the load-bearing legs
+> **with PIN 4a deliberately removed from argv**, so that an arriving variable
+> *would* have won — and it did not arrive:
+>
+> ```
+>   GIT_CONFIG_PARAMETERS in PARENT, allowlist child, PIN 4a ABSENT -> DECOY   (= the no-variable result)
+>   GIT_CONFIG_COUNT      in PARENT, allowlist child, PIN 4a ABSENT -> DECOY   (= the no-variable result)
+> ```
+>
+> **That is the correct shape of proof for a negative** and it is why
+> `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` and `GIT_CONFIG_PARAMETERS` may be dropped
+> from the scrub list — **not because they are harmless, but because the list they
+> were on is deleted.**
+>
+> **THE ARGV HALF IS UNTOUCHED.** With a perfect allowlist in force, a caller-
+> supplied `-c` appended **after** `PIN_BLOCK` **still silently wins**:
+>
+> ```
+>   allowlist child + displaced caller -c core.commitGraph=true -> DECOY
+> ```
+>
+> **`ZI-71` — `PIN_BLOCK` as a closed, ordered, TERMINAL prefix, with
+> `GitArgvPinDisplaced` raised on any caller-supplied `-c` — REMAINS FULLY
+> NECESSARY AND MUST NOT BE RELAXED ON THE STRENGTH OF THIS RULING.** An
+> implementer who reads *"the env hazard is gone"* and retires ZI-71 **re-opens
+> revision 7's attack vector 4 exactly as it was measured.** This paragraph exists
+> because that is the most likely wrong thing a reader will do with Z17's result.
+
+> ### Z17 REPORTED FIVE OF ITS OWN CONTROL FAILURES RATHER THAN FIXING THEM QUIETLY
+>
+> Carried because the discipline is the reason the results above are usable, and
+> because the caveats are part of the result:
+>
+> - **One experiment was worthless as run.** Z17 flipped `core.quotePath` against
+>   `ls-tree -r -z` to prove its harness detects a byte-different stdout — **`-z`
+>   disables quoting entirely**, so the key could not move that row (243 vs 243
+>   bytes). Re-armed two ways, both fired. *(Incidental finding worth keeping:
+>   **this is precisely why `-z` belongs in the `ls-tree` argv** — it makes the
+>   seal immune to `core.quotePath` independently of PIN 4.)*
+> - **A malformed argv voided four legs** — a filter deleted the *value* of PIN 4a
+>   and left the bare `-c`. **All four scored VOID and were rebuilt**, and §4 of
+>   Z17 is entirely from the rebuilt run.
+> - **`GIT_TERMINAL_PROMPT`'s control did not fire** (§5 above records the
+>   consequence: hang-guard, not necessity).
+> - **`GIT_NAMESPACE` is STILL DEAD on the permitted rows** after re-arming —
+>   `for-each-ref` sees a planted namespace, **but `for-each-ref` is not a
+>   permitted row**. Scored `NOT ATTEMPTED`.
+> - **`GIT_ATTR_NOSYSTEM` and `GIT_TRACE_PACKET` are `NOT ATTEMPTED`** — the first
+>   needs root to create `/etc/gitattributes`, the second a live transport.
+>
+> ### AND ONE Z17 TABLE THAT MUST NOT BE READ AS IF IT PROVED SOMETHING
+>
+> **Z17 ran a leave-one-out over the six dispatcher insertions and every row was
+> unchanged. THAT TABLE PROVES NOTHING ABOUT THE PINS, and Z17 says so itself.**
+> A clean fixture contains **no `refs/replace`, no promisor remote and no planted
+> program**, so a leave-one-out on it **cannot** show a defence being necessary.
+> **PIN 1's necessity (S-δ) and PIN 3's (`refs/replace`) are Z7's and Z16's
+> measurements and are INHERITED here, not re-run by Z17.** **A green row from an
+> experiment that could not go red is the exact failure §0 bans**, and it is
+> recorded in this document for the same reason Z17 recorded it in its own: so
+> that nobody later cites the six-row table as pin validation.
+>
+> **Two OWED measurements Z17 names and this document adopts rather than
+> absorbs:** a **genuine partial clone** (the sixth VOID filed on that vector by
+> the sixth party) and **a repository owned by a DIFFERENT uid** — where
+> `GIT_CONFIG_NOSYSTEM=1` plus `GIT_CONFIG_GLOBAL=/dev/null` means **no
+> `safe.directory` entry can be read, so every permitted row would refuse.** That
+> is a property of the PINS, unchanged by Sol's ruling, and it is **OWED, not
+> clean.**
 
 **Measured caveats that must travel with this block, not be inferred from it:**
 
@@ -3141,16 +3505,23 @@ argv:  git -c core.hooksPath=<empty dir>       # PIN 2 — neutralises all 28 ho
   output change other than the corrected parentage PIN 4 exists to correct**.
 - **Zero `-c key=value` occurrences exist in `src/**` today**, and
   `GIT_NO_LAZY_FETCH`, `GIT_NO_REPLACE_OBJECTS`, `core.hooksPath`, `attr-source`
-  and `core.commitGraph` have **zero hits**. **None of the four pins is
-  implemented.** Every acceptance row that depends on one is **UNMEASURABLE, not
-  green**, and §16 prints that word.
-- `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` is a viable *alternative* lever for
-  pinning without touching argv. **Recorded, not adopted** — argv is simpler to
-  assert in the journal, and **R-PIN-1 makes the env form silently lose the moment
-  any call site gains a `-c`.** (Z5's first attempt used `GIT_CONFIG_KEY0` without
-  the underscore and git refused with `rc=128`; **that row is `NOT ATTEMPTED` as
-  run, never `clean`** — a reading from a command that never executed proves
-  nothing.)
+  and `core.commitGraph` have **zero hits**. `_git_env()` today **inherits the
+  process environment** and strips eight names — **and Z17 measured that eight-name
+  strip list leaving five names live, one of which executes a program.** **None of
+  the four pins, and none of ZI-85's allowlist, is implemented.** Every acceptance row that depends on one
+  is **UNMEASURABLE, not green**, and §16 prints that word.
+- **Under ZI-85 the `GIT_CONFIG_COUNT` / `GIT_CONFIG_PARAMETERS` precedence
+  question stops being a hazard and becomes a curiosity.** Those names can no
+  longer be *inherited*, and the dispatcher does not *insert* them, so the
+  measured ordering below describes a state the dispatcher can no longer be in.
+  **The precedence measurements are RETAINED anyway**, because ZI-71's terminal-
+  prefix rule is still load-bearing against **the dispatcher's own argv assembly**
+  — R-PIN-2's *"the only override is another argv assignment later on the same
+  argv"* is unaffected by the environment repair. ***MEASURED BY Z17 AND THE
+  ANSWER SPLITS: the environment half disappears entirely; the argv half does
+  not.*** **ZI-71 is therefore NOT retired** — see the trap box below. (Z5's first attempt used
+  `GIT_CONFIG_KEY0` without the underscore and git refused with `rc=128`; **that
+  row is `NOT ATTEMPTED` as run, never `clean`.**)
 
 ##### Lane X's TIER-0 table is corrected
 
@@ -3177,9 +3548,14 @@ pins · execution phase · `cwd_role` · its positive control · and why the raw
 -c core.fsmonitor=false  -c core.attributesFile=/dev/null  -c core.quotePath=false  --no-pager
 ```
 
-with env `GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1 GIT_CONFIG_NOSYSTEM=1
-GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0` plus the
-strip and scrub lists. **PINs 1–4 are on every row below without exception.**
+with env **EXACTLY AND ONLY** `GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
+GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+GIT_OPTIONAL_LOCKS=0` — **the allowlist-constructed child environment of ZI-85,
+whose allowlist Lane Z17 measured EMPTY, so these six are the WHOLE child
+environment and nothing is inherited** (there is no strip list and no scrub
+list). **PINs 1–4 are on every row below without exception**, and **`argv[0]` is
+the absolute path resolved once at start-up (T-40), because no `PATH` reaches the
+child.**
 
 > ### STATUS OF THESE TABLES — `NORMATIVE — INTENDED ORDER, NOT AN OBSERVATION`
 >
@@ -3281,6 +3657,17 @@ strip and scrub lists. **PINs 1–4 are on every row below without exception.**
        -- the sealed root is compared against the CURRENT authorization
           decision, so a task cannot be resumed into a different repository
           than the one it was sealed against, EVEN IF BOTH ARE ALLOWLISTED.
+ P1b RAW `.git` CLASSIFICATION OF THE PRIMARY ROOT      (§5.8.2A, R4, ZI-80/81)
+       lstat FIRST on <canonical_root>/.git; S_ISLNK -> RepositoryAdministration-
+       Unsupported, row 0, ZERO git subprocesses.
+       -- N6-6: revision 7 declared ZI-81's refusal only "at R3/R4" and ORDER 2
+          had no R4 step, so the refusal was reachable only by INFERENCE from
+          resolve_gitdir()'s internals. §5.8.2A's own widened finding is a
+          RESUME-window attack -- one `ln -sf` between PREPARE and resume puts
+          the dispatcher and the task worktree on two different repositories,
+          and G1' `worktree list --porcelain` then names the gitdir TARGET.
+          In a document whose §5.4.3B exists so that nothing is an undeclared
+          step, an implicit refusal is an undeclared step.
  P2  RAW TASK WORKTREE AUTHORITY CHECK    (§5.5.2C) the EIGHT raw comparisons,
        open()/lstat only.  verdict != base_held -> WorktreeBaseMismatch   row 2
                            indirection moved    -> WorktreeIndirectionChanged row 4
@@ -3330,37 +3717,128 @@ strip and scrub lists. **PINs 1–4 are on every row below without exception.**
        realpath(canonical_root) == canonical_root  else RepositoryRootDrift  row 0
        canonical_root in the realpath'd allowlist  else RepositoryNotAllowed row 0
        NO git_top_level. NO --show-toplevel.
+ V2b RAW `.git` CLASSIFICATION OF THE PRIMARY ROOT      (§5.8.2A, R4, ZI-80/81)
+       lstat FIRST; S_ISLNK -> RepositoryAdministrationUnsupported, row 0,
+       ZERO git subprocesses.  (N6-6, same reason as ORDER 2's P1b.)
  V3  lock := RepositoryLock(canonical_root)   digest of the string from V2;
        lock_identity_for is TOTAL and runs no git                  (§5.8.2B)
  V4  LOAD THE SEALED IDENTITY  (§5.5.2D)  identity-record.json, verified against
        seal-manifest.json. No subprocess. No repository file opened for authority
  V5  evidence read: state/tasks/<id>/evidence/**   (server.py:2353, :2385)
- V6  RAW INTEGRITY against the SEALED TASK AUTHORITY — lstat/readlink/byte
-       compare of the `.git` indirection and gitdir. NO git process. NOT the
-       operator baseline — see the convergence box in §5.8.3
+ V6  RAW INTEGRITY against the SEALED TASK AUTHORITY (§5.5.2C's comparisons 1-8),
+       lstat/readlink/byte-compare. NO git process.
+       -- IT READS EXACTLY THE FOUR PATHS RECORDED IN WorktreeAuthorityRecord,
+          AND NOTHING ELSE. THREE OF THEM LIE UNDER canonical_root, because a
+          linked worktree's gitdir lives inside the primary repository:
+             <worktree>/.git                        OUTSIDE canonical_root
+             <gitdir>/HEAD                          UNDER   canonical_root
+             <gitdir>/commondir                     UNDER   canonical_root
+             <gitdir>/gitdir                        UNDER   canonical_root
+       -- NOT the operator baseline. See §5.8.3 and T-37 (RULED).
  V7  review-context projection (Gate 4.5 §15, fail-closed on an unapproved scope)
  V8  compose prompt, build invocation
 ── the reviewer spawns here. It is the FIRST process of the review. ────────────
 ```
 
-> **Why the review needs no R6 gate, and the condition that would falsify it.**
-> R6 exists because ZI-20 requires that **no git command capable of executing a
-> repository-supplied program runs before the gate passes.** **The review path
-> runs no git command at all**, so R6's ordering premise is **vacuous** on this
-> path — and requiring it here would pay the T-36 baseline-drift refusal on every
-> review for a hazard that does not exist.
+> ### F6-3 — THE TEST THAT COULD NOT PASS AGAINST ITS OWN MECHANISM, AND THE REPAIR THAT IS NOT A WEAKENING
 >
-> **The marker, stated as a tripwire rather than a hope:** *if any future
-> review-path code opens a file **inside the repository** for an authority
-> purpose, R6 must precede it in the same commit.*
-> **`test_review_path_opens_no_repository_file_for_authority`** — a real review
-> under an `open()`/`os.open` audit, asserting the paths opened under
-> `canonical_root` are **none** and that everything opened is confined to
-> `state/tasks/<id>/**` and the reviewer's spool. **COULD IT PASS WHILE FALSE?
-> YES if the audit is not proven live** — so the test **first opens a deliberate
-> probe file under `canonical_root` and asserts the audit observed it.** **And YES
-> for a read from a C extension bypassing CPython's audit events**, which is the
-> same `NOT TESTED` residual §5.4.3B(ii) records and is not re-argued here.
+> **Revision 7 specified `test_review_path_opens_no_repository_file_for_authority`
+> to assert that the paths opened under `canonical_root` are NONE. Step V6 makes
+> THREE.** MEASURED: the dispatcher creates **external** worktrees (a §2
+> non-regression), but a linked worktree's administrative directory is
+> `<primary>/.git/worktrees/<id>/`, **inside** the primary root — so three of the
+> four authority reads are under `canonical_root` by construction.
+>
+> **This was the twenty-first occurrence of the §10.3 shape, and it was inside
+> the fix for the fifth review's own hardest finding.** §10.3 already catalogues
+> *"the test could not pass against the pipeline it guarded"*, *"B-3's own named
+> killer … could not pass against the mechanism it guarded"*, and *"the killer and
+> the defect are green together."* This is the same thing again.
+>
+> **Three of the four available repairs are forbidden by this document's own
+> rules, and naming them is how the fourth is shown to be the only one:**
+>
+> | Repair | Why it is forbidden |
+> |---|---|
+> | delete V6 | deletes the review's **only** integrity check against the sealed task authority; a worker's post-run `.git/worktrees/<id>/` rewrite reaches the review unnoticed |
+> | weaken to *"none except `<gitdir>/**`"* | **R-3's disease**, and it re-creates the prefix-keyed exemption **ZI-57 deleted, on the exact files ZI-57 names** — *"`commondir` says where the object store and the refs live. `HEAD` is what B2 measures."* |
+> | apply the tripwire's own remedy — *"R6 must precede it"* | **detonates the review path**: running the operator R6 gate on a review is what §5.8.3 measured to land `Unreconciled` on **every review of every task** |
+>
+> ### THE ADOPTED REPAIR — EXACT SET EQUALITY OVER THE SEALED RECORD, PLUS A LIVE POSITIVE CONTROL
+>
+> **`test_review_path_reads_exactly_the_sealed_authority_paths`** replaces the
+> impossible assertion. In one body:
+>
+> 1. **Arm the audit and prove it live.** Open a **canary file under
+>    `canonical_root`** that V6 has no reason to touch, and assert the `open()` /
+>    `os.open` audit **recorded it**. *(An audit that records nothing "proves"
+>    zero — §20's item 4.)*
+> 2. Clear the audit. Run a complete review.
+> 3. **ASSERT SET EQUALITY, not a count and not a bound:**
+>    `{paths opened under canonical_root} == {the three sealed paths whose
+>    realpath is under canonical_root, taken from `WorktreeAuthorityRecord`}`.
+>    **Compared by their SEALED VALUES, read from a record the dispatcher wrote
+>    PRE-WORKER — never by a name pattern, never by a prefix.**
+> 4. **ASSERT** `{all paths opened anywhere} ⊆ {the four sealed authority paths}
+>    ∪ {state/tasks/<id>/**} ∪ {the reviewer's spool}`.
+> 5. **THE POSITIVE CONTROL THAT MAKES 3 AND 4 MEAN SOMETHING:** with a build
+>    flag the test flips, V6 additionally reads **one** further repository file —
+>    `<gitdir>/index` — and the test asserts the run **FAILS**. **Any additional
+>    repository read is detected.**
+>
+> **WHY THIS IS NOT THE EXEMPTION ZI-57 DELETED.** ZI-57 forbids an exemption
+> **keyed on a filename prefix the dispatcher controls** — *"not a security
+> property, it is a naming convention."* **This assertion is keyed on a
+> DISPATCHER-WRITTEN, PRE-WORKER, SEALED RECORD of four exact paths.** An attacker
+> who creates `<gitdir>/worktrees/sol-evil/HEAD` gets no exemption, because it is
+> **not in the record**. It is a **provenance** test, not a naming test — the same
+> distinction §5.8.3 draws for the `worktrees/*` equivalence class.
+>
+> **COULD THE REPAIR PASS WHILE THE PROPERTY IS FALSE?**
+> — **NO for an extra read**, because step 5's control asserts an extra read is
+> caught and step 3 is **equality**, which fails in both directions.
+> — **NO for a build that skips V6 entirely**: set equality against three
+> non-empty sealed paths fails when the observed set is empty.
+> — **YES if the audit is dead** — closed by step 1's canary.
+> — **YES for a read from a C extension bypassing CPython's audit events** —
+> the same `NOT TESTED` residual §5.4.3B(ii) already records, not re-argued here.
+>
+> ### AND THE TRIPWIRE'S CONDITION IS RECONCILED WITH ITS PREMISE
+>
+> Revision 7's premise was about **executing a repository-supplied program**;
+> its tripwire condition was about **opening a repository file for an authority
+> purpose**. **They are different tests, and the second was violated by a step
+> printed eight lines above it.** The reconciled pair:
+>
+> > **PREMISE (unchanged, and it is the reason R6 is not on this path):** R6
+> > exists because ZI-20 forbids a git command capable of **executing a
+> > repository-supplied program** before the gate passes. **The review path runs
+> > no git command at all**, so ZI-20's ordering premise is vacuous here. *(T-37,
+> > RULED: the review validates against the task's sealed authority and does not
+> > run the operator R6 baseline gate.)*
+> >
+> > **TRIPWIRE (rewritten to match the premise):** *if any future review-path code
+> > **executes a git command, or opens a repository file that is NOT one of the
+> > four sealed `WorktreeAuthorityRecord` paths**, then R6 must precede it in the
+> > same commit — and T-36's relation must be ruled first.*
+>
+> **The rewritten tripwire is exactly the negation of the adopted test's
+> assertion**, so the tripwire and the test are now one mechanism instead of two
+> that disagree.
+>
+> ### AND THE THIRD QUESTION, ANSWERED RATHER THAN LEFT OPEN
+>
+> **Does V6 belong on the review path at all**, given that §5.5.2C's B2 already
+> ran post-worker on the run being reviewed and its verdict is a durable artefact?
+> **YES, and the reason is narrow.** B2's verdict answers *"was the base held
+> during the run?"*. V6 answers a different question: *"is the sealed authority
+> still the authority NOW, at the moment the reviewer is handed evidence?"* —
+> which covers the window **between** finalisation and review, a window no other
+> check spans. **It is not a second opinion of B2's question** (the objection
+> §1A.3 uses to delete `root_commit`), **because it is not the same question**;
+> and unlike `root_commit` it consults **a dispatcher-written sealed record**, not
+> a worker-writable cache. **If a later revision narrows V6 to a subset of B2's
+> comparisons, the four-path record is what it must narrow within.**
 
 > # **EXPECTED: NONE.**
 >
@@ -3440,16 +3918,33 @@ strip and scrub lists. **PINs 1–4 are on every row below without exception.**
 
 #### ORDER 4 — ONBOARDING (declared so that it is not an undeclared exception)
 
-| # | Purpose | Exact argv shape | Pins | Phase | `cwd_role` |
-|---|---|---|---|---|---|
-| **O1** | the pinned root-commit derivation | `git PIN_BLOCK rev-list --max-parents=0 HEAD` | 1,2,3,**4** | ONBOARDING | primary |
-| **O2** | **the unpinned cross-check — this IS the positive control** | `git <PIN_BLOCK minus core.commitGraph> rev-list --max-parents=0 HEAD` | 1,2,3 | ONBOARDING | primary |
-| **O3** | the independent complaint | `git PIN_BLOCK commit-graph verify` | 1,2,3,4 | ONBOARDING | primary |
+**N6-7: revision 7 printed this order with six of the eight columns the
+preamble requires. The two missing ones are supplied here rather than left in
+§1A.4's prose — ORDER 4 exists precisely so the surviving graph walk is declared
+data, and declaring it in a shorter form than the others is the shape of the
+problem it was added to solve.**
+
+| # | Purpose | Exact argv shape | Pins | Phase | `cwd_role` | Positive control | Why it is permissible |
+|---|---|---|---|---|---|---|---|
+| **O1** | the pinned root-commit derivation | `git PIN_BLOCK rev-list --max-parents=0 HEAD` | 1,2,3,**4** | ONBOARDING | primary | **O2 IS its control** — under the measured forgery the two legs disagree, so a lying graph produces a refusal rather than a pinned lie | **step 0 REFUSES unless the repository already has an ESTABLISHED and RECONCILED administrative baseline** (§1A.4). Onboarding does not run in a repository whose administrative state no human has trusted |
+| **O2** | **the unpinned cross-check — this IS the positive control for O1** | `git <PIN_BLOCK minus core.commitGraph> rev-list --max-parents=0 HEAD` | 1,2,3 | ONBOARDING | primary | it **is** the control; its own arming is O3 | as O1. **It is deliberately run WITHOUT PIN 4, and that is the only place in this document where a pin is deliberately omitted** — because the disagreement is the signal |
+| **O3** | the independent complaint | `git PIN_BLOCK commit-graph verify` | 1,2,3,4 | ONBOARDING | primary | **`rc != 0` naming a substituted parent.** This is the leg that catches a forger that silently no-op'd — **a bare re-read of the value is not a sufficient control, measured twice in this gate** | as O1 |
 
 **`O1 != O2`, or `O3` non-zero, is `HistoryIdentityDerivationDisagreement` and a
 REFUSAL** (§1A.4). **These three rows exist in `git_order.py` as a declared path
 so that the graph walk that survives is declared data. An undeclared exception is
 how the review path came to run six.**
+
+> **ORDER 4 IS ALSO WHERE T-40's RESOLVED BINARY PATH IS SEALED.** Under ZI-85
+> the child environment carries no `PATH`, so **`argv[0]` must be the absolute
+> path resolved ONCE by `shutil.which("git")` against the DISPATCHER's own
+> environment.** That path, and the `git --version` string already pinned, are
+> **recorded in the sealed identity record here and journalled**, and the gate
+> **REFUSES if the binary cannot be resolved** rather than letting the first
+> permitted row die with `FileNotFoundError`. **Not implemented; `UNMEASURABLE`
+> in §16.** *(Z17 measured that a git outside `os.defpath` makes every dispatch
+> fail at G1 under the empty allowlist. Sealing the path is the same move ORDER 4
+> already makes for the root commit: derive once, seal, never re-derive.)*
 
 ---
 
@@ -4503,16 +4998,220 @@ contrast, the -b form, same repo, same BASE:
 is no ref.** The raw chain consulted by B2 is **one entry long**.
 
 **45 distinct worker actions were run against a detached worktree, and the
-verdict was compared against `git rev-parse HEAD` every time. MISSES: 0.** The
-matrix includes `commit`, `checkout <sha>`, `checkout -b`, `reset --hard/--soft`,
-`stash`, `pack-refs --all`, `gc`, `gc --aggressive --prune=now`, `update-ref
---no-deref HEAD`, `symbolic-ref HEAD`, **the F5-1 shadow-ref plant**, **a fake
-branch ref in the common dir with and without a forged `packed-refs` line**,
-`cherry-pick`, a stopped `rebase`, `bisect`, `am`, `commit --amend`,
-`worktree move`, `worktree repair`, `replace`, `reflog expire`, a second
-`worktree add`, an appended `extensions.refStorage = reftable`, four malformed
-HEAD encodings, `sparse-checkout set`, `read-tree`, `config.worktree
-core.worktree`, and *"commit then rewind the HEAD file to BASE"*.
+verdict was compared against `git rev-parse HEAD` every time. ZERO MISSES — and
+FALSE POSITIVES, which are stated here, where the invariant is stated, and not
+only in an appendix parenthetical. Revision 8 named ONE; Lane Z17's independent
+twenty-five-action matrix measured FIVE, and the count is corrected below rather
+than left at the number the first look produced.** The matrix includes `commit`,
+`checkout <sha>`, `reset --hard/--soft`, `stash`, `pack-refs --all`, `gc`,
+`gc --aggressive --prune=now`, `update-ref --no-deref HEAD`, `symbolic-ref HEAD`,
+**the F5-1 shadow-ref plant**, **a fake branch ref in the common dir with and
+without a forged `packed-refs` line**, `cherry-pick`, a stopped `rebase`,
+`bisect`, `am`, `commit --amend`, `worktree move`, `worktree repair`, `replace`,
+`reflog expire`, a second `worktree add`, an appended
+`extensions.refStorage = reftable`, four malformed HEAD encodings,
+`sparse-checkout set`, `read-tree`, `config.worktree core.worktree`, and
+*"commit then rewind the HEAD file to BASE"*.
+
+> ### ⚠ THE FALSE POSITIVES — `git checkout -b` AND ITS FOUR SIBLINGS, AND NONE OF THEM IS A DETECTION
+>
+> **MEASURED:**
+>
+> ```
+> worktree add --quiet --detach wt BASE ; seal ; worker runs: git checkout -b feature
+>   sealed head_bytes        : f9076b50…
+>   raw <gitdir>/HEAD after  : ref: refs/heads/feature
+>   git rev-parse HEAD       : f9076b50…      <-- IDENTICAL TO BASE
+>   base actually moved?     : NO
+>   worktree files changed   : 0 entries
+>   ZI-77 comparison 8       : base_MISMATCH   -> §8 row 2 -> FAILED, no evidence
+> ```
+>
+> **This row was previously printed under `detected:` in Appendix A.2M with a
+> parenthetical, and inside a headline that read "MISSES: 0". It is a FALSE
+> POSITIVE, and a matrix that scores a false positive as a hit is a matrix whose
+> headline number means something other than what it says** — the same class of
+> defect as scoring a row from an experiment nobody ran. **The headline is
+> corrected above; the appendix row is moved into a named false-positive row; and
+> the cost has its own escalation, T-38.**
+>
+> **AND IT IS NOT ALONE.** `checkout -B`, `switch -c`, `switch -C` are the same
+> shape, and **`symbolic-ref HEAD refs/heads/main` is a fifth that no
+> `checkout`/`switch` deny pattern reaches at all.** See the Z17 table below.
+> **Correcting one instance of a five-member class, in the revision that exists to
+> stop correcting instances, would have been the same defect as F6-2.**
+>
+> **The governing probe priced this and called it an open decision** — *"a worker
+> that runs `git checkout -b` and nothing else lands a `POLICY_VIOLATION` although
+> its base never moved … this is a Sol decision"* — and revision 7 took the
+> decision silently. **It is now taken explicitly.**
+
+> ### SOL'S RULING — THE BYTE RULE IS RATIFIED, AND THE PERMITTED ACTION THAT PRODUCES THE FALSE POSITIVE IS DENIED
+>
+> **ZI-77's byte rule stands**: a `ref: ` shape in `<gitdir>/HEAD` is a
+> **mismatch**, not something to resolve. **The refinement that would "fix" the
+> false positive — accept `ref: ` when `<gitdir>/ORIG_HEAD` still holds the sealed
+> base — is REJECTED, because it re-introduces a RESOLUTION into the function
+> whose entire value is that it contains none.** That is F5-1's defect class,
+> re-entering through a convenience.
+>
+> **Instead, the action that produces it is DENIED.** `git checkout -b`, and every
+> equivalent **branch-creating symbolic-HEAD transition** for a task worker, joins
+> `CORE_DENIED_GIT_OPERATIONS`. **A permitted action must not be able to produce a
+> `FAILED` run with no evidence.**
+>
+> **Measured today:** `CORE_DENIED_GIT_OPERATIONS` denies
+> `push, merge, rebase, commit, reset, clean, worktree, bisect` and **contains
+> zero matches for `checkout`, `switch`, `symbolic-ref` or `update-ref`.**
+>
+> **THE DENY LIST IS NOT THE MECHANISM AND IS NOT CLAIMED TO BE.** It is a prefix
+> match on Bash command text by the CLI's own permission engine, and a worker with
+> Bash can write `<gitdir>/HEAD` directly with no git command at all — **which is
+> exactly how the symref-plant killer is constructed.** **The mechanism is ZI-77's
+> byte comparison, which catches the plant however it was made. The deny list
+> removes the FALSE POSITIVE from the set of things an obedient worker can do by
+> accident** — it does not, and is not asked to, remove the mismatch.
+>
+> **The honest cost, stated where the invariant is stated:** a worker instructed
+> to *"work on a branch"* is now refused at the tool boundary with a legible
+> message, instead of working for an hour and landing `FAILED` with every byte
+> discarded. **Both outcomes are worse than not needing a branch; the first is
+> loud and early, the second is silent and late.**
+>
+> ### LANE Z17 HAS LANDED — THE PATTERN, AND THE COST, BOTH MEASURED
+>
+> **`GATE7-Z17-ENV-ALLOWLIST.md` §6** ran **twenty-five worker actions against a
+> fresh detached worktree each**, sealing raw `<gitdir>/HEAD` bytes and scoring
+> against the invariant `^[0-9a-f]{40}\n$`.
+>
+> **THE PATTERN:**
+>
+> ```
+> "Bash(git checkout:*)",
+> "Bash(git switch:*)",
+> "Bash(git symbolic-ref:*)",     # measured mover, NOT named in F6-4
+> "Bash(git update-ref:*)",       # measured mover, NOT named in F6-4
+> ```
+>
+> **There is no narrower pattern.** `CORE_DENIED_GIT_OPERATIONS` entries are
+> **Bash PREFIX patterns**, so they **cannot discriminate `checkout -b` from
+> `checkout --`** — the flag is not in the prefix. This is a property of the
+> matcher, not a choice, and it is the whole reason the cost below exists.
+>
+> **THE COST, and it is real:** **fourteen actions are denied, and THREE of them
+> are pure, legitimate, HEAD-neutral file restores** that ZI-77 scores `base_held`:
+>
+> ```
+>   git checkout -- f.txt          HEAD literal=True  HEAD changed=False  base_held
+>   git checkout <BASE> -- f.txt   HEAD literal=True  HEAD changed=False  base_held
+>   git checkout .                 HEAD literal=True  HEAD changed=False  base_held
+> ```
+>
+> **Discarding a bad edit is one of the most common things a task worker does, and
+> `git checkout -- <path>` is how most of the world's documentation says to do
+> it.** This document does not price that at zero.
+>
+> **THE MITIGATION IS MANDATORY, NOT ADVISORY.** `git restore` is git's own modern
+> replacement for exactly this use, is present in 2.43, **cannot** perform a
+> symbolic-HEAD transition, and is **matched by neither deny pattern**:
+>
+> ```
+>   git restore f.txt                    HEAD literal=True  base_held   NOT DENIED
+>   git restore --source <BASE> f.txt    HEAD literal=True  base_held   NOT DENIED
+> ```
+>
+> **`prompts/worker-policy.md` MUST gain the `git restore` sentence IN THE SAME
+> COMMIT that adds the deny patterns.** If it does not, the honest cost is not
+> *"workers must use `git restore`"* — it is **a worker that retries
+> `git checkout --` three times and gives up**, which is worse than the false
+> positive being fixed. **This is a hard precondition on the deny, recorded as
+> part of T-38 and not as a follow-up.**
+
+> ### F6-4 NAMED ONE FALSE POSITIVE. THERE ARE FIVE.
+>
+> **Nine of Z17's twenty-five actions move `<gitdir>/HEAD` off the literal SHA.
+> FIVE of those nine never moved the base at all:**
+>
+> | action | `<gitdir>/HEAD` after | did the base ACTUALLY move? | verdict |
+> |---|---|---|---|
+> | `git checkout -b feature` | `ref: refs/heads/feature` | **NO** | **FALSE POSITIVE** *(the one F6-4 named)* |
+> | `git checkout -B feature` | `ref: refs/heads/feature` | **NO** | **FALSE POSITIVE** |
+> | `git switch -c feature` | `ref: refs/heads/feature` | **NO** | **FALSE POSITIVE** |
+> | `git switch -C feature` | `ref: refs/heads/feature` | **NO** | **FALSE POSITIVE** |
+> | `git symbolic-ref HEAD refs/heads/main` | `ref: refs/heads/main` | **NO** | **FALSE POSITIVE — reached by NO `checkout`/`switch` deny** |
+> | `git checkout --orphan orph` | `ref: refs/heads/orph` | yes | true positive |
+> | `git checkout other` / `git switch other` | `ref: refs/heads/other` | yes | true positive |
+> | `git checkout -b f2 <PREV>` | `ref: refs/heads/f2` | yes | true positive |
+>
+> **And the direction that matters more: the rows that keep a literal SHA and DO
+> move the base are TRUE positives, caught on the bytes.** `switch --detach <PREV>`
+> and `checkout --detach <PREV>` both leave `<gitdir>/HEAD` a literal 40-hex string
+> **and genuinely move the base** — ZI-77 catches them, correctly. Likewise
+> `git update-ref --no-deref HEAD <PREV>` and `git revert`. **`git branch`,
+> `git tag`, `git stash`, `git notes`, `git am` and a conflicting `git cherry-pick`
+> all leave the seal intact and are correctly `base_held`.** **The byte rule's
+> error is one-directional: it over-refuses and never under-refuses, on every row
+> measured.**
+
+> ### THE DENY IS NOT A BOUNDARY — AND THAT IS THE ARGUMENT FOR KEEPING THE BYTE RULE, NOT AGAINST THE DENY
+>
+> **Six shapes measured. Every one produced `ref: refs/heads/x` in
+> `<gitdir>/HEAD`, and NONE of them begins with the token sequence `git checkout`
+> or `git switch`:**
+>
+> ```
+>   git -C <wt> checkout -b x                            BROKEN   evades the prefix
+>   git --git-dir=<gd> --work-tree=<wt> checkout -b x    BROKEN   evades the prefix
+>   /usr/bin/git checkout -b x       (absolute argv[0])  BROKEN   evades the prefix
+>   git symbolic-ref HEAD refs/heads/x                   BROKEN   evades the prefix
+>   git branch x && git symbolic-ref HEAD refs/heads/x   BROKEN   evades the prefix
+>   printf > <gitdir>/HEAD           (NO GIT PROCESS)    BROKEN   evades EVERY Bash pattern
+> ```
+>
+> **The last row uses no git process at all. No deny pattern of any shape reaches
+> it; only ZI-77's raw byte comparison does.** **State it plainly: the deny list is
+> a USABILITY repair, not a security boundary**, and this section must never be
+> cited as the reason the matrix is honest. **§5.5.2A's byte comparison is the
+> reason, and it is unchanged.**
+>
+> **Sol's option (b) — the `ORIG_HEAD` refinement — is REJECTED, and Z17 recommends
+> the rejection on the same ground this document already gave:** it re-introduces a
+> resolution into the one function whose entire value is that it contains none, and
+> **the `printf` row shows the byte rule is the only thing standing between the
+> design and a worker with a text editor.**
+>
+> **PROVEN BY `test_branch_creating_checkout_is_denied_before_it_runs`** — a fake
+> worker attempts `git checkout -b feature`; assert the **tool boundary refuses
+> it**, that `<gitdir>/HEAD` is **byte-identical to the seal afterwards**, and
+> that the run proceeds normally. **The body MUST range over all five false-
+> positive shapes**, not `checkout -b` alone. **COULD IT PASS WHILE FALSE?** **YES
+> if the fixture's worker never ran the command** — closed by a paired control
+> asserting that with the deny pattern removed the same fixture **does** rewrite
+> `<gitdir>/HEAD` to `ref: refs/heads/feature` **and** lands `FAILED` at row 2.
+> **Both legs are required: the second is the one that proves the deny pattern is
+> what changed the outcome.**
+>
+> **AND `test_git_restore_is_not_denied`** — the three collaterally-denied restore
+> forms are attempted as `git restore`, and each must be **permitted** and leave
+> the seal intact. **COULD IT PASS WHILE FALSE?** **YES if the deny patterns were
+> not loaded in that fixture** — closed by asserting in the same body that
+> `git checkout -- f.txt` **is** refused. **A green here with no refusal in the
+> same fixture proves nothing.**
+>
+> **AND `test_symref_plant_is_still_a_mismatch_under_the_deny_list`** — the deny
+> list must not be mistaken for the mechanism, so the §5.5.2C killer is re-run
+> **with the deny pattern in force** and must still return `base_mismatch`,
+> because the plant is a plain file write. **COULD IT PASS WHILE FALSE?** **No** —
+> if the deny list had somehow become the mechanism, this test is the one that
+> fails. **Z17's six evasion shapes are the row set: all six must still be caught.**
+
+**T-32 is re-scoped by this ruling, and the re-scoping is the point.** T-32 asked
+Sol to ratify the stricter-than-git rule against CRLF, double-LF and uppercase
+HEAD — **shapes that require exotic tooling** — and §21.3 named it one of the
+three places revision 7 was most likely to be wrong. **`git checkout -b` requires
+a developer.** **The high-probability cost was unpriced while the low-probability
+one had a T-number; T-38 corrects that ordering, and T-32 stands unchanged for
+the three encoding shapes.**
 
 > **The harness is proven able to produce a MISS.** The identical four-cell rig
 > reproduced **F5-1** in the `-b`/gitdir-first cell. **So a `base_held` from a
@@ -4745,12 +5444,12 @@ tasks.**
 | `resolve_head_raw()` on the task-worktree path | **it is the defect** |
 | `HeadChain`, `HeadChainLink`, `HeadChain.refname`, `.resolution` | no chain exists |
 | `head_chain_restructured` (verdict class **and** field) | no chain to restructure |
-| the ref-name allowlist regex and its traversal checks | no refname is ever read. **Its content is preserved and strengthened:** a `ref: ` shape is now a **mismatch**, which is stricter than a traversal regex |
+| the ref-name allowlist regex and its traversal checks, **ON THE TASK-WORKTREE PATH ONLY** | **no refname is ever read BY B2.** Its content is preserved and strengthened there: a `ref: ` shape is a **mismatch**, which is stricter than a traversal regex. **N6-1: the unscoped wording was false at document scope — §5.9.2's PRIMARY reader still resolves `ref: ` against `<common_dir>/<ref>` or `packed-refs` with up to five hops, and it runs post-worker too. §5.9.2 therefore RETAINS the allowlist regex and the traversal constraint, stated explicitly there** |
 | the 5-hop symbolic loop | no hop is ever taken |
 | `packed-refs`, `<gitdir>/refs/**`, `<common>/refs/**` **as B2 INPUTS** | **they remain §5.8.2 capture rows.** A worker that creates `<gitdir>/refs/heads/main` still lands `POLICY_VIOLATION` at row 4 — **as a write to protected administrative state, on the `refs/` listing row's own evidence, NOT as a B2 verdict.** **This is the correct split and it is exactly what F5-1 said was broken: the file was captured, the verdict field was wrong** |
 | `test_worker_commit_moves_the_ref_and_is_caught` | **DELETED — F5-1 proved it passes against its own named defect.** Replaced by `test_detached_worktree_commit_moves_head_and_raw_b2_fails`, which asserts over `<gitdir>/HEAD` **bytes**, not over a ref |
 | `test_pack_refs_does_not_produce_a_false_violation` and `test_pack_refs_with_a_moved_value_is_a_mismatch` | **DELETED — `pack-refs` is MEASURED inert** under detachment. **Keeping them would assert a property the mechanism no longer has a way to violate, and a green test that proves nothing is worse than no test** |
-| `test_head_chain_traversal_is_refused` | **DELETED** — unreachable; its content is subsumed by the symref-is-a-mismatch rule |
+| `test_head_chain_traversal_is_refused` | **NOT deleted — MOVED to §5.9.2**, where the reader that makes it reachable still lives. **N6-1: revision 7 deleted it as "unreachable" while keeping the reader.** Its B2-path content is subsumed by the symref-is-a-mismatch rule; **its primary-tree content is not, and is retained** |
 | the `-b` parameterisation of `test_worktree_head_moved_during_run_is_refused` | the test **survives, de-parameterised to `--detach`** |
 
 > **A deletion not accompanied by a replacement is a coverage regression**, so
@@ -5827,8 +6526,14 @@ not a completeness flag.
 - **ZI-46 (TWO AXES, NOT ONE).** *Content inventory completeness* and *review
   representation completeness* are different questions with different answers.
   **A binary file's inventory (path, mode, size, sha256) is COMPLETE; its text
-  review representation DOES NOT EXIST.** Both facts are recorded, on separate
-  fields, and the two tables merge into one with two columns.
+  review representation DOES NOT EXIST.** Both facts are recorded **on separate
+  fields of the same `PathRepresentation` record**, and **`inventory_complete` is
+  read by NO predicate that decides whether a review may proceed** — asserted by
+  `test_no_predicate_reads_inventory_complete` (AST). **§5.5.9's seven rules are
+  the ONLY table in this document that answers the completeness question**;
+  §5.11.5 carries the presentation fact and nothing else. *(F6-1: revision 7 had
+  two tables and they disagreed about `UNTEXTUAL`, in the section implementing a
+  ruling that had just been ratified.)*
 - **ZI-37 (NO THIRD COLUMN).** For every content class, *clears
   `patch_file_complete`* and *blocks the review* are **the same column**. **There
   is no class that omits content and does not block the review**, and an
@@ -6749,9 +7454,16 @@ not deprecated.** They are in `git.py:__all__`; the break is internal to this
 package — no MCP surface, no envelope field, no state-file change. Operators
 listing an allowed root by a non-realpath spelling keep working, because the
 allowlist is realpath'd at config load. **One genuine regression, named rather
-than discovered:** a repository whose `.git` is a **symlink to a directory** —
-accepted today by `rev-parse`, accepted by the raw resolver via `is_dir()`
-symlink-following, **and the link itself uncaptured.** `REQUIRES-PROBE`.
+than discovered:** a repository whose `.git` is a **symlink to a directory** is
+**REFUSED** at R4 (ZI-81), with zero git subprocesses. **N6-2: revision 7 still
+carried the revision-6 sentence saying such a repository was *accepted* — via
+`is_dir()` symlink-following, with the link *uncaptured*, marked
+`REQUIRES-PROBE`. Every clause of it was false by revision 7's own §5.8.2A:
+ZI-80 forbids `is_dir()` on a `.git` path, ZI-81 makes it a refusal, and A.2N
+records the measurement.** It is deleted here rather than left for an implementer
+of this very section to read as permission — the same discipline §1A.6 applies to
+the manifest's `identity_check` string. **The availability cost of the refusal is
+`NOT ATTEMPTED` (T-35): the disk scan is forbidden by the hard lines.**
 
 #### 5.8.3 The trusted baseline, the FOUR captures, and the gate
 
@@ -6888,100 +7600,146 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 
 ---
 
-##### ⚠ THE UNRESOLVED HALF — AND IT IS ONE PROBLEM, NOT TWO
+##### THE R6 EQUIVALENCE RELATION — RULED. THIS IS THE ADOPTED SPECIFICATION.
 
-> **Two lanes reported what looked like two separate blockers. They are the same
-> root cause: the R6 gate treating dispatcher-created state as unreconciled.**
+> **The sixth review ruled this blocking, and NOT because a test was red.** Its
+> words: *"the gate is written `if current != baseline` and the relation giving
+> `!=` its meaning is not adopted"* — **an undefined normative predicate in a
+> Wave-0 deliverable.** D-24 puts the gate in Wave 0, so an implementer beginning
+> Wave 0 had to write that comparison and **had no specification for it.** Now
+> they do.
 >
-> - **The SECOND DISPATCH against a repository** lands
->   `RepositoryAdministrationUnreconciled`, **NOT retryable** — MEASURED: after a
->   complete dispatch **and** `worktree remove --force` **and** `worktree prune`,
->   **three loose objects survive** and the capture has drifted from the frozen
->   human baseline.
-> - **EVERY FABLE REVIEW** lands the same way, if the review path runs the R6
->   gate — because by review time the repository has necessarily gained the
->   dispatcher's own `worktree add` state.
+> **The convergence it closes was one problem reported as two:** the **second
+> dispatch** against a repository, and **every Fable review**, both landed
+> `RepositoryAdministrationUnreconciled` — **the same root cause, the gate
+> treating dispatcher-created state as unreconciled.** MEASURED, and independently
+> reproduced by two parties: after a complete dispatch **and**
+> `worktree remove --force` **and** `worktree prune`, **three loose objects
+> survive**.
+
+> ### INVARIANT ZI-86 — THE R6 EQUIVALENCE RELATION IS APPEND-ONLY FOR CONTENT-ADDRESSED OBJECTS AND EXACT EQUALITY FOR EVERYTHING ELSE
 >
-> **A repository serves one task and then refuses until a human re-runs
-> `trust-repo-admin.py`. That is a total availability failure on the first real
-> dispatch, and it is caused by the dispatcher's own correct behaviour.**
+> `current != baseline` means exactly this, class by class, and **nothing in the
+> gate is decided by a filename prefix**:
+>
+> | Capture class | Relation | Keyed on |
+> |---|---|---|
+> | `config`, `config.worktree`, `include.path` targets, attributes, excludes, hooks, `core.hooksPath` dir, fsmonitor / filter / diff keys | **EXACT EQUALITY** | nothing; total |
+> | `objects/info/alternates`, `http-alternates`, `objects/info/` **listing**, `refs/replace/**`, `info/grafts`, **cached parentage** (`commit-graph`, `commit-graphs/**` per file, `multi-pack-index`) | **EXACT EQUALITY** | nothing; total |
+> | `packed-refs`, `<common>/refs/**`, `<gitdir>/refs/**`, `shallow` | **EXACT EQUALITY** | nothing; total |
+> | `worktrees/*/` registrations | **EXACT EQUALITY of the set of worktree ids the dispatcher's own `state.json` does NOT account for**, plus exact equality of every file under an unaccounted id | **the dispatcher's own durable task records — PROVENANCE, not naming** |
+> | **`objects/` loose fan-out listings and `objects/pack/`** | **APPEND-ONLY** | **the file-type class, not a name** |
+> | `<gitdir>/index`, `logs/**` | **REPORT ONLY** (unchanged) | the class |
+>
+> ### APPEND-ONLY, DEFINED SO AN IMPLEMENTER CANNOT GUESS WRONG
+>
+> For the object classes, `current` reconciles with `baseline` **if and only if**:
+>
+> 1. **Every object name in `baseline` is PRESENT in `current`** — a name in
+>    `baseline` and absent from `current` is **`RepositoryAdministrationUnreconciled`,
+>    NOT retryable.** *(This is what preserves ZI-60's deleted-base-blob
+>    detection.)*
+> 2. **Every object present in both is BYTE-IDENTICAL** — same size, same
+>    recorded digest. **An altered object at an existing name REFUSES.**
+> 3. **A name in `current` and absent from `baseline` is ALLOWED AND REPORTED.**
+>    It is enumerated in the run's administrative record and in the gate report's
+>    `new objects` row. **Allowed is not silent.**
+>
+> **All routing and administrative authority remains EXACT EQUALITY**, in both
+> directions, including addition. **A new file under `objects/info/`, a new
+> `refs/replace/**` entry, a new `commit-graph` layer or a new `packed-refs` line
+> is a DIVERGENCE, not an append.** The append-only relation is scoped to
+> **content-addressed object storage and nothing else.**
+>
+> ### AUTOMATIC RE-BASELINING IS FORBIDDEN
+>
+> **The baseline is written once, by an operator command.** The gate never
+> updates it, never merges the new names into it, and never records the reconciled
+> state as a new baseline. `test_divergence_persists_across_dispatches` — the
+> killer for automatic re-baselining — **remains green and is not weakened by this
+> ruling**, because reconciling under clause 3 changes no stored baseline byte.
 
-**What revision 7 fixes, and what it does not.** The four-capture split
-(ZI-82/ZI-83) resolves Readings A and B completely, and `--detach` removes the two
-`sol-`-prefixed ref entries from the drift — **so the equivalence relation now
-needs to account for ONE class instead of three, and that class (`worktrees/**`)
-is keyed on git's own layout rather than on a prefix the dispatcher chose.**
-**It does not resolve the cross-dispatch drift.**
+**Why append-only and not the two alternatives, with each cost named:**
 
-**ZI-57's trap, and the distinction that is the whole content of any fix.**
-ZI-57 forbids an exemption **keyed on a filename prefix the dispatcher controls**
-— *"not a security property, it is a naming convention."* What R6 needs is an
-**equivalence relation over capture CLASSES**, decided by the same **dependence**
-test §5.8.3 already uses:
-
-| Capture class | Proposed relation | Keyed on |
+| Option | Disposition | Cost |
 |---|---|---|
-| config, `config.worktree`, `include.path` targets, attributes, excludes, hooks, fsmonitor/filter/diff keys | **exact equality** | nothing; total |
-| `alternates`, `http-alternates`, `objects/info/` listing, `refs/replace/**`, `info/grafts`, **cached parentage** | **exact equality** | nothing; total |
-| `packed-refs`, `<common>/refs/**`, `<gitdir>/refs/**` | **exact equality** | nothing; total |
-| `worktrees/*/` registrations | **exact equality of the set of worktree ids the dispatcher's own `state.json` does NOT account for**, plus exact equality of every file under an unaccounted id | **the dispatcher's own durable task records — a PROVENANCE test, not a NAMING test.** An attacker who creates `worktrees/sol-evil/` gets **no** exemption, because there is no task record for it |
-| **loose-object fan-out listings and `objects/pack/`** | **APPEND-ONLY**: a NEW name is not a divergence; a **REMOVED** name or a **CHANGED size IS** | the file-type class, not a name |
-| `<gitdir>/index`, `logs/**` | **REPORT ONLY** (unchanged) | the class |
+| (a) report-only object listings | **REJECTED** | **loses ZI-60's deleted-base-blob detection** — *"what makes a deleted base blob DETECTABLE rather than INFERRED"*. Clause 1 is exactly what append-only keeps and report-only discards |
+| **(b) append-only** | **ADOPTED** | it is a **judgement**, and the section below states it as one rather than as a derivation |
+| (c) the operator re-baselines every dispatch | **REJECTED** | the measured outage. **Honest, and unusable** |
 
-> ### THE APPEND-ONLY ROW RE-OPENS A PARAGRAPH THIS DOCUMENT DELETED, AND THAT MUST BE SAID OUT LOUD
+> ### THE JUDGEMENT THIS RULING MAKES, STATED AS A JUDGEMENT
 >
-> §5.8.3 deleted revision 5's excuse — *"objects are immutable and
-> content-addressed; a new object cannot change an existing one"* — and installed
-> **`Z8-M13`, a documentation mutant forbidding that string near the object-store
-> capture rationale.** **An append-only rule for the object store IS that
-> argument, narrowed.**
+> **Append-only for the object store is a narrowing of the argument §5.8.3
+> DELETED** — revision 5's *"objects are immutable and content-addressed; a new
+> object cannot change an existing one"* — and `Z8-M13`, a documentation mutant,
+> forbids that sentence appearing near the object-store capture rationale.
+> **That mutant is NOT defeated and the sentence is NOT reinstated.**
 >
-> **The narrowing, stated so it can be accepted or rejected on its merits rather
-> than on its resemblance to the deleted excuse:** the deleted excuse justified
-> **not capturing the object store at all**, and its refutation was *"alternates
-> does not change an object; it changes which store is consulted."* **That
-> refutation is entirely about ROUTING — and routing is a different capture class,
-> pinned at exact equality, total.** With routing byte-identical, `info/grafts`
-> byte-identical, `refs/replace/**` byte-identical and PIN 3 in force, the
-> residual question for the object directory alone is: *does the appearance of a
-> new loose object change what any dispatcher read resolves to?* **For
-> `objects/` alone the honest answer is no — a new oid is a new name.**
+> **The distinction is routing versus naming, and it is what makes the narrowing
+> admissible.** The deleted excuse was used to justify **not capturing the object
+> store at all**, and its refutation was *"alternates does not change an object;
+> it changes which store is consulted."* **That refutation is entirely about
+> ROUTING — and every routing class above is pinned at EXACT EQUALITY, total, in
+> both directions.** With routing byte-identical, `info/grafts` byte-identical,
+> `refs/replace/**` byte-identical, cached parentage byte-identical, and PIN 3 in
+> force, the residual question for the `objects/` directory alone is: *does the
+> appearance of a NEW loose object, in a store whose routing is byte-identical to
+> the baseline, change what any dispatcher read resolves to?* **For `objects/`
+> alone the answer is no — a new oid is a new name — and clauses 1 and 2 mean no
+> EXISTING name's answer can change.**
 >
-> **This is STILL A JUDGEMENT, it is the SAME SHAPE of judgement that produced the
-> allowlist ZI-57 deleted, and this document DOES NOT ADOPT IT.**
+> **This is Sol's ruling and not a lane's derivation. It is recorded here as a
+> judgement so that a later reader can attack the judgement rather than mistake it
+> for a proof**, which is the discipline §10.3 exists to enforce.
 
-**The three options, costed, none adopted — escalated as T-36:**
+##### The tests, and what each could pass while false
 
-| # | Option | Cost |
+| Test | Proves | **Could it pass while the property is false?** |
 |---|---|---|
-| (a) | **report-only object listings** | **loses the deleted-base-blob detection §5.12/ZI-60 depends on** — *"what makes a deleted base blob DETECTABLE rather than INFERRED"*. **This is the argument for (b) over (a):** append-only keeps it, because a **removal** is still a divergence |
-| (b) | **append-only, as above** | re-opens the deleted paragraph's shape; needs Sol's ruling, not a lane's |
-| (c) | **the operator re-baselines after every dispatch** | the measured availability failure, accepted as policy. **Honest, and unusable** |
+| **`test_second_dispatch_against_the_same_repository_succeeds`** — **NO LONGER RED. It is now a required green** | a complete dispatch, `worktree remove --force`, `worktree prune`, then a second dispatch **reconciles and proceeds**, with the three surviving loose objects **reported as new** | **YES if the fixture's first dispatch created no new objects** — closed by asserting the reported new-object set is **non-empty** and equals the three the fixture's worker created, computed independently by the test from the object directory. **A vacuous pass is exactly what a bare "it proceeded" assertion would give** |
+| **`test_removed_baseline_object_refuses`** — **clause 1's killer** | delete one loose object present in the baseline; the gate must land `RepositoryAdministrationUnreconciled`, **NOT retryable**, row 0 | **NO.** And it is the test that distinguishes append-only from report-only: **under option (a) it is green while the object is gone** |
+| **`test_altered_baseline_object_refuses`** — clause 2's killer | rewrite an object's bytes at an existing name; refuse | **NO** for a digest comparison. **YES for a size-only comparison** — so the assertion is over the recorded **digest**, not `st_size` |
+| **`test_new_routing_file_is_a_divergence_not_an_append`** | a **new** file under `objects/info/`, a **new** `refs/replace/**` entry, a **new** `commit-graph-chain` layer: each must **refuse** | **NO** — and this is the test that stops append-only leaking out of the object classes. **Parameterised over every routing row, generated from the capture table** so a new routing class cannot be silently omitted |
+| **`test_divergence_persists_across_dispatches`** *(retained, unchanged)* | no automatic re-baselining | **NO.** **This ruling is constrained from both sides: the relation must make the second dispatch green AND leave this test green**, and clause 3 does so because it stores nothing |
+| **`test_unaccounted_worktree_registration_is_unreconciled`** | the `worktrees/*` provenance rule | **NO.** Plant `worktrees/sol-evil/` with **no task record**; a prefix match would exempt it, **a provenance match does not** |
 
-> **`test_second_dispatch_against_the_same_repository_succeeds` DOES NOT EXIST AND
-> MUST NOT BE WRITTEN GREEN. It is deliberately RED until T-36 is ruled.**
-> Writing it against option (c) would make it pass **while the availability
-> failure stands**, which is the exact shape of a green test that proves nothing.
+##### The consequence for §1A.3's REQ-1
+
+**REQ-1 required that the adopted relation retain exact equality on the raw bytes
+of `$GIT_COMMON_DIR/config`, the raw bytes of `packed-refs`, and the resolved
+value of at least one operator-named anchor ref, or §1A.3's substitution coverage
+is VOID.** **ZI-86 satisfies all three: `config` and `packed-refs` are exact-equality
+rows, and `refs/**` is an exact-equality row that contains every anchor.**
+**REQ-1 is therefore DISCHARGED, and §1A.3's substitution coverage — a wholesale
+checkout replacement caught at R6 rather than by identity — is no longer
+conditional.** `baseline.anchor_refs` remains a recorded baseline field for the
+operator's benefit; **it is not load-bearing for REQ-1 under this relation,
+because the whole `refs/**` listing already is.**
+
+##### T-37 — RULED
+
+> **The Fable review path does NOT run the operator R6 baseline gate. It
+> validates against the TASK'S SEALED AUTHORITY.**
 >
-> **And whatever relation Sol adopts must leave
-> `test_divergence_persists_across_dispatches` green** — the killer for
-> *automatic re-baselining* — so the relation is **constrained from both sides.**
-
-**One further consequence, and it is the review path's:** **the Fable review
-compares against the SEALED TASK AUTHORITY, not against the operator's global
-baseline** (§5.4.3B ORDER 3, step V6). The sealed task authority is per-task,
-written pre-worker, and is the right baseline for *"is this the repository we
-sealed?"*. **Running the operator gate on the review path lands
-`RepositoryAdministrationUnreconciled` on every review of every task, caused by
-the dispatcher's own prior `worktree add`.** **Both readings are zero-git, so the
-central claim is unaffected either way — this is a LIVENESS conflict, and it is
-escalated rather than quietly decided (T-37).** If Sol wants the operator gate on
-the review path, **T-36 must be ruled first**, because §5.4.3B ORDER 3 cannot be
-implemented on top of a gate that refuses every run.
+> The sealed task authority is **per-task, written pre-worker**, and is the right
+> baseline for *"is this the repository we sealed?"*. **The operator baseline is
+> per-repository and answers a different question.** ORDER 3's V6 is that
+> validation, respecified in §5.4.3B over the four sealed
+> `WorktreeAuthorityRecord` paths.
+>
+> **This was previously decided inside a normative order while §18.3C called it
+> escalated — F5-6's exact shape, correctly caught by the sixth review. It is now
+> ruled, and ORDER 3 cites the ruling rather than presuming it.**
+>
+> **Note that ZI-86 makes the liveness argument moot rather than merely
+> answered:** under append-only, running the operator gate on a review would no
+> longer refuse. **T-37 is nevertheless ruled on its own merits — the review asks
+> a per-task question — so that the answer does not silently depend on T-36's.**
 
 ---
 
 **Deny-list additions**, worth making and **not the mechanism**:
+
 `Bash(git config:*)`, `Bash(git update-index:*)` and `Bash(git -C:*)` join
 `CORE_DENIED_GIT_OPERATIONS`. Honestly labelled: a prefix match on Bash command
 text by the CLI's own permission engine. **`Write` reaches `.git/config`,
@@ -7229,6 +7987,39 @@ class PrimaryTreeSnapshot:          # SAME NAME, new contents
 scan `packed-refs`; else it must be exactly 40 hex. At most 5 symbolic hops; the
 result must match `^[0-9a-f]{40}$` or it is a fail-closed `RefResolutionFailed`.
 **Nothing here can execute a program.**
+
+> ### THE REFNAME CONSTRAINT LIVES HERE, AND IT IS NOT DELETED (N6-1)
+>
+> **This reader resolves a NAME, so the allowlist regex and the traversal checks
+> that §5.5.2C deletes from the TASK-WORKTREE path are RETAINED HERE, in full:**
+>
+> ```
+> refname must match ^refs/[A-Za-z0-9._/-]+$
+>   and contain no b"..", no b"//", no b"\", no leading or trailing b"/",
+>   and no component beginning b"."
+> otherwise -> RefResolutionFailed (fail closed)
+> ```
+>
+> **It is an ALLOWLIST regex, not a denylist of bad substrings, and the test
+> asserts it REJECTS BY DEFAULT** — the same device §5.5.2C used before the
+> resolver was deleted from B2. **MEASURED: git itself refuses
+> `ref: refs/heads/../../../tmp/evil` with `rc=128`, so the reader refuses the
+> same shapes rather than following them.**
+>
+> **`test_head_chain_traversal_is_refused` is NOT deleted. It MOVES here**, where
+> the reader that makes it reachable lives. **Revision 7 deleted it as
+> *"unreachable"* while keeping this reader** — a deleted guard with a
+> justification that was true of one path and asserted of the document.
+>
+> **What the direction of the error is, stated so this is not read as an
+> authority hole it never was:** a `ref: ../../../../tmp/x` here would make the
+> reader open an arbitrary file, and the result must still match
+> `^[0-9a-f]{40}$` or it is `RefResolutionFailed`; and the `<gitdir>/HEAD` byte
+> change is itself a protected-class divergence at row 4. **So the direction was
+> always fail-closed and no authority was reachable. `NOT TESTED` as an exploit —
+> no dispatcher-side reader exists to run it against.** It is repaired because a
+> guard deleted on a false justification is a guard that stays deleted when the
+> justification changes.
 
 **`REQUIRES-PROBE`: reftable** (`extensions.refStorage = reftable`, git ≥ 2.45)
 is **not supported** by this reader. The capture records
@@ -7696,49 +8487,102 @@ reserve constant.
 verifiable, and a file Fable may or may not `Read` is unobservable to the
 dispatcher. Not re-litigated.
 
-#### 5.11.5 Untextual and unrepresentable absences are carried, not clipped (Y-10)
+#### 5.11.5 What each content class is CARRIED INTO THE PROMPT as (Y-10)
 
-| `ContentClass` | Blocks `patch_file_complete`? | Blocks the review? | Carried into the prompt as |
-|---|---|---|---|
-| `TEXT_CANDIDATE` | no | no | the content |
-| `UNTEXTUAL` | yes | **no** | path, size, sha256 + *"no text representation"* |
-| **`SYMLINK`** — **SUPPORTED, new in revision 6** | **no** | **no** | **the content: mode `120000`, body = raw `readlink` bytes** |
-| `UNREPRESENTABLE_KIND` — **narrowed to FIFO / socket / block device / char device / gitlink** | yes | **yes** | path, `st_mode`, type name |
-| ~~`BULK_CREATED_IGNORED`~~ | — | — | **DELETED as a class** (§5.5.9). The rollup omitted content while the third column said *"does not block"*, which is F-1 |
-| `OVERSIZED` | yes | **yes** | refusal |
-| `UNREADABLE` / `CHANGED_DURING_MEASUREMENT` | yes | **yes** | refusal |
-
-> **THE THIRD COLUMN IS GONE, AND WITH IT F-1.** In revision 5 the second and
-> third columns disagreed for three classes, and §5.11.3's guard read only the
-> second. **They are now the same column, enumerated over `ContentClass.__members__`
-> by `test_no_class_is_exempt_from_the_completeness_iff`.** `UNTEXTUAL` moves to
-> `(yes, yes)` — revision 5's §5.5.9 said `(yes, no)` and its §5.11.5 said
-> `(yes, yes)`, and **a build carrying two tables cannot pass the enumeration.**
+> ### THIS TABLE NO LONGER ANSWERS THE COMPLETENESS QUESTION. §5.5.9's SEVEN RULES ARE THE ONLY TABLE THAT DOES.
 >
-> **`IGNORED_BY_BASE` is gone** (B-3, revision 4). **`BULK_CREATED_IGNORED` is
-> gone** (F-1, revision 6). **Neither is amended; both are deleted** — §5.8.5's
-> own rule for mutually exclusive designs.
+> **F6-1: revision 7's version of this table gave `UNTEXTUAL` the value
+> `(clears the flag, does NOT block the review)` — seven lines above a box
+> asserting it is `(yes, yes)` and that the two columns are one column, and in
+> direct contradiction of §17's RULING Y-10, ratified by Sol in the same
+> revision.** During the F-1/F-2 repair **the wrong value propagated into the
+> wrong table**: revision 5's §5.11.5 was `(yes, yes)` and its §5.5.9 was
+> `(yes, no)`, and the correction crossed over.
+>
+> **The repair is not to correct the cell. It is to delete the columns**, on
+> §5.8.5's own rule that **mutually exclusive designs are deleted, not amended**
+> — the rule this document already applied to `IGNORED_BY_BASE` and
+> `BULK_CREATED_IGNORED`. **Two tables that answer one question is the shape that
+> produced F-1, F-2 and now F6-1. There is now exactly one.**
 
-**Why symlinks are SUPPORTED rather than exempted, and why that is what makes
+**The completeness answer for every class lives in §5.5.9's seven rules and
+nowhere else.** This table carries the *presentation* fact only.
+
+| `ContentClass` | Carried into the prompt as | Completeness answer |
+|---|---|---|
+| `TEXT_CANDIDATE` | the content | **§5.5.9** |
+| `UNTEXTUAL` | path, size, both sha256s, `omission_reason="binary_no_approved_representation"` | **§5.5.9** |
+| **`SYMLINK`** | **the content: mode `120000`, body = raw `readlink` bytes** | **§5.5.9** |
+| `UNREPRESENTABLE_KIND` — FIFO / socket / block device / char device / gitlink | path, `st_mode`, type name | **§5.5.9** |
+| ~~`BULK_CREATED_IGNORED`~~ | **DELETED as a class** | — |
+| `OVERSIZED` | refusal | **§5.5.9** |
+| `UNREADABLE` / `CHANGED_DURING_MEASUREMENT` | refusal | **§5.5.9** |
+
+> ### THE TWO AXES, STATED ONCE, HERE, AND NOWHERE ELSE CONTRADICTED
+>
+> **AXIS 1 — REVIEW REPRESENTATION.** *Does this path have an exact canonical
+> review representation?* **`UNTEXTUAL` does NOT.** Therefore, by RULING Y-10 and
+> §5.5.9's IFF: **it clears `patch_file_complete`, `review_input_complete` is
+> false by the conjunct, and Fable REFUSES.** **There is no third outcome.**
+>
+> **AXIS 2 — INVENTORY COMPLETENESS.** *Do we know exactly what changed?* **For
+> `UNTEXTUAL`, YES: `inventory_complete = true`, with path, mode, size and both
+> sha256s recorded.** **This is a SEPARATE AXIS and it is the point of the
+> ruling, not a contradiction of it** — *we know exactly what changed; we cannot
+> show it to a reviewer.* Recording the first while refusing on the second is
+> what makes the refusal **auditable instead of opaque**, and it is the sentence
+> that keeps the third column deleted.
+>
+> **`inventory_complete = true` NEVER contributes to `patch_file_complete` and
+> NEVER unblocks a review.** The two axes are carried on **separate fields** of
+> the same `PathRepresentation` record, and **no predicate anywhere reads
+> `inventory_complete` to decide whether the review may proceed.**
+> `test_refusal_records_inventory_complete_true` asserts **both fields on the
+> same record** — `inventory_complete is True` **and** `review_input_complete is
+> False`. **COULD IT PASS WHILE FALSE?** **No** — a build that collapsed the axes
+> cannot produce that pair. **And `test_no_predicate_reads_inventory_complete`
+> (AST) asserts `inventory_complete` appears in zero boolean expressions outside
+> its own producer and the record's serialiser** — because *"a field that exists
+> for the operator and is read by nothing"* is a claim this document has made
+> three times and must check the same way each time.
+
+**PROVEN BY `test_no_class_is_exempt_from_the_completeness_iff`**, parameterised
+over `ContentClass.__members__` **generated at collection time**, asserting for
+every class that `patch_file_complete == (per_path[0].sections != ())` **and**
+`blocks_the_review == (not patch_file_complete)`. **COULD IT PASS WHILE FALSE?**
+**Yes, if a class had no fixture** — closed by asserting the generated
+parameter-id set **equals** `set(ContentClass.__members__)`, so **a new class
+added without a fixture FAILS COLLECTION rather than silently passing.**
+**IF MIS-WIRED as revision 7's table:** `UNTEXTUAL` fails the second conjunct
+outright.
+
+> **AND A DOCUMENTATION TRIPWIRE, because this is the third time a class's value
+> has been stated twice:** `test_completeness_is_answered_in_exactly_one_table`
+> asserts that no table in `docs/GATE7-DESIGN.md` outside §5.5.9 carries a column
+> whose header matches *blocks*/*clears* against `patch_file_complete` or *blocks
+> the review*. **A tripwire, labelled as one — YES to a paraphrase** — and it is
+> paired with the enumeration test above, which is the proof.
+
+**Why symlinks are SUPPORTED rather than exempted, and why that is what made
 Y-10 ratifiable.** Revision 5 exempted `UNREPRESENTABLE_KIND` from blocking
 because **this repository contains 4 ignored symlinks and production contains 1**,
 so under revision 2's rule every Fable review of either repository was dead for a
 reason unrelated to the task. **That exemption was the right instinct and the
-wrong mechanism: it created the third column.** Sol's §11 rule removes **both**
-horns of Y-10 at once:
+wrong mechanism: it created the third column.** Sol's rule removes **both** horns
+of Y-10 at once:
 
-- the horn where §5.11.5 is authoritative — *one symlink kills every production
-  review* — is gone, because a symlink is **SUPPORTED** and never clears the flag;
+- the horn where *one symlink kills every production review* is gone, because a
+  symlink is **SUPPORTED** and never clears the flag;
 - **and independently**, the production symlink is **unchanged**, so under ZI-44
   it is **absent from `worker_delta`** and the IFF never ranges over it;
-- the horn where §5.5.9 is authoritative — *content omitted under a true flag* —
-  is gone, because a symlink's content is now **in** the patch.
+- the horn where *content is omitted under a true flag* is gone, because a
+  symlink's content is now **in** the patch.
 
 **Two independent reasons, and `test_a_single_unchanged_symlink_blocks_nothing`
-asserts the second one directly.** *Y-10 is now ratifiable for the symlink half;
-what remains outstanding is named in §17 rather than force-mapped.*
+asserts the second one directly.**
 
 ### 5.11A State transitions
+
 
 **Subsystem B introduces no new `TaskState`.** It introduces one *run* state
 machine, which lives in `runs/NNN/reservation.json` and interacts with the task
@@ -8146,6 +8990,15 @@ proc = await asyncio.create_subprocess_exec(
    variables `_git_env()` strips, does not set `GIT_TERMINAL_PROMPT` or
    `GIT_OPTIONAL_LOCKS`, and sets none of PIN 1 / PIN 2 / PIN 3.** Both pin
    families are absent on this path **by construction**.
+   **AND ZI-85 DOES NOT REACH HERE EITHER, WHICH MUST BE SAID PLAINLY RATHER THAN
+   LEFT TO BE INFERRED.** `validation_environment()` is still a **denylist**, and
+   **an allowlist would not help**: a validation command is an arbitrary
+   worker-adjacent program that legitimately needs a working environment, so
+   there is no set of names the dispatcher can enumerate as "ours". **ZI-85's
+   guarantee is scoped to `_run_git`'s children and to nothing else, and Z17's
+   empty-allowlist result must not be cited as covering this path.** **The
+   validation path is governed by ZI-40 — authority, not containment — and that
+   is the only thing that governs it.**
 5. **Neither test can see it.** `git-invocations.jsonl` is written by `_run_git`;
    this is not `_run_git`. And revision 5's AST predicate is *"the first argv
    element is the literal `"git"`"* — **here `argv[0]` is `cmd.argv[0]`, an
@@ -9780,6 +10633,15 @@ observe it.** All are fixed, and the pattern is the reason this gate exists.
 | **revision 6's *"§5.4.3B declares the verification window as `server.py:1328-1500`"*** | **the handler is `server.py:1292-1482`. The window started 36 lines inside the function and ended 18 past it.** Nothing was missed because the prologue is git-free — **but a window chosen by eye rather than by the function's own boundaries is F-7's own habit** | §5.4.3B ORDER 3 carries the corrected citation |
 | **a probe's own first PIN-4 run** | the forger was invoked with a shifted argv, **the forgery never happened**, and the script **printed a full, plausible "PIN 4 works" block from a repository that was never forged.** **The lesson is not "check your argv": a positive control must be a signal that is ABSENT when the setup silently no-ops** — a bare re-read of the value is not that signal, and `git commit-graph verify` printing **nothing** is | §21's vector 1 makes the `verify` leg mandatory; §5.5.2D requires the fixture builder to **self-check and raise** |
 | **two lanes' closure instruments** | one hooked **two layers** and double-counted a single process; **a closure test asserting a COUNT can be inflated into passing by an instrumentation bug** | §5.4.3B(ii) — **every closure assertion is over ROW SETS and MAPPINGS, never over integers** |
+| **revision 7's `test_review_path_opens_no_repository_file_for_authority`** | it asserted **zero** opens under `canonical_root`; **step V6, printed eight lines above it, makes THREE** — a linked worktree's gitdir lives **inside** the primary repository. **TWENTY-FIRST occurrence of this shape, and it was inside the fix for the fifth review's own hardest finding.** Three of the four available repairs are forbidden by this document's own rules; the fourth is set equality over a sealed record | §5.4.3B ORDER 3 — **exact set equality over the four sealed `WorktreeAuthorityRecord` paths, plus a control that adds one extra read and must fail** |
+| **revision 7's heading *"SOL'S §16 REQUIREMENT IS FALSIFIED … AND ONE LINE MAKES IT TRUE AGAIN"*** | **the one line did not make it true.** `GIT_GRAFT_FILE` and `GIT_SHALLOW_FILE` survive the **full pin block including PIN 4**, substitute the commit DAG, and change **G9's** output — the one row PIN 4 is load-bearing for — and **`GIT_SHALLOW_FILE` leaves no in-repository artefact**, so neither the `shallow` capture row nor the R6 gate can see it. **The named proof enumerated the one variable somebody had found** | §5.4.3A — **ZI-85, an allowlist. The denylist is deleted, not extended** |
+| **revision 7's §5.11.5 `UNTEXTUAL` row** | it carried `(clears the flag, does NOT block the review)` **seven lines above a box asserting the opposite**, and against a ruling **ratified by Sol in the same revision.** During the F-1/F-2 repair **the wrong value propagated into the wrong table** — revision 5's §5.11.5 had been `(yes, yes)` and its §5.5.9 `(yes, no)`, and the correction crossed over | §5.11.5 — **the completeness columns are DELETED, not corrected.** One table answers one question |
+| **revision 7's *"45 worker actions … MISSES: 0"*** | one of the forty-five is a **FALSE POSITIVE**, not a detection: `git checkout -b` moves nothing, changes no file, and lands `FAILED` with no evidence — **and the action is PERMITTED.** **A matrix that scores a false positive as a hit is a matrix whose headline number means something other than what it says** | §5.5.2C — the headline is corrected, the row is moved into a named false-positive row in A.2M, the action is **denied**, and the cost has its own T-number |
+| **revision 7's `test_head_chain_traversal_is_refused`, deleted as "unreachable"** | the justification was **true of the task-worktree path and asserted of the document.** §5.9.2's primary reader still resolves `ref: ` names with up to five hops and **runs post-worker** | §5.9.2 — **the test is MOVED, not deleted**, and the allowlist regex is retained where the reader lives |
+
+| **revision 4's N-6, carried unrepaired through revisions 5, 6 and 7** | `GIT_PROXY_COMMAND` was recorded as *"missing from the scrub list"* and then **only ever REASONED ABOUT as a config read**, while the sibling `GIT_SSH_COMMAND` was scrubbed. **Lane Z17 MEASURED it: through revision 7's denylist the proxy program EXECUTES** (`revision-7 DENYLIST … proxy EXECUTED = TRUE`). **A finding left open for four revisions was under-described the entire time, and no test in any revision could have told anyone** | ZI-85 — the name is never reasoned about individually |
+| **revision 7's `_git_env()` eight-name strip list, and revision 8's own first draft of the allowlist** | the strip list left **five names live** out of 220 in the binary, **157 of which no revision-7 list governs at all**, fourteen of them measured to change a permitted row or execute. **And revision 8's first draft of §5.4.3A illustrated the allowlist as `PATH HOME LANG LC_* TZ TMPDIR` — a list Z17 then measured to be entirely unnecessary.** **The document guessed a shape while writing the section whose whole point was not to guess** | Z17's measurement: `_GIT_ENV_ALLOWLIST = ()` |
+| **revision 8's own F6-4 repair, as first drafted** | it denied **`git checkout -b`** — **the one instance the sixth review named** — inside the revision whose stated lesson is *"close the class, not the instance."* **Z17 measured FIVE false positives (`checkout -b/-B`, `switch -c/-C`, `symbolic-ref`) and two additional movers (`update-ref`).** The repair was one-fifth of its own class | four Bash prefixes, T-38 |
 
 ### 10.4 A probe hazard that must not be rediscovered
 
@@ -10239,6 +11101,21 @@ roughly Wave A and Wave B's mutant counts combined. Revision 1 called it *"the
 cheapest wave"*; revision 2 said it was *"no longer small"* **without resizing
 anything**; **revision 3 states the size and accepts it.**
 
+**Revision 8 adds no wave and no mechanism.** It repairs twelve findings and
+applies four rulings. **Four of the repairs land inside Wave 0's existing
+deliverables and must not be deferred:** ZI-85's allowlist-constructed child
+environment is part of `_run_git`'s policy — **and Z17 makes it SMALLER than
+revision 8 first drafted it, `child_env = dict(DISPATCHER_GIT_ENV)` and the
+deletion of `_GIT_ENV_REDIRECTS`, which is less code than the denylist it
+replaces**; ZI-86's equivalence relation is the R6 gate's comparison, which
+**Wave 0 owns by D-24 and which had no specification before this revision**;
+T-38's deny pattern is a `CORE_DENIED_GIT_OPERATIONS` edit **plus a
+`prompts/worker-policy.md` sentence that MUST ship in the same commit**; and
+**T-40's absolute-path git resolution is a `_run_git` start-up step that becomes
+LOAD-BEARING the moment the allowlist empties** — it is the one item Z17 turned
+from a nicety into a portability defect. **The thirteen row-0 refusal classes are unchanged and remain Wave 0's, or
+B-4 reopens.**
+
 **Revision 7 makes Wave 0 larger again, and the reason is that four more
 mechanisms are preconditions for claims made about windows earlier than
 themselves:** the detached worktree and its raw B2, the `lstat`-first `.git`
@@ -10330,14 +11207,28 @@ Wave 0 declare a closure it has not built:**
 4. **The report must print `V-1a` and `V-1b` separately** (§16). A single
    `V-1` row is what made a live `git` validation command invisible for three
    revisions.
-5. **The pre-worker order row must be GENERATED from `git_order.py`**, and the
-   report **fails if any declared row has no measured row in A.2B.** A
-   hand-maintained matrix drifted into F-7; a derived one cannot.
+5. **The pre-worker order row must be GENERATED from `git_order.py`, and the
+   report is a JOIN, not a projection** (§5.4.3B(i)). **It fails on
+   `OBSERVED_NOT_DECLARED`, on `OBSERVED_AFTER_SPAWN`, and it blocks Wave 0 on
+   `DECLARED_NOT_OBSERVED` or `PATH_NOT_EXERCISED`.**
+   **N6-5: revision 7 stated this row in direction A only** — *"fails if any
+   declared row has no measured row"* — **which is `∀d ∈ D. ∃o ∈ O`, the
+   implication §5.4.3B(i) proves is VACUOUSLY TRUE for the review path and
+   identifies as the whole of F5-3.** §12.6 is the section an implementer builds
+   acceptance from, so stating it one-directionally there would have left F5-3's
+   fix unenforced at the gate that matters. **All three rules of ZI-73 are
+   required; none of them alone is acceptance.**
 6. **`test_no_show_toplevel_in_src`, `test_declared_order_is_the_matrix_row_set`
    and `test_no_status_clean_reset_stash_in_src` are all specified RED against
    `HEAD`**, alongside §5.4.6's static half. **Wave 0 begins with four
    known-red tests naming four known-live defects, and that is deliberate: a test
    that is green on a tree containing the defect it names is not a test.**
+   **REVISION 8 REMOVES A FIFTH, AND THE REMOVAL IS THE POINT:**
+   `test_second_dispatch_against_the_same_repository_succeeds` was **RED by
+   design pending a ruling** — it is now a **required GREEN**, because T-36 is
+   ruled and ZI-86 specifies the comparison it was waiting for. **A test kept red
+   for want of a ruling is a different thing from a test kept red because it
+   names a live defect, and only the second kind belongs in the list above.**
 
 ---
 
@@ -10584,11 +11475,30 @@ GATE 7 .............................. PASS/FAIL
       base objects missing after step 4  0
   store routing ..................... alternates 0 · http-alternates 0 ·
                                       refs/replace 0 · info/grafts absent · unchanged
-  head chain ........................ resolved == base · links N · restructured NO
+  B2 ................................ comparisons 8/8 · verdict base_held
+      -- N6-3: the revision-7 row read `head chain … links N · restructured NO`,
+         over three concepts §5.5.2C DELETES as a verdict class AND as a field.
+         A gate report cannot require a value that is unrepresentable.
   pins in the tree .................. PIN 1 <y/n> · PIN 2 <y/n> · PIN 3 <y/n> · PIN 4 <y/n>
-      GIT_TEST_* scrubbed ............ <yes/no>
-      GIT_CONFIG_PARAMETERS scrubbed . <yes/no>
+      env is ALLOWLIST-CONSTRUCTED ... <yes/no>   (ZI-85; NOT a scrub list)
+      keys in the git child .......... must EQUAL the six DISPATCHER_GIT_ENV keys
+                                       EXACTLY -- set equality, and the allowlist
+                                       is EMPTY, so NOTHING else may appear
+      GIT_ZI85_CANARY leaked ......... must be NO
+      _GIT_ENV_REDIRECTS still exists  must be NO   (deleted, not extended)
+      allowlist membership ........... () -- MEASURED EMPTY (Z17 §1); cite
+                                       GATE7-Z17-ENV-ALLOWLIST.md
+      nine rows byte-identical under
+        env -i + the six pins ........ must be 9/9   (Z17 §1.2 STEP A)
+      generated GIT_* sweep .......... <n>/<n> names inert; n MUST be the count
+                                       extracted from THIS host's binary and
+                                       /usr/lib/git-core (220 on git 2.43), and
+                                       the GIT_DIR bypass control MUST have fired
+      git argv[0] is an absolute path  <yes/no / UNMEASURABLE -- T-40 not implemented>
       PIN_BLOCK is a frozen tuple .... <yes/no>; caller `-c` refused <yes/no>
+      -- ZI-71 IS NOT RETIRED BY THE ALLOWLIST. Z17 measured a displaced caller
+         `-c` still winning under a perfect allowlist. A report that prints the
+         env rows green and omits this one has answered half the question.
       -- ANY "no" makes every row above that depends on it UNMEASURABLE,
          and the report must print UNMEASURABLE, never PASS.
   identity provenance ............... root_commit: approved_onboarding_fact
@@ -10604,7 +11514,19 @@ GATE 7 .............................. PASS/FAIL
                                       fired <yes/no>; assertions over ROW SETS
   detached worktree ................. HEAD is 40hex+\n <yes/no>; refs/heads/sol-*
                                       absent <yes/no>; B2 comparisons 8/8
-  second dispatch ................... <PASS / RED-BY-DESIGN pending T-36>
+  R6 relation ....................... APPEND-ONLY for objects/ ; EXACT for all
+                                      routing and administrative classes  (ZI-86)
+      baseline objects present ....... must be ALL      (clause 1)
+      baseline objects byte-identical  must be ALL      (clause 2)
+      new objects since baseline ..... <n>  ENUMERATED, allowed, REPORTED (clause 3)
+      baseline re-written this run ... must be NO       (no automatic re-baselining)
+  second dispatch ................... PASS   (no longer red-by-design; T-36 RULED)
+  branch-creating checkout denied ... <yes/no>  patterns: git checkout, git switch,
+                                       git symbolic-ref, git update-ref  (Z17 §6.2)
+      all FIVE false-positive shapes . must be denied, not just `checkout -b`
+      git restore permitted .......... must be YES, and the worker-policy sentence
+                                       MUST be present in the same commit
+      six evasion shapes still caught  must be 6/6 by ZI-77's bytes, NOT by the deny
   attribution ....................... three states captured · closure theorem held
       final_delta \ (worker u validation)  MUST BE EMPTY
   V-2 path identity ................. bytes end-to-end; hostile-name pipeline test
@@ -10666,6 +11588,7 @@ the revision-3 mapping is retained beneath it.
 | **Y-10** | **RESOLVED. RATIFIED BY SOL IN REVISION 7, BOTH HALVES. The ruling text below is NORMATIVE.** |
 | | > ### RULING Y-10 — TWO OUTCOMES, NEVER THREE<br>> <br>> **Every worker-changed path has exactly one of two outcomes:**<br>> <br>> **A.** It has an **exact canonical review representation** ⇒ it is **eligible** for `patch_file_complete = true`.<br>> <br>> **B.** It has **no** exact canonical review representation ⇒ **`review_input_complete = false` and Fable REFUSES.**<br>> <br>> **There is no third outcome in which changed content is omitted while the review is called complete.**<br>> <br>> - **Changed symlink: SUPPORTED**, via `lstat(follow_symlinks=False)` + `readlink` **target representation** — mode `120000`, body = raw target **bytes**, `\ No newline at end of file`. **Never followed, never opened, never `realpath`ed.**<br>> - **Unchanged pre-existing symlink: not in `worker_delta`** (Y-9), and therefore **not in Y-10's domain at all**.<br>> - **Changed binary:** inventory/hash evidence may be **complete**, but **unless an exact approved binary review representation is implemented, `review_input_complete = false` and Fable refuses.**<br>> - **Changed unsupported/unrepresentable type or path: `review_input_complete = false`, Fable refuses.** |
 | | **`inventory_complete = true` alongside outcome B is the POINT of the ruling and is not a contradiction.** It is ZI-46's two-axis distinction: *we know exactly what changed; we cannot show it to a reviewer.* **Recording the first while refusing on the second is what makes the refusal auditable instead of opaque, and it is the sentence that keeps the third column deleted.** **A `symlink ↔ regular` kind change is TWO patch sections** — `deleted file mode 120000` **plus** `new file mode 100644` — **and a single section is not a valid representation**; Sol's §14 text omits this and it is carried here because it is measured. **T-17 DISPOSITION: Sol takes the second horn explicitly — T-17 is NOT adopted for Wave 0 and the cost is accepted in writing. Priced plainly so no operator discovers it: any task that changes a binary file loses its automated Fable review and returns to Sol without one.** The `GIT binary patch` representation stays **measured and unadopted**; adopting it later **moves rows from B to A and is a strict widening, requiring no change to this ruling.** |
+| | **RATIFIED IN REVISION 7 AND MIS-INTEGRATED IN THE SAME REVISION — F6-1, REPAIRED IN REVISION 8.** §5.11.5's table gave `UNTEXTUAL` the value `(clears the flag, does NOT block the review)` — **the value this ruling forbids** — seven lines above a box asserting the opposite, in the section an implementer of the review path reads. **During the F-1/F-2 repair the wrong value propagated into the wrong table.** The repair is **not** to correct the cell: §5.11.5's completeness columns are **DELETED**, on §5.8.5's own rule that mutually exclusive designs are deleted rather than amended, so that **exactly one table — §5.5.9's seven rules — answers the completeness question.** **Inventory completeness remains a separate axis, on a separate field, read by no predicate.** |
 | | *(Retained for provenance — the fifth review's assessment, now superseded:)* **UPGRADED from `CANNOT BE RATIFIED AS WRITTEN` to RATIFIABLE FOR THE SYMLINK HALF; the remainder is named rather than force-mapped.** Revision 5 was unratifiable because §5.5.9 and §5.11.5 gave **opposite** `patch_file_complete` values for `UNTEXTUAL` and `UNREPRESENTABLE_KIND` (F-2) — **Sol was being asked to ratify a decision the document specified two ways.** Sol's §11 rule removes the symlink half entirely: a symlink is **SUPPORTED**, never followed, `lstat` + `readlink` at mode `120000`, **so it is a represented kind, not an unrepresentable one, and the bucket contradiction cannot arise for it** — MEASURED, including a **dangling** symlink and a symlink whose target contains `LF`, both of which round-trip through a hand-composed patch. **And independently**, the production symlink is unchanged and therefore absent from `worker_delta`. **What §11 does NOT resolve, stated rather than mapped away:** (a) `UNREPRESENTABLE_KIND` still covers **FIFO, socket, block device, char device and gitlink**, all now `(clears, blocks)` and all **empty in practice on both hosts**; (b) **binary is untouched** — an exact `GIT binary patch` representation is MEASURED to work and is **not adopted for Wave 0** (T-17), **so any task that changes a binary loses its automated Fable review.** **Y-10 is ratifiable once Sol takes T-17 or accepts that cost explicitly.** |
 
 **Summary entering the SIXTH review. TEN OF TEN RESOLVED.** Y-9 and Y-10 are
@@ -11193,39 +12116,57 @@ are under the same manifest, so **"the seal" remains one root of trust.**
 ATTEMPTED`: the disk scan is forbidden by the hard lines**, so the refused
 population is unmeasured here and stated as unmeasured.
 
-> ### T-36 — **THE R6 EQUIVALENCE RELATION. THIS IS THE LIVE BLOCKER, AND IT IS ONE PROBLEM, NOT TWO.**
+> ### T-36 — **RULED IN REVISION 8. APPEND-ONLY IS ADOPTED.**
 >
-> **The second dispatch against a repository and every Fable review land the same
-> `RepositoryAdministrationUnreconciled`, NOT retryable, for the same root cause:
-> the R6 gate treats dispatcher-created state as unreconciled.**
+> **Sol's ruling:** every baseline object must remain **present and
+> byte-identical**; **removal or alteration REFUSES**; **new content-addressed
+> objects are ALLOWED BUT REPORTED**; **all routing and administrative authority
+> remains EXACT EQUALITY**; **automatic re-baselining is FORBIDDEN.**
 >
-> **MEASURED:** after a complete dispatch **and** `worktree remove --force` **and**
-> `worktree prune`, **three loose objects survive** the cleanup and the capture has
-> drifted from the frozen human baseline. **A repository serves one task and then
-> refuses until a human re-runs `trust-repo-admin.py`.**
+> **The normative specification is ZI-86 (§5.8.3)**, class by class, with
+> append-only defined in three clauses so an implementer cannot guess wrong. The
+> sixth review ruled T-36 blocking **not because a test was red** but because
+> *"the gate is written `if current != baseline` and the relation giving `!=` its
+> meaning is not adopted"* — **an undefined normative predicate in a Wave-0
+> deliverable.** It is defined.
 >
-> **Revision 7 shrinks the problem and does not solve it.** The four-capture split
-> resolves F5-4's Readings A and B **completely**; `--detach` removes the two
-> `sol-`-prefixed **ref** entries — **the class ZI-57 makes hardest to exempt** —
-> leaving **one** class, `worktrees/**`, keyed on git's own layout rather than on a
-> prefix the dispatcher chose. **The cross-dispatch loose-object drift is
-> untouched.**
->
-> **§5.8.3 states the append-only relation, names the collision with the paragraph
-> §5.8.3 itself DELETED, costs the two alternatives, and ADOPTS NONE OF THEM.**
-> **Sol must rule.** Until then **`test_second_dispatch_against_the_same_repository_succeeds`
-> is deliberately RED, and it must not be written green against an unruled
-> relation** — writing it against *"the operator re-baselines every time"* would
-> make it pass while the availability failure stands.
+> **Consequences that must travel with the ruling:**
+> **`test_second_dispatch_against_the_same_repository_succeeds` is NO LONGER
+> deliberately RED — it is a required GREEN**, with a non-vacuity assertion on the
+> reported new-object set. **`test_divergence_persists_across_dispatches` remains
+> GREEN and is not weakened**, because reconciling under clause 3 stores nothing.
+> **REQ-1 is DISCHARGED** — `config`, `packed-refs` and `refs/**` are all
+> exact-equality rows — so §1A.3's substitution coverage is **no longer
+> conditional.**
 
-**T-37 — does the FABLE REVIEW path run the R6 operator-baseline gate at all?**
-This design says **no**: the review compares against the **sealed task
-authority**, which is per-task, written pre-worker, and is the right baseline for
-*"is this the repository we sealed?"*. **Running the operator gate there lands
-`Unreconciled` on every review, caused by the dispatcher's own prior `worktree
-add`.** **Both readings are zero-git, so the central claim is unaffected either
-way — this is a LIVENESS conflict, flagged rather than quietly decided.** **If Sol
-wants the operator gate on the review path, T-36 must be ruled first.**
+> ### T-37 — **RULED IN REVISION 8.**
+>
+> **The Fable review path does NOT run the operator R6 baseline gate. It
+> validates against the TASK'S SEALED AUTHORITY** (§5.8.3, ORDER 3's V6).
+> **Revision 7 took this decision inside a normative order while §18.3C called it
+> escalated — F5-6's exact shape, correctly caught.** It is now ruled, and ORDER 3
+> cites the ruling rather than presuming it. **ZI-86 makes the liveness argument
+> moot rather than merely answered, so T-37 is ruled on its own merits** — the
+> review asks a per-task question — **and its answer does not silently depend on
+> T-36's.**
+
+**T-38 — RULED IN REVISION 8: branch-creating symbolic-HEAD transitions are
+DENIED for task workers.** ZI-77's byte rule is **ratified unchanged**, and the
+refinement that would accept `ref: ` when `ORIG_HEAD` still holds the base is
+**REJECTED — it re-introduces a resolution into the function whose entire value
+is that it contains none.** Instead `git checkout -b` and its equivalents join
+`CORE_DENIED_GIT_OPERATIONS`, because **a permitted action must not be able to
+produce a `FAILED` run with no evidence.** **The deny list is not the mechanism
+and is not claimed to be** (§5.5.2C). **Lane Z17 has now MEASURED the pattern and
+the cost: `Bash(git checkout:*)`, `Bash(git switch:*)`, `Bash(git symbolic-ref:*)`,
+`Bash(git update-ref:*)` — no narrower pattern exists, because the entries are
+Bash PREFIX patterns and the flag is not in the prefix. THE COST IS THREE
+LEGITIMATE HEAD-NEUTRAL FILE RESTORES, and the `git restore` sentence in
+`prompts/worker-policy.md` is a HARD PRECONDITION shipping in the same commit, not
+a follow-up. F6-4 named ONE false positive; there are FIVE.** *(This T-number exists
+because revision 7 gave the low-probability encoding shapes a T-number and left
+the high-probability developer action unpriced. T-32 stands unchanged for the
+three encoding shapes.)*
 
 ### 18.4 Two decisions adopted without an explicit ruling
 
@@ -11256,6 +12197,64 @@ document that is the specification must not record a false fact about the
 directive that governs its own approval**, which is why this paragraph replaces
 revision 3's rather than being appended to it.
 
+### 18.3D Escalations arising from the sixth review, and the one it added
+
+**T-39 — CLOSED BY LANE Z17. The allowlist's membership is MEASURED EMPTY.**
+`GATE7-Z17-ENV-ALLOWLIST.md` landed during revision 8 and measured
+`_GIT_ENV_ALLOWLIST = ()`: **not one inherited variable is necessary**, all nine
+permitted rows byte-identical from `env -i` plus the six pins, leave-one-out over
+fifteen candidates breaking nothing. **No variable earned an entry, because none
+produced a failure when removed.** ZI-85's clause 1 still stands as the guarantee
+that does not depend on the measurement. **T-39 required a list and got an empty
+one, which is the strongest form of the answer, not the absence of one.** *(§5.4.3A
+carries the full Z17 integration, including the four results that changed what
+this document says.)*
+
+**T-40 — NEW, AND OWED: the git binary must be resolved to an ABSOLUTE PATH once
+at start-up.** Z17 measured that dropping `PATH` breaks nothing **here** only
+because `/usr/bin/git` lies inside CPython's `os.defpath`. **On a host where git
+is installed outside `/bin:/usr/bin` — Homebrew, Nix, conda, `asdf`/`mise` — the
+empty allowlist makes EVERY DISPATCH FAIL at the first git command with
+`FileNotFoundError`** (positive control fired). **The fix is NOT to admit `PATH`:
+Z17 measured that admitting it re-opens a `.gitattributes` filter-driver
+EXECUTION surface that PIN 2 does not close**, and makes any non-builtin
+`git <word>` a program lookup. **The fix is `shutil.which("git")` against the
+DISPATCHER's environment, once, recorded in the sealed identity record,
+journalled, and refused at the gate if unresolvable.** **NOT IMPLEMENTED —
+`UNMEASURABLE` in §16.** *(This is a real portability defect, recorded as owed
+rather than as a caveat.)*
+
+**Closed by revision 8:** **T-36** and **T-37** are RULED above. **T-38** is
+RULED **and its pattern and cost are now MEASURED, not pending**. **T-39 is
+CLOSED by Z17's empty allowlist.** **REQ-1 is DISCHARGED** by ZI-86. **Review 4's
+N-6 (`GIT_PROXY_COMMAND`), open for four revisions, is DISCHARGED — and was
+measured EXECUTING A PROGRAM through revision 7's denylist, which is worse than
+it had ever been recorded.** **N6-1 … N6-7 are all repaired in this
+revision** — the traversal guard's scope and its moved test, §5.8.2B's stale
+symlink paragraph, §16's `head chain` row, §2A.5's and §2's stale counts, §12.6
+item 5 restated as the JOIN, an explicit `.git` classification step in ORDER 2
+**and** ORDER 3, and ORDER 4's two missing columns.
+
+**Unchanged and still open:** T-26, T-28, T-29, T-30, T-31, T-32 *(re-scoped to
+the three encoding shapes only)*, T-33, T-34, T-35, and the four `NOT TESTED`
+rows (`multi-pack-index` substitution, above-threshold `gc --auto`, reftable as a
+live B2 vector, submodule `modules/**`) plus the `NOT ATTEMPTED` rows (the ctypes
+spawn bypass, the symlinked-`.git` disk scan, and now **whether a git child can
+acquire a `GIT_*` variable by a route other than `env=`**, which is `NOT TESTED`).
+**NEWLY OPEN: T-40** (absolute git path), and **two OWED measurements Z17 names
+and this document adopts rather than absorbs** — a **genuine partial clone**
+(`NOT ATTEMPTED`; the sixth VOID filed on that vector by the sixth party) and **a
+repository owned by a DIFFERENT uid**, where `GIT_CONFIG_NOSYSTEM=1` plus
+`GIT_CONFIG_GLOBAL=/dev/null` means **no `safe.directory` entry can be read, so
+every permitted row would refuse.** The second is a property of the PINS,
+unchanged by Sol's ruling, and needs a second uid, hence root. **Also `NOT
+ATTEMPTED` and inherited from Z17: `GIT_ATTR_NOSYSTEM` (needs root to create
+`/etc/gitattributes`), `GIT_TRACE_PACKET` (needs a live transport),
+`GIT_NAMESPACE` (still dead on the permitted rows after re-arming), a translating
+locale, and the Claude CLI's own `--disallowedTools` matcher (needs a worker; the
+production freeze is absolute).**
+**None is recorded as clean.**
+
 ### 18.4A Two escalations that are now CLOSED
 
 **Y-9 and Y-10 are RATIFIED by Sol in revision 7 and their normative ruling text
@@ -11267,11 +12266,12 @@ below are retained for provenance only.
 ### 18.5 The gate on implementation
 
 **No `src/**` or `tests/**` change may be written for Gate 7 until this revision
-receives a SIXTH independent architecture review returning ZERO blocking findings
-**and `WAVE 0 APPROVED TO IMPLEMENT: YES`.** The reviewer must not be the author,
-must not be a prior reviewer, and must not implement the fixes. **This is
-directive T, and §21 is its mandate — twenty attack vectors and a fifteen-item
-return format, written verbatim.**
+receives a SEVENTH independent architecture review returning ZERO blocking
+findings **and `WAVE 0 APPROVED TO IMPLEMENT: YES`.** The reviewer must not be
+the author, must not be a prior reviewer, and must not implement the fixes.
+**This is directive T, and §21 is its mandate — twenty attack vectors and a
+fifteen-item return format, written verbatim, plus the five revision-8 repairs
+§21.0 names.**
 
 **What it should attack hardest — the decisions most likely to be wrong:**
 
@@ -11364,10 +12364,44 @@ weakening. A preservation clause with no detector is a wish.**
 
 ---
 
-## 21. THE SIXTH INDEPENDENT ARCHITECTURE REVIEW — REQUIRED ATTACK LIST (Sol §20)
+## 21. THE SEVENTH INDEPENDENT ARCHITECTURE REVIEW — REQUIRED ATTACK LIST
 
-> No `src/**` or `tests/**` change may be written for Gate 7 until revision 7
-> receives a **SIXTH** independent architecture review returning **ZERO blocking
+### 21.0 What revision 8 changed, and what the seventh review must attack first
+
+**Revision 8 is an architecture-only closure revision.** It repairs the sixth
+review's five blockers and its seven non-blocking findings, and it changes
+**nothing else**. **The five repairs are the first thing to attack, because four
+of the five blockers were CONTRADICTIONS between a ruling and a table or between
+two sections — and a repair that leaves two normative answers standing has
+repaired nothing.**
+
+| Blocker | Repair | Where | The test that closes it |
+|---|---|---|---|
+| **F6-1** | §5.11.5's completeness columns are **DELETED**, not corrected. **§5.5.9's seven rules are the only table that answers completeness.** `UNTEXTUAL` clears completeness and **blocks Fable**; **inventory completeness is a separate axis**, on a separate field, read by no predicate | §5.11.5 | `test_no_class_is_exempt_from_the_completeness_iff` (generated over `ContentClass.__members__`) · `test_refusal_records_inventory_complete_true` · `test_no_predicate_reads_inventory_complete` (AST) · `test_completeness_is_answered_in_exactly_one_table` (tripwire) |
+| **F6-2** | the denylist is **DELETED**. **ZI-85: the git child environment is ALLOWLIST-CONSTRUCTED and no ambient `GIT_*` survives** — and **Lane Z17 measured the allowlist EMPTY**, so `child_env = dict(DISPATCHER_GIT_ENV)` and **nothing at all is inherited** | §5.4.3A | `test_no_ambient_git_variable_reaches_a_git_child` (**with a `GIT_ZI85_CANARY` no denylist could contain**, and **set equality** on the child's keys) · `test_allowlist_contains_no_git_name` (import-time) · `test_pin4_survives_every_git_env_name_in_the_installed_binary` (**generated** over the **220** names Z17 swept, **with the `GIT_DIR`-through-a-bypassed-allowlist control**) · `test_every_permitted_row_is_byte_identical_under_env_i` (9/9) |
+| **F6-3** | ORDER 3's V6 is re-specified over the **four sealed `WorktreeAuthorityRecord` paths**; the impossible *"zero opens"* assertion is replaced by **exact set equality plus a live positive control**; the tripwire's condition is reconciled with its premise | §5.4.3B ORDER 3 | `test_review_path_reads_exactly_the_sealed_authority_paths` — canary-armed audit, **set equality**, and a build-flag control that adds **one** extra repository read and **must fail** |
+| **F6-4** | ZI-77 **unchanged**; branch-creating symbolic-HEAD transitions **DENIED** on **four** measured Bash prefixes; the false positive is stated **where the invariant is stated**, the headline no longer reads *"MISSES: 0"* alone, and A.2M carries a named false-positive row. **F6-4 named ONE false positive; Z17 measured FIVE**, and the deny costs **three legitimate HEAD-neutral file restores** whose `git restore` mitigation is a **hard precondition, not a follow-up** | §5.5.2C, A.2M | `test_branch_creating_checkout_is_denied_before_it_runs` (**over all five shapes**, **paired control** with the pattern removed) · `test_git_restore_is_not_denied` (with a refusal in the same fixture) · `test_symref_plant_is_still_a_mismatch_under_the_deny_list` (**over Z17's six evasion shapes**) |
+| **F6-5** | **T-36 RULED: append-only** for content-addressed objects, exact equality for everything else, **no automatic re-baselining** (ZI-86). **T-37 RULED** | §5.8.3 | `test_second_dispatch_against_the_same_repository_succeeds` (**now a required GREEN**, with a non-vacuity assertion) · `test_removed_baseline_object_refuses` · `test_altered_baseline_object_refuses` · `test_new_routing_file_is_a_divergence_not_an_append` · `test_divergence_persists_across_dispatches` (**still green**) |
+
+**AND ONE INPUT THAT ARRIVED MID-REVISION.** **Lane Z17 landed after the five
+repairs were drafted, and it changed three of them rather than confirming them:**
+the allowlist went from *a shape pending measurement* to **measured empty**;
+F6-4's *one* false positive became **five**, with a **named cost**; and **review
+4's `GIT_PROXY_COMMAND`, open four revisions and only ever reasoned about, was
+measured EXECUTING A PROGRAM through revision 7's denylist.** **Z17 also produced
+one NEW owed defect — T-40, the absolute git path — which is a hazard the
+allowlist CREATES and which this document records as owed rather than as a
+caveat.** **A reviewer should treat the Z17 integration as the freshest and
+therefore least-reviewed material in this revision.**
+
+**Each repair was checked against its own mechanism before it was written down,
+because F6-3 was the twenty-first instance of a named killer that could not pass
+against the thing it guarded.** The *could it pass while false?* answer for every
+test above is stated at the site of the test, and **three of them are specified
+with a mandatory control leg without which they would be vacuous.**
+
+> **NO `src/**` or `tests/**` change may be written for Gate 7 until revision 8
+> receives a **SEVENTH** independent architecture review returning **ZERO blocking
 > findings** and **`WAVE 0 APPROVED TO IMPLEMENT: YES`**. The reviewer must not be
 > the author, must not be a prior reviewer, and must not implement the fixes.
 > **This is directive T.**
@@ -11401,9 +12435,21 @@ weakening. A preservation clause with no detector is a wish.**
 > 19. **resume into a different allowlisted repository**
 > 20. **the zero-authoritative-git-after-spawn claim, and the zero-git Fable claim, separately**
 >
+> **Sol's twenty are unchanged and are reproduced verbatim above.** Revision 8's
+> repairs change what several of them will find, and **four of them acquire a
+> sharper form** which the reviewer should take **in addition to, not instead of,
+> the row as written:
+>
+> | # | The revision-8 form |
+> |---|---|
+> | **3** | not *"does the `GIT_TEST_*` scrub hold"* but **"can ANY ambient `GIT_*` name reach a git child"** — and **the reviewer should invent a name no list in this document mentions**, because a proof that cites the members has proved nothing. `GIT_GRAFT_FILE` and `GIT_SHALLOW_FILE` are the two known to survive the full pin block and reach **G9**; **`GIT_SHALLOW_FILE` leaves no in-repository artefact at all** |
+> | **11** | the six rows remain the target, **and step V6's own test is the thing to attack**: does `test_review_path_reads_exactly_the_sealed_authority_paths` pass against V6 as specified, **and does its control leg actually fail when one extra repository read is added?** |
+> | **13** | the second dispatch must now **SUCCEED**. **Do not accept a green from a fixture whose first dispatch created no new objects** — assert the reported new-object set is non-empty. **And check the other direction: a REMOVED baseline object must still refuse** |
+> | **17** | `UNTEXTUAL` must **clear completeness and block Fable**, and **`inventory_complete = true` must appear on the same record as `review_input_complete = false`.** Check that **exactly one table** in the document answers the completeness question |
+>
 > ### REQUIRED RETURN FORMAT — all fifteen items, in this order
 >
-> 1. **REVISION 7 SHA**
+> 1. **REVISION 8 SHA**
 > 2. **REVIEW VERDICT**
 > 3. **BLOCKING FINDINGS**
 > 4. **CENTRAL CLAIM VERIFIED: YES / NO**
@@ -11435,7 +12481,7 @@ weakening. A preservation clause with no detector is a wish.**
 | 10 | `os.posix_spawn` | **ZI-74.** A `Popen`-only hook is **MEASURED blind to it** | one process, three spawn styles, **each with a distinguishing marker argv** |
 | 11 | the review path's six | **F5-3** | **BOTH guidance configurations.** A single-configuration run exercises the path, satisfies a naive coverage rule, **and misses four of the six live rows** |
 | 12 | an undeclared row against an empty declaration | **the vacuous truth** | apply the "reintroduce `rev-list` into `_review`" mutant **with** the converse assertion deleted and assert the review test goes **GREEN** — **proving the converse assertion is what catches F5-3** |
-| 13 | second dispatch | **the R6 convergence** | **MEASURED: three loose objects survive a complete dispatch AND full worktree cleanup.** The reviewer should expect `test_second_dispatch_against_the_same_repository_succeeds` to be **RED and should NOT accept a green one** until T-36 is ruled |
+| 13 | second dispatch | **the R6 convergence, RULED in revision 8** | **MEASURED: three loose objects survive a complete dispatch AND full worktree cleanup.** Under ZI-86 clause 3 they are **allowed and REPORTED**, so `test_second_dispatch_against_the_same_repository_succeeds` is now a **required GREEN**. **Do NOT accept a green from a fixture whose first dispatch created no new objects** — the reported new-object set must be asserted **non-empty**. **And check the other direction in the same body: `test_removed_baseline_object_refuses` and `test_altered_baseline_object_refuses` must be RED against a report-only relation** |
 | 14 | dispatcher-setup divergence | the S3 assertion | **mutate one byte between R7 and S2**, assert row 0 and **no spawn**; restore; assert clean. **Two empty measurements agree, so `entry_count` must be asserted equal, non-zero and equal to the fixture's known count** |
 | 15 | S-ε after the worker | ZI-52 | **Z-RULE-1B:** the un-hardened invocation must return the **DECOY's** answer |
 | 16 | promisor with an absent base object | PIN 1 | **assert the clone is genuinely partial before scoring any row** — `uploadpack.allowFilter` on the source and `missing > 0` as a precondition. **Four parties have filed a VOID row here** |
@@ -11461,47 +12507,120 @@ weakening. A preservation clause with no detector is a wish.**
   All four are measured **absent** today. **A gate report that prints `PASS` for a
   row whose mechanism is not implemented is the defect this gate exists to
   catch.**
+- **Return item 14's Z17-dependent rows are no longer `UNMEASURABLE` for want of
+  a lane — Z17 LANDED and both lists are measured.** The allowlist membership is
+  **`()`** and the deny pattern is **four Bash prefixes**. **What IS still
+  `UNMEASURABLE` is implementation:** none of the four pins, the allowlist, the
+  deny patterns or **T-40's absolute-path resolution** exists in `src/**` today.
+  **A reviewer must not accept a `PASS` on any of those rows**, and must check the
+  distinction between *"measured and specified"* and *"implemented"* — printing
+  `PASS` for a specified-but-absent mechanism is the defect this gate exists to
+  catch.
+- **Return item 14 must also carry the row that Z17's success makes easy to
+  forget: `PIN_BLOCK is a frozen tuple / caller -c refused`.** Z17 measured a
+  displaced caller `-c` **still winning under a perfect allowlist**. **A report
+  green on the environment rows and silent on ZI-71 has answered half the
+  question.**
 - **Return item 15 must name anything unresolved plainly rather than
   force-mapping it** — the discipline §17 has held for five revisions, and the
-  only reason Y-9 and Y-10 were visible at all.
+  only reason Y-9 and Y-10 were visible at all. **Y-9 and Y-10 are RESOLVED and
+  their ruling text is normative; F6-1 was a mis-integration of Y-10, not a
+  re-opening of it, and revision 8 repairs the table rather than the ruling.**
+- **And one instruction that is new in revision 8:** **four of the five blockers
+  this revision repairs were CONTRADICTIONS between two normative statements in
+  this document.** A reviewer should read the repairs **as pairs** — the ruling
+  and the table, the premise and the tripwire, the invariant and its test — and
+  **should treat "both statements are still present" as the finding**, whichever
+  of the two is correct.
 
-### 21.3 What the sixth review inherits, and the one instruction that matters
+### 21.3 What the seventh review inherits, and the one instruction that matters
 
-**Five prior reviews** (R-1…R-14, M-1…M-10 · S-1…S-7, N-a…N-e, Y-1…Y-10 ·
-B-1…B-4, N-1…N-7 · F-1…F-7 · **F5-1…F5-6, REJECTED**), **five probes** (U, X, Z5,
-Z7, **Z12**), **nine drafting lanes**, and this document.
+**Six prior reviews** (R-1…R-14, M-1…M-10 · S-1…S-7, N-a…N-e, Y-1…Y-10 ·
+B-1…B-4, N-1…N-7 · F-1…F-7 · F5-1…F5-6 REJECTED · **F6-1…F6-5 REJECTED**),
+**six probes** (U, X, Z5, Z7, Z12, **Z17**), **nine drafting lanes**, and this
+document. **Z17 landed mid-revision and its integration is the freshest material
+here.**
 
-**Each of the five reviews found at least one claim whose named proof could not
-observe the property.** §10.3 is the catalogue and it now has **twenty rows.**
+**Each of the six reviews found at least one claim whose named proof could not
+observe the property.** §10.3 is the catalogue and it now has **twenty-nine rows
+— three of them added by Lane Z17 MID-REVISION, and one of those three is
+revision 8's OWN first draft of the F6-2 repair.**
 Several are defects this document introduced **in the same revision that fixed the
-identical shape elsewhere.**
+identical shape elsewhere** — and **the sixth review found one inside the fix for
+the fifth review's hardest finding.**
 
-> ### **Assume revision 7 contains at least one more, and go find it.**
+> ### **Assume revision 8 contains at least one more, and go find it.**
 >
-> **The three places this revision is most likely to be wrong, named by the author
+> **The four places this revision is most likely to be wrong, named by the author
 > rather than left to be discovered:**
 >
-> **(1) Route A's coverage.** That where the START walk's `git-blob-sha1` equals
+> **(1) The append-only relation is a JUDGEMENT, now ADOPTED.** In revision 7 it
+> was stated, costed and **not adopted**, and it was named as *"the same SHAPE of
+> judgement that produced the allowlist ZI-57 deleted."* **Sol has now ruled it.
+> That makes it authoritative; it does not make it derived.** §5.8.3 states it as
+> a judgement so a reader can attack the judgement rather than mistake it for a
+> proof. **The place to attack is clause 3's scope: append-only is scoped to
+> content-addressed object storage and NOTHING else, and every routing class is
+> exact-equality in both directions. If a route exists by which a NEW object
+> changes what an EXISTING name resolves to, with routing byte-identical, that is
+> the finding.**
+>
+> **(2) The allowlist is MEASURED EMPTY, and the danger is now the OPPOSITE of
+> what revision 8 first expected.** Z17 landed and answered the membership
+> question with `()`. **So the risk is no longer "the list is guessed" — it is
+> that an empty allowlist is TOO CLEAN and invites two errors:**
+> **(a) retiring ZI-71** on the strength of *"the env hazard is gone"*, when Z17
+> measured a displaced caller `-c` **still winning under a perfect allowlist** —
+> the argv half of the hazard is untouched and this is the single most likely
+> misreading of Z17's result; and **(b) treating `PATH`'s absence as free**, when
+> it is a **portability defect that kills every dispatch on a host where git is
+> outside `os.defpath`** (T-40). **A reviewer should attack both: is there any
+> claim in this document that quietly depends on an inherited variable, and is
+> there any place where the allowlist is cited as closing something argv-shaped?**
+>
+> **(3) Route A's coverage.** That where the START walk's `git-blob-sha1` equals
 > the `ls-tree` oid the bytes on disk **are** the base blob is **REASONED from
 > DECISION Z-5's identity, not measured end-to-end.** **The negative was not
 > constructed.** Route B exists so Route A's failure is a **cost, not a
 > correctness bug**, and the design is correct without Route A.
 >
-> **(2) The append-only object-store relation.** §5.8.3 states it, costs it
-> against two alternatives, and **does not adopt it.** **It is the same SHAPE of
-> judgement that produced the allowlist ZI-57 deleted**, and if it is adopted
-> without a ruling, that is the finding.
->
-> **(3) The stricter-than-git HEAD byte rule.** Three shapes git accepts at
-> `rc=0` — CRLF, double-LF and uppercase — are refusals under ZI-77. **The
-> direction is fail-closed and the cost is availability**, but *"no tool writes
-> HEAD that way"* is **`NOT TESTED`**, not *"none exists"*.
+> **(4) The stricter-than-git HEAD byte rule, now with its high-probability cost
+> denied rather than absorbed.** Three encoding shapes git accepts at `rc=0` are
+> refusals under ZI-77 (T-32, unchanged), and the **developer-probable** shape —
+> `git checkout -b` — is now **denied at the tool boundary** (T-38). **The place
+> to attack is the COST, because Z17 measured it and it is not zero:** the deny
+> is four Bash **prefix** patterns, which **cannot** discriminate `checkout -b`
+> from `checkout --`, so **three legitimate HEAD-neutral file restores are
+> collaterally denied.** `git restore` is the mitigation and **`worker-policy.md`
+> must carry it in the same commit or the deny ships as a usability failure.**
+> **And the deny is NOT a boundary** — Z17 broke it six ways, one using no git
+> process at all — **so any argument that leans on the deny for correctness rather
+> than usability is the finding.**
 
-**And four claims rest on measurements no lane could complete:** the `NOT TESTED`
-rows for `multi-pack-index` as a substitution vector, for an above-threshold
-`gc --auto`, for reftable as a live B2 vector, and for submodule `modules/**`;
-plus the `NOT ATTEMPTED` rows for the ctypes spawn bypass and for a disk scan for
-symlinked `.git` entries. **None of them is recorded as clean.**
+**And the claims that rest on measurements no lane could complete:** the
+`NOT TESTED` rows for `multi-pack-index` as a substitution vector, for an
+above-threshold `gc --auto`, for reftable as a live B2 vector, for submodule
+`modules/**`, and for **whether a git child can acquire a `GIT_*` variable by a
+route other than `env=`**; plus the `NOT ATTEMPTED` rows for the ctypes spawn
+bypass, for a disk scan for symlinked `.git` entries, and — **inherited from Z17
+and adopted rather than absorbed** — a **genuine partial clone**, **a repository
+owned by a DIFFERENT uid** (where the PINS themselves would make every permitted
+row refuse for want of a readable `safe.directory`), `GIT_ATTR_NOSYSTEM`,
+`GIT_TRACE_PACKET`, `GIT_NAMESPACE` on the permitted rows, a translating locale,
+and the Claude CLI's own `--disallowedTools` matcher. **None of them is
+recorded as clean.**
+
+> ### AND THE ONE THING REVISION 8 DID NOT TOUCH, STATED SO IT IS NOT RE-OPENED BY ACCIDENT
+>
+> **The sixth review VERIFIED, and revision 8 changes none of it:** post-worker
+> `{}` on the dispatch path **by two mechanisms that both deliver**; **detached B2
+> SOUND**, with F5-1's class closed by the right mechanism; the
+> `PREPARE_ADMIN_GATE` / `WORKER_START_AUTHORITY` split **CORRECT, both F5-4
+> readings structurally impossible**; **Y-9 correctly integrated**; the base
+> snapshot's **A ∪ B partition total**, with **G2 measured byte-identical under a
+> forged commit-graph**; and the **`worker_delta` closure theorem sound.**
+> **Exactly four MCP tools, forever.** **Revision 8 is a closure revision: it
+> repairs five blockers and seven non-blocking findings and weakens nothing.**
 
 ---
 
@@ -12009,8 +13128,51 @@ THE FOUR-CELL CONTROL
   --detach   gitdir-first                         DETECTED
   --detach   git-actual                           DETECTED
 
-45 WORKER ACTIONS AGAINST A DETACHED WORKTREE                        MISSES: 0
-  detected: commit · checkout <sha> · checkout -b (conservative refusal) ·
+45 WORKER ACTIONS AGAINST A DETACHED WORKTREE          MISSES: 0   FALSE POSITIVES: 1
+                                          + LANE Z17's INDEPENDENT 25-ACTION MATRIX: 5
+  FALSE POSITIVE, THIS MATRIX (NOT a detection — see the F6-4 box in §5.5.2C):
+            checkout -b   ground truth == BASE, no file changed, verdict
+                          base_mismatch -> row 2 -> FAILED with no evidence.
+                          The action is DENIED at the tool boundary in
+                          revision 8; the byte rule is unchanged.  T-38
+
+  FALSE POSITIVES, LANE Z17 (GATE7-Z17-ENV-ALLOWLIST.md §6.1, 25 actions,
+  fresh detached worktree each, seal = raw <gitdir>/HEAD bytes):
+            checkout -b · checkout -B · switch -c · switch -C
+                          all four: HEAD -> 'ref: refs/heads/feature',
+                          base did NOT move.
+            symbolic-ref HEAD refs/heads/main
+                          HEAD -> 'ref: refs/heads/main', base did NOT move,
+                          AND NO checkout/switch DENY PATTERN REACHES IT.
+    ==> THIS MATRIX FOUND ONE MEMBER OF A FIVE-MEMBER CLASS. The count above is
+        corrected here rather than left at the number the first look produced.
+
+  TRUE POSITIVES Z17 ADDS, and they matter more than the false ones:
+            switch --detach <PREV> · checkout --detach <PREV>
+                          HEAD stays a LITERAL 40-hex string AND the base
+                          genuinely moves. ZI-77 catches both on the bytes.
+            update-ref --no-deref HEAD <PREV> · revert      also caught.
+    ==> the byte rule's error is ONE-DIRECTIONAL on every row measured:
+        it over-refuses and NEVER under-refuses.
+
+  Z17 base_held (correctly): branch · tag · stash · notes · am ·
+            cherry-pick (conflicting)
+
+  THE DENY IS NOT A BOUNDARY — Z17 §6.4, six shapes, ALL produce
+  'ref: refs/heads/x' and NONE begins with `git checkout` / `git switch`:
+            git -C <wt> checkout -b x
+            git --git-dir=<gd> --work-tree=<wt> checkout -b x
+            /usr/bin/git checkout -b x            (absolute argv[0])
+            git symbolic-ref HEAD refs/heads/x
+            git branch x && git symbolic-ref HEAD refs/heads/x
+            printf > <gitdir>/HEAD                (NO GIT PROCESS AT ALL)
+    ==> only ZI-77's raw byte comparison reaches the last row.
+
+  THE COST — Z17 §6.3, three legitimate HEAD-neutral restores collaterally denied:
+            git checkout -- f.txt · git checkout <BASE> -- f.txt · git checkout .
+            mitigation: git restore / git restore --source <BASE>  (NOT denied)
+            worker-policy.md MUST carry it in the same commit.  T-38
+  detected: commit · checkout <sha> ·
             checkout -b + commit · reset --hard · reset --soft · commit+gc+pack-refs ·
             update-ref --no-deref HEAD · symbolic-ref HEAD · cherry-pick ·
             rebase (mid-conflict) · commit --amend · am ·
@@ -12147,6 +13309,218 @@ RUNTIME JOURNAL OF THE LIVE FABLE REVIEW PATH (throwaway repo, fake claude binar
   loop.subprocess_exec, once as subprocess.Popen — for ONE process.
 ```
 
+### A.2Q The environment lever class — `GIT_GRAFT_FILE` and `GIT_SHALLOW_FILE` (sixth review)
+
+**Both survive the FULL pin block — PINs 1+2+3+4 together — because neither is a
+config source. No `-c`, no `--show-origin` entry, no ordering rule reaches them.**
+
+```
+FIXTURE: clean repo, TRUE root 67c175c0…, decoy orphan root ea2c25d9…,
+         HEAD 0e23e8e9…
+FULL PIN BLOCK = env GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
+                     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+                     GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0
+                 argv -c core.hooksPath=… -c core.commitGraph=false
+                      -c core.multiPackIndex=false -c core.fsmonitor=false
+                      -c core.attributesFile=/dev/null -c core.quotePath=false
+                      --no-pager
+
+GIT_GRAFT_FILE=/tmp/graftfile      OUT-OF-REPOSITORY file, one line "<HEAD> <DECOY>"
+  baseline                     rev-list --max-parents=0 HEAD -> 67c175c0…  TRUE
+  GIT_GRAFT_FILE only                                       -> ea2c25d9…  DECOY
+  GIT_GRAFT_FILE + FULL PIN BLOCK                           -> ea2c25d9…  DECOY
+  G9 rev-list --objects --missing=print HEAD, fully pinned:
+       clean n=9   grafted n=8   SYMMETRIC DIFFERENCE 7
+
+GIT_SHALLOW_FILE=/tmp/shallow      OUT-OF-REPOSITORY file, one line "<HEAD>"
+  clean, full pins   rev-list HEAD | wc -l                  -> 3
+  GIT_SHALLOW_FILE + FULL PIN BLOCK                         -> 1   DAG TRUNCATED
+  root under it, full pins  rev-list --max-parents=0 HEAD   -> 0e23e8e9… = HEAD
+  G9 under it, full pins:   clean n=9  ->  n=5   FOUR OBJECTS HIDDEN
+  $GIT_COMMON_DIR/shallow exists?   NO
+     -- so §5.8.2's `shallow` capture row has NOTHING TO CAPTURE, and the R6
+        gate cannot see it at all. This is strictly worse than the case that
+        motivated the scrub: GIT_TEST_COMMIT_GRAPH only makes git CONSULT a
+        graph that exists on disk and is hashed per-file by §5.8.2.
+
+CONTROLS FIRED, same harness, same second: the clean legs returned 3 / 9 / TRUE.
+NEGATIVE CONTROLS (genuinely closed, and reported as negatives):
+  GIT_REPLACE_REF_BASE   dominated by PIN 3
+  GIT_CONFIG_SYSTEM      dominated by GIT_CONFIG_NOSYSTEM=1
+```
+
+**And the reproduction of the row revision 7 already carried, for provenance:**
+
+```
+TRUE root ac2848c6…   DECOY 13328a00…
+rev-list --max-parents=0 HEAD                          -> 13328a00…  DECOY
+CONTROL A  -c core.commitGraph=false                   -> ac2848c6…  TRUE
+CONTROL B  git commit-graph verify   rc=1, names both substituted parents
+PINS 1+2+3 together                                    -> 13328a00…  DECOY
+PINS 1+2+3+4                                           -> ac2848c6…  TRUE
+GIT_TEST_COMMIT_GRAPH=1    + -c core.commitGraph=false -> 13328a00…  PIN LOST
+GIT_TEST_COMMIT_GRAPH=true + -c core.commitGraph=false -> 13328a00…  PIN LOST
+GIT_TEST_COMMIT_GRAPH=0 / =false                       -> ac2848c6…  pin held
+```
+
+> **The reviewer's own control failure, recorded because this gate has now had
+> five and three were caught by the lane that made them:** the first forger run
+> crashed on an unhashable `bytearray` slice and the script **printed a full,
+> plausible "AFTER FORGE" block from a repository that was never forged.**
+> **`git commit-graph verify` returning `rc=0` is what caught it** — the fifth
+> occurrence of exactly the control failure §0 describes, and confirmation that
+> **a bare re-read of the value is not a sufficient control.**
+
+**The method that produced this finding, recorded because it is the systematic
+version of an enumeration this document had never done:** `strings` over the
+installed `git` binary for `GIT_[A-Z0-9_]*`, cross-checked against the three
+lists §5.4.3A then carried, **then each uncovered candidate run with and without
+the full pin block.** **That sweep is why ZI-85's generated test replaces a
+hand-written row set — and why ZI-85's clause 1 does not depend on the sweep at
+all.**
+
+### A.2R The `git checkout -b` false positive (sixth review)
+
+```
+FIXTURE: repo, one commit BASE, `git worktree add --quiet --detach wt BASE`, seal.
+WORKER ACTION: git checkout -b feature      (no commit, no file touched)
+
+  sealed head_bytes        : f9076b501b5c20d290fc57302adda28f7f1985f5
+  raw <gitdir>/HEAD after  : ref: refs/heads/feature
+  git rev-parse HEAD       : f9076b501b5c20d290fc57302adda28f7f1985f5
+  base actually moved?     : NO — identical to BASE
+  worktree files changed   : 0 entries
+  ZI-77 comparison 8       : base_MISMATCH   -> §8 row 2 -> FAILED, no evidence
+
+  grep 'Bash(git checkout' / 'Bash(git switch' in CORE_DENIED_GIT_OPERATIONS
+                           : 0 matches
+  CORE_DENIED_GIT_OPERATIONS denies: push, merge, rebase, commit, reset, clean,
+                                     worktree, bisect
+```
+
+**The action is PERMITTED, it moves nothing, and it produces `FAILED` with every
+byte of the worker's work discarded and a remediation message naming
+`WorktreeBaseMismatch` — which reads to an operator as *the worker moved the
+base*, when it did not.** **T-38 denies the action; ZI-77 is unchanged.**
+
+### A.2S The R6 drift, independently reproduced a second time (sixth review)
+
+```
+baseline := raw capture of .git/{objects,refs,packed-refs,worktrees}
+one complete dispatch (worktree add --detach, worker edit + commit)
+then: git worktree remove --force wt ; git worktree prune
+diff(baseline, capture):
+  > objects/08/35e4f9714005ed591f68d306eea0d6d2ae8fd7
+  > objects/4e/0eb60f41d45e5b72a9b7b950b11c71477407d1
+  > objects/8a/aafc485fa175d30c510c4fbb0925201806332d
+  THREE loose objects survive complete cleanup.
+```
+
+**Under ZI-86 clause 3 these three are ALLOWED AND REPORTED, so dispatch 2
+reconciles and proceeds. Under clause 1 their REMOVAL would still refuse, and
+under clause 2 an ALTERATION at an existing name would still refuse.** The
+`worktrees/**` set is not permanent drift — `worktree remove` + `prune` removes
+it entirely, and under `--detach` there is no `refs/heads/sol-<id>` and no
+`logs/refs/heads/sol-<id>` to remove at all.
+
+### A.2T The git child environment, swept by Lane Z17 (revision 8)
+
+**Source: `GATE7-Z17-ENV-ALLOWLIST.md`, probes `8ba92b7`. git 2.43.0
+(`/usr/bin/git`), CPython 3.12.3, uid 1000, every fixture under `mktemp -d`.
+This appendix carries Z17's numbers because they falsify things this document
+said, and a summary would lose the falsifying detail.**
+
+```
+THE MINIMUM ALLOWLIST
+  STEP A  env -i + the six dispatcher insertions ONLY, zero inherited variables
+          PASS G1  PASS G2  PASS G3  PASS G4  PASS G8  PASS G9
+          PASS G10a  PASS G10b  PASS RESUME              <-- NINE OF NINE
+          (a row PASSES only when rc==0 AND stdout is byte-identical to a
+           golden captured under the FULL AMBIENT environment)
+  STEP B  upper bound, all 15 candidates admitted        ALL NINE PASS
+  STEP C  leave-one-out from the upper bound
+          -PATH -HOME -LANG -LC_ALL -LOGNAME -PWD -SHELL -SSL_CERT_DIR
+          -SSL_CERT_FILE -TERM -TMPDIR -TZ -USER -XDG_CONFIG_HOME -XDG_RUNTIME_DIR
+          ... every one: ALL NINE ROWS STILL BYTE-IDENTICAL
+
+          necessary by single ablation: (NONE)
+
+THE CLASS, IN THREE COLUMNS
+  total GIT_* names in the 2.43 binary + /usr/lib/git-core (166 files) : 220
+  governed by revision 7 (strip + scrub + set)                         :  63
+      (39 of which are ONE GIT_TEST_* prefix rule => 24 individual names)
+  UNGOVERNED, inherited verbatim into every git child                  : 157
+  rows with a FIRING positive control                                  :  21 / 23
+  SURVIVE the revision-7 DENYLIST : GIT_GRAFT_FILE, GIT_SHALLOW_FILE,
+                                    GIT_PROXY_COMMAND, and six GIT_TRACE*
+  SURVIVE the ALLOWLIST           : NONE
+
+GIT_PROXY_COMMAND — review 4's N-6, open FOUR revisions, only ever REASONED
+ABOUT as a config read:
+  baseline (no var)      rc=128  proxy EXECUTED = False
+  BYPASS                 rc=128  proxy EXECUTED = TRUE    <-- control fired
+  revision-7 DENYLIST    rc=128  proxy EXECUTED = TRUE    <-- SCRUB DOES NOT REACH IT
+  ALLOWLIST              rc=128  proxy EXECUTED = False
+
+FOURTEEN UNGOVERNED NAMES MEASURED TO CHANGE A PERMITTED ROW OR EXECUTE
+  GIT_ALLOC_LIMIT ........ ALL NINE ROWS rc=128  'fatal: attempting to allocate'
+  GIT_MMAP_LIMIT ......... six rows rc=128
+  GIT_GRAFT_FILE ......... G9 output differs, 314 vs 486 bytes  (through PIN 4)
+  GIT_SHALLOW_FILE ....... G9 output differs, 273 vs 486 bytes  (through PIN 4)
+  GIT_ATTR_SOURCE ........ G4 rc=128
+  GIT_COMMITTER_DATE ..... G4 rc=128  'fatal: invalid date format'
+  GIT_QUARANTINE_PATH .... G4 rc=128  'update_ref failed for ref HEAD'
+  GIT_EXEC_PATH .......... redirects git's helper dir; planted subcommand ran rc=0
+  GIT_TRACE2_EVENT ....... wrote 1648 BYTES of dispatcher internals to a
+                           chosen path;  GIT_TRACE2_PERF 1343, GIT_TRACE_REFS 756,
+                           GIT_TRACE_SETUP 344, GIT_TRACE_PERFORMANCE 312,
+                           GIT_TRACE 91
+  ==> GIT_ALLOC_LIMIT / GIT_MMAP_LIMIT are a TOTAL environment-sourced denial of
+      service: one number in an operator profile turns every dispatch into
+      GitEvidenceCollectionFailed. In NO revision-7 list and in NONE of the six
+      reviews.
+
+THE GIT_CONFIG_* HAZARD SPLITS  (legs run with PIN 4a DELIBERATELY REMOVED, so
+an arriving variable WOULD have won)
+  (a) IS THE ENV FORM LIVE?      GIT_CONFIG_PARAMETERS -> TRUE  <-- control fired
+                                 GIT_CONFIG_COUNT/KEY_0/VALUE_0 -> TRUE
+  (d) UNDER THE ALLOWLIST?       both -> DECOY  == the NO-VARIABLE result
+                                 the variable never arrived
+  (e) THE ARGV HALF?             allowlist + displaced caller -c -> DECOY
+  ==> ZI-71 REMAINS FULLY NECESSARY. The allowlist does not touch argv.
+
+PATH — MEASURED, AND IT IS T-40 RATHER THAN AN ALLOWLIST ENTRY
+  gitZ17 (a copy) placed OUTSIDE os.defpath:
+     PATH admitted -> rc=0        PATH denied -> FileNotFoundError   <-- fired
+  .gitattributes FILTER DRIVER, PIN 2 (core.hooksPath) APPLIED ON EVERY LEG:
+     G4, PATH = <shimdir>:<system>   rc=0  filter EXECUTED = TRUE    <-- fired
+     G4, PATH = <system> only        rc=0  filter EXECUTED = False
+     G4, PATH DENIED (allowlist)     rc=0  filter EXECUTED = False
+  git z17probe with a git-z17probe shim on an admitted PATH: rc=0; denied: rc=1
+
+HOME, AND THE INSERTION WHOSE JUSTIFICATION CHANGES
+  HOME admitted, GIT_CONFIG_GLOBAL=/dev/null   z17.globalhit rc=1 ''
+  HOME admitted, NO GIT_CONFIG_GLOBAL          z17.globalhit rc=0 'YES'  <-- fired
+  HOME DENIED,   NO GIT_CONFIG_GLOBAL          z17.globalhit rc=1 ''
+  against the REAL /home/dev/.gitconfig, key existing only there:
+  HOME denied,   NO GIT_CONFIG_GLOBAL          rc=1 ''
+  ==> git 2.43 does NOT fall back to getpwuid() for the global config when HOME
+      is unset. GIT_CONFIG_GLOBAL=/dev/null is now REDUNDANT — kept as
+      belt-and-braces, and recorded as NO LONGER LOAD-BEARING.
+      GIT_CONFIG_NOSYSTEM is NOT subsumed: /etc/gitconfig is not env-sourced.
+```
+
+> **What this appendix does NOT establish, in Z17's own words rather than this
+> document's paraphrase:** *"I make no claim that my seven are the last seven.
+> The allowlist is the only form of this claim that does not depend on my
+> thoroughness."* **Z17 declines to claim its 220-name list is complete, and
+> that refusal is the argument FOR the allowlist rather than a weakness in it.**
+> **Five of Z17's own controls did not fire and are reported in its §7 rather
+> than fixed quietly** — including one experiment that was **worthless as run**
+> because `-z` disables the `core.quotePath` quoting its control flipped, and
+> four legs **VOIDED** by a malformed argv that left a bare `-c`. **Every number
+> above is from a re-armed or rebuilt run.**
+
 ### A.3 Checkout transform on an ordinary repository
 
 Committed `.gitattributes`: `* text eol=crlf` and `*.dat filter=lfsish`
@@ -12281,7 +13655,36 @@ byte-identical, sha256 `e41ef3bd…d498e`, 1286 B.
 
 ---
 
-## Appendix C — Revision 7 change log
+## Appendix C — Revision 8 change log
+
+**Architecture-only closure revision. Twelve findings repaired, four rulings
+applied, nothing else changed.**
+
+| Section | Change | Driver |
+|---|---|---|
+| header | revision 8; **what the sixth review VERIFIED and this revision therefore does not touch**; the failure mode this revision exists to end — *a contradiction is repaired by DELETING the superseded normative answer, not by correcting the losing side* | Sol |
+| §0 / §2 / §2A.5 | stale counts corrected: **seven** dispatch git rows and **four** pins, not ten and three | N6-4 |
+| §5.4.3A | **the strip list and the scrub list are DELETED. ZI-85: the git child environment is ALLOWLIST-CONSTRUCTED and no ambient `GIT_*` survives.** The falsified *"one line makes it true again"* heading is **deleted**; `GIT_GRAFT_FILE` / `GIT_SHALLOW_FILE` are recorded with their measurements; the two direction errors in the deleted denylist (`GIT_ATTR_NOSYSTEM`, and review 4's four-revision-old N-6) are recorded rather than dropped; `test_pin4_survives_every_config_source` is replaced by a **GENERATED** row set over the installed binary; the `GIT_CONFIG_*` precedence question is re-scoped and the measurements retained for ZI-71. **THEN LANE Z17 LANDED and the section was rewritten again:** the allowlist is **MEASURED EMPTY** (`child_env = dict(DISPATCHER_GIT_ENV)`), `_GIT_ENV_REDIRECTS` is **deleted not extended**, the generated sweep is re-specified over **220** names with a mandatory bypass control, **review 4's N-6 is DISCHARGED as an EXECUTION**, the `GIT_CONFIG_*` answer is recorded as **SPLIT** with an explicit **do-not-retire-ZI-71** trap box, and `PATH` becomes **T-40** | **F6-2**, **Z17** |
+| §5.4.3B ORDER 2 / ORDER 3 | an explicit **`.git` classification step** (P1b, V2b) — the refusal was previously reachable only by inference from a helper | N6-6 |
+| §5.4.3B ORDER 3 | **V6 re-specified over the four sealed `WorktreeAuthorityRecord` paths**; the impossible *"zero opens"* assertion replaced by **exact set equality + a live canary + a build-flag control that adds one extra read and must fail**; the three forbidden repairs named; the tripwire's condition reconciled with its premise; the *"does V6 belong here"* question answered | **F6-3** |
+| §5.4.3B ORDER 4 | the two missing columns — **positive control** and **why it is permissible** — supplied in the table rather than in prose | N6-7 |
+| §5.5.2C | the *"MISSES: 0"* headline corrected to **false positives, stated where the invariant is stated — ONE as first drafted, FIVE after Z17**; **T-38: branch-creating symbolic-HEAD transitions are DENIED on four measured Bash prefixes, with the `git restore` mitigation a HARD PRECONDITION and the deny stated plainly as NOT a boundary (six evasions, one with no git process)**; the `ORIG_HEAD` refinement **rejected with its reason**; the deletion table's traversal row **scoped to the task-worktree path**; `test_head_chain_traversal_is_refused` **moved, not deleted** | **F6-4**, N6-1 |
+| §5.8.2B | the stale *"a symlinked `.git` is accepted … `REQUIRES-PROBE`"* paragraph **deleted** — every clause of it was false by revision 7's own §5.8.2A | N6-2 |
+| §5.8.3 | **ZI-86 — the R6 equivalence relation, RULED.** Append-only for content-addressed objects in **three defined clauses**; **exact equality for every routing and administrative class, in both directions**; **automatic re-baselining forbidden**; the two rejected options costed; **the judgement stated AS a judgement**; **REQ-1 discharged**; **T-37 ruled** | **F6-5** |
+| §5.9.2 | the **allowlist regex and traversal constraint RETAINED** where the reader that needs them lives, with the moved test and the honest note that the direction was always fail-closed | N6-1 |
+| §5.11.5 | **the completeness columns are DELETED.** One table answers completeness. **The two axes stated once**, with `inventory_complete` on a separate field and an AST test asserting **no predicate reads it** | **F6-1** |
+| §10.3 | **nine new rows — three added by Z17 mid-revision, one of them against revision 8's OWN first draft of the F6-2 repair** — including a named killer that could not pass against its own mechanism **inside the fix for the fifth review's hardest finding**, a heading that claimed a repair that did not repair, a ratified ruling contradicted by a table in its own implementing section, a matrix scoring a false positive as a hit, and a guard deleted on a justification true of one path and asserted of the document | F6-1…F6-4 |
+| §12.6 | item 5 restated as the **JOIN**, naming `OBSERVED_NOT_DECLARED`, `OBSERVED_AFTER_SPAWN` and `PATH_NOT_EXERCISED` — direction A alone is the vacuous implication that is the whole of F5-3 | N6-5 |
+| §16 | the `head chain` row replaced by **`B2 comparisons 8/8`**; the env rows re-stated for ZI-85 with a **canary** row; **five ZI-86 rows** including `new objects` and `baseline re-written this run`; the second-dispatch row is now **PASS**, not red-by-design | N6-3, F6-2, F6-5 |
+| §17 | Y-10's row records that it was **ratified and mis-integrated in the same revision**, and how the repair was made | F6-1 |
+| §18.3C / §18.3D | **T-36 and T-37 RULED; T-38 added and now MEASURED; T-39 CLOSED by Z17's empty allowlist; T-40 NEW and owed**; T-32 **re-scoped** to the three encoding shapes; the closed and still-open lists restated | Sol |
+| §21 | retitled to the **SEVENTH** review; **§21.0 maps each blocker to its repair and to the test that closes it**; Sol's twenty vectors are **unchanged and verbatim**, with a **revision-8 form** for four of them; §21.3's *"most likely to be wrong"* list is re-derived, and **what the sixth review verified is restated so it is not re-opened by accident** | Sol |
+| Appendix A.2M | the `checkout -b` row **moved out of `detected:` into a named FALSE-POSITIVE row**, **and four more false positives added from Z17's independent twenty-five-action matrix** | **F6-4**, **Z17** |
+| §2 header | the Z17 row moves from **pending** to **landed**, and a dedicated table records **what Z17 CHANGED rather than confirmed** — three of the five repairs, plus one new owed defect | Z17 |
+
+---
+
+## Appendix C-7 — Revision 7 change log (retained)
 
 | Section | Change | Driver |
 |---|---|---|
