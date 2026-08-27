@@ -1,0 +1,17 @@
+fixture: .gitattributes 'f.txt filter=z17' committed; filter.z17.smudge=z17filter
+         the smudge program lives ONLY in /tmp/z17pbin.ta51anak 
+
+  PATH ADMITTED (contains the filter program)    rc=0 filter_EXECUTED=False f.txt='payload'
+      stderr: /tmp/z17pbin.ta51anak/z17filter: 2: touch: not found
+  PATH ADMITTED (normal system PATH)             rc=0 filter_EXECUTED=False f.txt='payload'
+      stderr: error: cannot run z17filter: No such file or directory
+  PATH DENIED   (Sol's allowlist without PATH)   rc=0 filter_EXECUTED=False f.txt='payload'
+      stderr: error: cannot run z17filter: No such file or directory
+
+  CONTROL: the first leg MUST show filter_EXECUTED=True, or this experiment
+  proves nothing about PATH.
+
+=== and the same question for core.gitProxy / core.sshCommand (S-delta) ===
+  those are resolved as SHELL command strings too; a bare program name in
+  them is found via PATH. Not re-measured here -- Z16 measured S-delta and
+  PIN 1 closes it. Recorded as INHERITED, not re-run.

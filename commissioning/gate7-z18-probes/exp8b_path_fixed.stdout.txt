@@ -1,0 +1,106 @@
+=== 0. MEASURED TOOLING (nothing below is assumed) ===
+  git (shutil.which -> realpath) : /usr/bin/git
+  rows.GIT (Z17 hard-coded)      : /usr/bin/git   agrees=True
+  touch (absolute, measured)     : /usr/bin/touch
+  cat   (absolute, measured)     : /usr/bin/cat
+  /bin/sh -> /usr/bin/dash
+  os.defpath                     : '/bin:/usr/bin'
+  git version 2.43.0
+  python                         : 3.12.3
+
+=== 1. FIXTURE ===
+  repo                  : /tmp/z18p8r.8j1_qfxq
+  in-tree .gitattributes: 'f.txt filter=z18'   (committed at ab915c007626)
+  committed f.txt       : 'payload'
+  shim dir (hostile)    : /tmp/z18bin.ebp4u3j5
+  shim A (built-ins)    : /tmp/z18bin.ebp4u3j5/z18filter
+    '#!/bin/sh\n: > "/tmp/z18p8.f8a1d1kx/FILTER_RAN"\necho HOSTILE_SMUDGE_RAN'
+  shim B (measured abs) : /tmp/z18bin.ebp4u3j5/z18filter_abs
+    '#!/bin/sh\n/usr/bin/touch "/tmp/z18p8.f8a1d1kx/FILTER_RAN"\nexec /usr/bin/cat'
+  marker path           : /tmp/z18p8.f8a1d1kx/FILTER_RAN
+  ALLOWLIST (final child env, verbatim) = {'GIT_NO_LAZY_FETCH': '1', 'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0', 'GIT_OPTIONAL_LOCKS': '0'}
+  PIN BLOCK (from Z17 rows.pin_block)   = ['-c', 'core.hooksPath=/tmp/z18ph.bmb6ukzc', '-c', 'core.commitGraph=false', '-c', 'core.multiPackIndex=false', '-c', 'core.fsmonitor=false', '-c', 'core.attributesFile=/dev/null', '-c', 'core.quotePath=false', '--no-pager']
+  NOTE: the pin block's core.attributesFile=/dev/null neutralises the
+        GLOBAL attributes file. The IN-TREE .gitattributes is still
+        honoured -- that is why this surface exists at all.
+
+=== 2. THE LEGS ===
+
+  [A] POSITIVE CONTROL — hostile PATH admitted, built-ins-only shim
+      child env  : ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_NO_LAZY_FETCH', 'GIT_NO_REPLACE_OBJECTS', 'GIT_OPTIONAL_LOCKS', 'GIT_TERMINAL_PROMPT', 'PATH']
+      PATH       : '/tmp/z18bin.ebp4u3j5'
+      repo cfg   : filter.z18.smudge = 'z18filter'
+      displaced  : []
+      argv[0]    : '/usr/bin/git'  (absolute=True)
+      -> rc=0  filter_EXECUTED=True  f.txt='HOSTILE_SMUDGE_RAN'
+      EXPECTED filter_EXECUTED=True  ->  AS EXPECTED
+
+  [A2] POSITIVE CONTROL 2 — hostile PATH admitted, MEASURED-ABSOLUTE shim (pass-through: marker is the only signal)
+      child env  : ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_NO_LAZY_FETCH', 'GIT_NO_REPLACE_OBJECTS', 'GIT_OPTIONAL_LOCKS', 'GIT_TERMINAL_PROMPT', 'PATH']
+      PATH       : '/tmp/z18bin.ebp4u3j5'
+      repo cfg   : filter.z18.smudge = 'z18filter_abs'
+      displaced  : []
+      argv[0]    : '/usr/bin/git'  (absolute=True)
+      -> rc=0  filter_EXECUTED=True  f.txt='payload'
+      EXPECTED filter_EXECUTED=True  ->  AS EXPECTED
+
+  [B] PATH admitted but ORDINARY (shim not on it) — resolution is PATH-directed
+      child env  : ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_NO_LAZY_FETCH', 'GIT_NO_REPLACE_OBJECTS', 'GIT_OPTIONAL_LOCKS', 'GIT_TERMINAL_PROMPT', 'PATH']
+      PATH       : '/home/dev/.bun/bin:/home/dev/.local/bin:/home/dev/.bun/bin:/home/dev/.local/bin:/home/dev/.nvm/versions/node/v24.18.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/dev/.local/bin:/home/dev/.local/bin:/home/dev/.claude/plugins/cache/thedotmack/claude-mem/13.9.2/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/vercel/0.45.1/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0/bin:/home/dev/.claude/plugins/cache/addy-agent-skills/agent-skills/70b7506ce90e/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown/bin:/home/dev/.claude/plugins/cache/openai-codex/codex/1.0.6/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/code-review/unknown/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/context7/unknown/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/claude-md-management/1.0.0/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/security-guidance/2.0.7/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/ralph-loop/1.0.0/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/serena/unknown/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/sentry/1.3.2/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/firecrawl/1.0.9/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/huggingface-skills/1.0.23/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/data-engineering/0.1.0/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/cloudflare/1.0.0/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/pydantic-ai/0.1.0/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/auth0/2.1.0/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/sentry-cli/0.43.0/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/mcp-tunnels/unknown/bin:/home/dev/.claude/plugins/cache/claude-plugins-official/nvidia-skills/1.4.0/bin:/home/dev/.claude/plugins/cache/n8n-mcp-skills/n8n-mcp-skills/1.25.0/bin'
+      repo cfg   : filter.z18.smudge = 'z18filter'
+      displaced  : []
+      argv[0]    : '/usr/bin/git'  (absolute=True)
+      -> rc=0  filter_EXECUTED=False  f.txt='payload'
+      stderr[0]: error: cannot run z18filter: No such file or directory
+      stderr[1]: error: cannot fork to run external filter 'z18filter'
+      stderr[2]: error: external filter 'z18filter' failed
+      EXPECTED filter_EXECUTED=False  ->  AS EXPECTED
+
+  [C] DEFENDED CONTROL — final child env (allowlist, NO PATH) + absolute git executable
+      child env  : ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_NO_LAZY_FETCH', 'GIT_NO_REPLACE_OBJECTS', 'GIT_OPTIONAL_LOCKS', 'GIT_TERMINAL_PROMPT']
+      PATH       : '(ABSENT)'
+      repo cfg   : filter.z18.smudge = 'z18filter'
+      displaced  : []
+      argv[0]    : '/usr/bin/git'  (absolute=True)
+      -> rc=0  filter_EXECUTED=False  f.txt='payload'
+      stderr[0]: error: cannot run z18filter: No such file or directory
+      stderr[1]: error: cannot fork to run external filter 'z18filter'
+      stderr[2]: error: external filter 'z18filter' failed
+      EXPECTED filter_EXECUTED=False  ->  AS EXPECTED
+
+  --- boundary legs: what dropping PATH does NOT close ---
+
+  [D] allowlist (NO PATH), but repo config names the shim by ABSOLUTE PATH
+      child env  : ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_NO_LAZY_FETCH', 'GIT_NO_REPLACE_OBJECTS', 'GIT_OPTIONAL_LOCKS', 'GIT_TERMINAL_PROMPT']
+      PATH       : '(ABSENT)'
+      repo cfg   : filter.z18.smudge = '/tmp/z18bin.ebp4u3j5/z18filter'
+      displaced  : []
+      argv[0]    : '/usr/bin/git'  (absolute=True)
+      -> rc=0  filter_EXECUTED=True  f.txt='HOSTILE_SMUDGE_RAN'
+
+  [E] allowlist (NO PATH), repo config CLEAN, but a DISPLACED argv element injects the filter before the pin block (ZI-71 scenario)
+      child env  : ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_NO_LAZY_FETCH', 'GIT_NO_REPLACE_OBJECTS', 'GIT_OPTIONAL_LOCKS', 'GIT_TERMINAL_PROMPT']
+      PATH       : '(ABSENT)'
+      repo cfg   : filter.z18.smudge = None
+      displaced  : ['-c', 'filter.z18.smudge=/tmp/z18bin.ebp4u3j5/z18filter', '-c', 'filter.z18.required=false']
+      argv[0]    : '/usr/bin/git'  (absolute=True)
+      -> rc=0  filter_EXECUTED=True  f.txt='HOSTILE_SMUDGE_RAN'
+
+=== 3. T-40 — can `git` be invoked WITHOUT PATH, and why? ===
+  bare argv[0]='git', parent PATH = a dir with NO git    -> rc=0 git version 2.43.0
+  bare argv[0]='git', parent PATH = '' (empty string)    -> rc=0 git version 2.43.0
+  absolute argv[0]='/usr/bin/git', child env has NO PATH -> rc=0 git version 2.43.0
+  git inside os.defpath ('/bin:/usr/bin')? True
+  READ THIS AS: bare-`git` invocation survives an absent PATH only
+  because git happens to live inside os.defpath on THIS host. That is
+  a host property, not a guarantee -- hence T-40 (resolve the binary to
+  an absolute path once at start-up) rather than 'admit PATH'.
+
+=== 4. VERDICT ===
+  POSITIVE CONTROL A  : executed=True content='HOSTILE_SMUDGE_RAN' -> FIRED
+  POSITIVE CONTROL A2 : executed=True content='payload' -> FIRED
+  DEFENDED CONTROL C  : executed=False content='payload' rc=0 -> HELD
+  BOUNDARY D (absolute-path smudge, no PATH) : executed=True content='HOSTILE_SMUDGE_RAN'
+  BOUNDARY E (displaced argv, no PATH)       : executed=True content='HOSTILE_SMUDGE_RAN'
+
+BOTH LEGS DEMONSTRATED: positive control fired; defended control held.

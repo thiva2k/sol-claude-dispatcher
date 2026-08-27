@@ -1,0 +1,237 @@
+=== 0. MEASURED TOOLING ===
+  git      : /usr/bin/git
+  git version 2.43.0
+  python   : 3.12.3
+  platform : Linux ubuntu-s-1vcpu-2gb-nyc1-01 6.8.0-71-generic #71-Ubuntu SMP PREEMPT_DYNAMIC Tue Jul 22 16:52:38 UTC 2025 x86_64
+
+  disposable repository (mktemp -d): /tmp/z18pack.p5ubjqnx/repo
+
+=== 1. BUILD CONTENT (loose objects first) ===
+    $ git init -q -b main .
+      rc=0
+    $ git add -A
+      rc=0
+    $ git commit -q -m c0
+      rc=0
+    $ git add -A
+      rc=0
+    $ git commit -q -m c1
+      rc=0
+    $ git add -A
+      rc=0
+    $ git commit -q -m c2
+      rc=0
+    $ git add -A
+      rc=0
+    $ git commit -q -m c3
+      rc=0
+
+  objects/ BEFORE any repack (loose fan-out is what exists):
+    loose fan-out directories: ['05', '2a', '32', '48', '5c', '64', '8c', 'c2', 'cf', 'd2', 'e1', 'e5']
+    objects/pack/:
+      (empty)
+    objects/info/:
+      (empty)
+
+=== 2. *.pack and *.idx ===
+  COMMAND: git repack -a -d
+    $ git repack -a -d
+      rc=0
+    objects/pack/:
+      0444       1408  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.idx
+      0444        865  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.pack
+      0444        100  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev
+    objects/info/  (attribution: was empty before the repack):
+      0664         54  packs
+    -> *.pack present: True
+    -> *.idx  present: True
+    -> *.rev  present after a plain repack: True
+
+=== 3. THE F7-2 ROW — multi-pack-index LOCATION ===
+  COMMAND: git multi-pack-index write
+    $ git multi-pack-index write
+      rc=0
+    objects/info/multi-pack-index      exists = False   <- the SPECIFICATION's claim
+    objects/pack/multi-pack-index      exists = True   <- MEASURED
+    objects/info/  (after multi-pack-index write):
+      0664         54  packs
+    objects/pack/  (after multi-pack-index write):
+      0664       1504  multi-pack-index
+      0444       1408  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.idx
+      0444        865  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.pack
+      0444        100  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev
+    MEASURED LOCATION: objects/pack/multi-pack-index  mode=0664 size=1504 B
+  CROSS-CHECK, git's own answer (git rev-parse --git-path):
+    $ git rev-parse --git-path objects/pack/multi-pack-index
+      rc=0
+      .git/objects/pack/multi-pack-index
+  CROSS-CHECK, the file's own magic header:
+      first 12 bytes = b'MIDX\x01\x01\x04\x00\x00\x00\x00\x01'   (MIDX signature is b'MIDX')
+  CROSS-CHECK, git reads it back:
+    $ git multi-pack-index verify
+      rc=0
+      verify rc=0 out=''
+
+=== 4. multi-pack-index-<hash>.bitmap and *.rev ===
+  COMMAND: git multi-pack-index write --bitmap
+    $ git multi-pack-index write --bitmap
+      rc=0
+    objects/pack/:
+      0664       1564  multi-pack-index
+      0444        340  multi-pack-index-c2bff688cb7afe1e4342a6e95bb23cee5d068329.bitmap
+      0444       1408  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.idx
+      0444        865  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.pack
+      0444        100  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev
+    -> multi-pack-index-*.bitmap : ['multi-pack-index-c2bff688cb7afe1e4342a6e95bb23cee5d068329.bitmap']
+    -> *.rev                     : ['pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev']
+
+  COMMAND: git -c pack.writeReverseIndex=true repack -a -d
+    $ git -c pack.writeReverseIndex=true repack -a -d
+      rc=0
+    objects/pack/:
+      0664       1564  multi-pack-index
+      0444        340  multi-pack-index-c2bff688cb7afe1e4342a6e95bb23cee5d068329.bitmap
+      0444       1408  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.idx
+      0444        865  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.pack
+      0444        100  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev
+    -> *.rev : ['pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev']
+
+=== 5. *.bitmap (pack bitmap) ===
+  COMMAND: git repack -a -d -b
+    $ git repack -a -d -b
+      rc=0
+    objects/pack/:
+      0664       1564  multi-pack-index
+      0444        340  multi-pack-index-c2bff688cb7afe1e4342a6e95bb23cee5d068329.bitmap
+      0444        340  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.bitmap
+      0444       1408  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.idx
+      0444        865  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.pack
+      0444        100  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev
+    -> pack-*.bitmap : ['pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.bitmap']
+
+=== 6. *.mtimes (cruft pack) ===
+  set-up: create an UNREACHABLE object so a cruft pack has something to hold
+    $ git hash-object -w --stdin
+      rc=0
+      unreachable blob = b5f13a504cf80a47d75a0d5cf826e24243d0aafd
+    $ git rev-parse HEAD^{tree}
+      rc=0
+    $ git commit-tree -m z18-orphan 5cb0b52a41a22f895a968af0be94d759c7d6260f
+      rc=0
+      unreachable commit = a7f114a307cda0e5724600ac59bc83c924f6f70d
+  COMMAND: git repack --cruft --cruft-expiration=never -a -d
+    $ git repack --cruft --cruft-expiration=never -a -d
+      rc=0
+    objects/pack/:
+      0664       1564  multi-pack-index
+      0444        340  multi-pack-index-c2bff688cb7afe1e4342a6e95bb23cee5d068329.bitmap
+      0444       1408  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.idx
+      0444        865  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.pack
+      0444        100  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev
+      0444       1128  pack-840ac30321d742606519cb87d2369c7a43990e11.idx
+      0444         60  pack-840ac30321d742606519cb87d2369c7a43990e11.mtimes
+      0444        181  pack-840ac30321d742606519cb87d2369c7a43990e11.pack
+      0444         60  pack-840ac30321d742606519cb87d2369c7a43990e11.rev
+    -> *.mtimes : ['pack-840ac30321d742606519cb87d2369c7a43990e11.mtimes']
+
+=== 7. *.keep ===
+  COMMAND (produce a pack on stdout): git pack-objects --revs --stdout  <<< HEAD
+    $ git pack-objects --revs --stdout   rc=0 (902 pack bytes)
+  COMMAND (index it INTO objects/pack with a keep marker): git index-pack --stdin --keep=<reason> --fix-thin
+    $ git index-pack --stdin --keep='z18 probe keep reason' --fix-thin  rc=0
+    objects/pack/:
+      0664       1564  multi-pack-index
+      0444        340  multi-pack-index-c2bff688cb7afe1e4342a6e95bb23cee5d068329.bitmap
+      0444       1408  pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.idx
+      0600         22  pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.keep
+      0444        902  pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.pack
+      0444        100  pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.rev
+      0444       1408  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.idx
+      0444        865  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.pack
+      0444        100  pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev
+      0444       1128  pack-840ac30321d742606519cb87d2369c7a43990e11.idx
+      0444         60  pack-840ac30321d742606519cb87d2369c7a43990e11.mtimes
+      0444        181  pack-840ac30321d742606519cb87d2369c7a43990e11.pack
+      0444         60  pack-840ac30321d742606519cb87d2369c7a43990e11.rev
+    -> *.keep : ['pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.keep']
+       contents of pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.keep: 'z18 probe keep reason\n'
+
+=== 8. *.promisor (partial clone) ===
+  COMMAND: git -C <src> config uploadpack.allowFilter true
+    $ git config uploadpack.allowFilter true
+      rc=0
+  COMMAND: git clone --no-local --filter=blob:none file://<src> <dst>
+    $ git clone --no-local --filter=blob:none file:///tmp/z18pack.p5ubjqnx/repo /tmp/z18pack.p5ubjqnx/partial   rc=0
+    <partial clone>/.git/objects/pack/:
+      0444       1296  pack-7f11946d0431d0f739b2fcf3c5a9bbf8efe7d557.idx
+      0444        762  pack-7f11946d0431d0f739b2fcf3c5a9bbf8efe7d557.pack
+      0600        103  pack-7f11946d0431d0f739b2fcf3c5a9bbf8efe7d557.promisor
+      0444         84  pack-7f11946d0431d0f739b2fcf3c5a9bbf8efe7d557.rev
+      0444       1184  pack-edc461ca497b6a91e0b6cceb940ec8c1b49d464d.idx
+      0444        135  pack-edc461ca497b6a91e0b6cceb940ec8c1b49d464d.pack
+      0600          0  pack-edc461ca497b6a91e0b6cceb940ec8c1b49d464d.promisor
+      0444         68  pack-edc461ca497b6a91e0b6cceb940ec8c1b49d464d.rev
+    -> *.promisor : ['pack-7f11946d0431d0f739b2fcf3c5a9bbf8efe7d557.promisor', 'pack-edc461ca497b6a91e0b6cceb940ec8c1b49d464d.promisor']
+       size of pack-7f11946d0431d0f739b2fcf3c5a9bbf8efe7d557.promisor = 103 B (promisor markers are typically empty)
+       the partial clone's ENTIRE local config (git config --list --local), so that promisor/partialClone keys are
+       read off a transcript rather than asserted:
+       $ git config --list --local   rc=0
+         core.repositoryformatversion=1
+         core.filemode=true
+         core.bare=false
+         core.logallrefupdates=true
+         remote.origin.url=file:///tmp/z18pack.p5ubjqnx/repo
+         remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+         remote.origin.promisor=true
+         remote.origin.partialclonefilter=blob:none
+         branch.main.remote=origin
+         branch.main.merge=refs/heads/main
+       $ git config --get extensions.partialClone            rc=1 out=''   <- NOT SET
+       $ git config --get remote.origin.promisor             rc=0 out='true'
+       $ git config --get remote.origin.partialclonefilter   rc=0 out='blob:none'
+       $ git config --get core.repositoryformatversion       rc=0 out='1'
+
+=== 9. FINAL INVENTORY ===
+  COMMAND: find <gitdir>/objects -type f | sort   (primary repo)
+      objects/info/packs   (160 B)
+      objects/pack/multi-pack-index   (1564 B)
+      objects/pack/multi-pack-index-c2bff688cb7afe1e4342a6e95bb23cee5d068329.bitmap   (340 B)
+      objects/pack/pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.idx   (1408 B)
+      objects/pack/pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.keep   (22 B)
+      objects/pack/pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.pack   (902 B)
+      objects/pack/pack-3158bbeb4909ce9b34e83c44149b732c85a39dde.rev   (100 B)
+      objects/pack/pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.idx   (1408 B)
+      objects/pack/pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.pack   (865 B)
+      objects/pack/pack-6b70b8cea78b0bc090fe355c4167c886a97c4c4c.rev   (100 B)
+      objects/pack/pack-840ac30321d742606519cb87d2369c7a43990e11.idx   (1128 B)
+      objects/pack/pack-840ac30321d742606519cb87d2369c7a43990e11.mtimes   (60 B)
+      objects/pack/pack-840ac30321d742606519cb87d2369c7a43990e11.pack   (181 B)
+      objects/pack/pack-840ac30321d742606519cb87d2369c7a43990e11.rev   (60 B)
+
+  objects/info/ final listing (primary repo):
+    objects/info/:
+      0664        160  packs
+
+  F7-2 ROLL-UP — CUMULATIVE across every step of this probe, with the
+  command that FIRST produced each class. This is deliberately NOT the
+  final-state listing: `git repack --cruft -a -d` deletes the pack
+  bitmap an earlier `git repack -a -d -b` created, so a final-state
+  roll-up reports `*.bitmap NOT OBSERVED` and is WRONG.
+      *.pack                       MEASURED — OBSERVED   <- git repack -a -d
+      *.idx                        MEASURED — OBSERVED   <- git repack -a -d
+      *.promisor                   MEASURED — OBSERVED   <- git clone --no-local --filter=blob:none file://<src> <dst>
+      *.keep                       MEASURED — OBSERVED   <- git index-pack --stdin --keep=<reason> --fix-thin
+      *.bitmap                     MEASURED — OBSERVED   <- git repack -a -d -b
+      *.rev                        MEASURED — OBSERVED   <- git repack -a -d
+      *.mtimes                     MEASURED — OBSERVED   <- git repack --cruft --cruft-expiration=never -a -d
+      multi-pack-index             MEASURED — OBSERVED   <- git multi-pack-index write
+      multi-pack-index-*.bitmap    MEASURED — OBSERVED   <- git multi-pack-index write --bitmap
+
+  classes seen but not on the F7-2 wanted list: (none)
+
+=== 10. VERDICT ===
+  multi-pack-index MEASURED LOCATION : objects/pack/multi-pack-index
+  present at objects/info/           : False
+  present at objects/pack/           : True
+  objects/info/ final listing        : ['packs']
+  repo (left for inspection during the run): /tmp/z18pack.p5ubjqnx/repo

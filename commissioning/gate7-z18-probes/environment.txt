@@ -1,0 +1,11 @@
+=== environment, measured at run time ===
+date (UTC)   : 2026-08-27T18:20:45Z
+host kernel  : Linux 6.8.0-71-generic x86_64 GNU/Linux
+distro       : Ubuntu 24.04.3 LTS
+git path     : /usr/bin/git
+git version  : git version 2.43.0
+python path  : /usr/bin/python3
+python ver   : Python 3.12.3
+/bin/sh      : /usr/bin/dash
+dash version : 0.5.12-6ubuntu5
+repo commit  : 9a5554675c4affe14233852f2194516cf8bb5334

@@ -1,0 +1,97 @@
+=== 0. MEASURED TOOLING ===
+  git      : /usr/bin/git
+  git version 2.43.0
+  python   : 3.12.3
+
+=== 1. LOOSE-OBJECT PATH SHAPE, AS GIT WRITES IT ===
+    $ /usr/bin/git init -q -b main --object-format=sha1 .   rc=0
+    $ /usr/bin/git rev-parse --show-object-format   rc=0
+    $ /usr/bin/git hash-object -w --stdin   rc=0
+
+  --- object-format = sha1 (git reports: sha1) ---
+    $ git hash-object -w --stdin   -> 9fc7f661153c7971be5eec436e495430e5e9f581
+    files under .git/objects       : ['objects/9f/c7f661153c7971be5eec436e495430e5e9f581']
+    fan-out dir  = '9f'   len=2
+    object file  = 'c7f661153c7971be5eec436e495430e5e9f581'   len=38
+    total hex    = 40   (oid length = 40)
+    dir  matches ^[0-9a-f]{2}$   : True
+    file matches ^[0-9a-f]{38}$  : True
+    full path matches the SPEC regex 'objects/[0-9a-f]{2}/[0-9a-f]{38}' : True
+    reassembled dir+file == oid    : True
+    $ /usr/bin/git init -q -b main --object-format=sha256 .   rc=0
+    $ /usr/bin/git rev-parse --show-object-format   rc=0
+    $ /usr/bin/git hash-object -w --stdin   rc=0
+
+  --- object-format = sha256 (git reports: sha256) ---
+    $ git hash-object -w --stdin   -> 336ffda477610b1d1b6cba645da7e7d9adca4998e4d2424ed631fadd6f4c47f8
+    files under .git/objects       : ['objects/33/6ffda477610b1d1b6cba645da7e7d9adca4998e4d2424ed631fadd6f4c47f8']
+    fan-out dir  = '33'   len=2
+    object file  = '6ffda477610b1d1b6cba645da7e7d9adca4998e4d2424ed631fadd6f4c47f8'   len=62
+    total hex    = 64   (oid length = 64)
+    dir  matches ^[0-9a-f]{2}$   : True
+    file matches ^[0-9a-f]{38}$  : False
+    full path matches the SPEC regex 'objects/[0-9a-f]{2}/[0-9a-f]{38}' : False
+    reassembled dir+file == oid    : True
+
+  READ THIS AS: the SPEC regex is HASH-FORMAT SPECIFIC. `{38}` is the
+  sha1 tail. It is measured here against a sha256 repository too so that
+  the design states the constraint rather than inheriting it silently.
+
+=== 2. IS A SIZE-PRESERVING BYTE ALTERATION VISIBLE FROM NAME+SIZE? ===
+  object       : 9fc7f661153c7971be5eec436e495430e5e9f581
+  path         : .git/objects/9f/c7f661153c7971be5eec436e495430e5e9f581
+  file size    : 41 B      mode=0444
+  sha256(file) : 2aafef804aeb8978ff7fb5784b25a259a9d5aab2d143e2fa7025050d8ef55095
+  zlib inflate : b'blob 25\x00z18 loose object payload\n'
+  git cat-file -p -> rc=0 'z18 loose object payload\n'
+  NAME+SIZE capture of the fan-out dir: [('c7f661153c7971be5eec436e495430e5e9f581', 41)]
+
+  --- ARMING LEG: a SIZE-CHANGING alteration. The name+size detector
+      MUST catch this, or its silence below means nothing. ---
+    appended 1 byte -> size 41 -> 42
+    NAME+SIZE capture now: [('c7f661153c7971be5eec436e495430e5e9f581', 42)]
+    detector differs from golden: True   -> ARMED (control FIRED)
+    git cat-file -p -> rc=0 stderr=''
+    restored; sha256 back to golden: True
+
+  --- THE LEG UNDER TEST: a SIZE-PRESERVING byte alteration ---
+    byte offset 20 of 41: 0xc8 -> 0x37   (XOR 0xFF, length unchanged)
+
+    path unchanged            : True  (.git/objects/9f/c7f661153c7971be5eec436e495430e5e9f581)
+    size  41 -> 41          identical: True
+    mode  0444 -> 0444      identical: True
+    mtime_ns identical        : True
+    sha256 2aafef804aeb8978... -> 57f4a00e90b1408d...   identical: False
+
+    NAME+SIZE capture       : [('c7f661153c7971be5eec436e495430e5e9f581', 41)]
+    NAME+SIZE detector      : SILENT — the alteration is INVISIBLE to it
+    NAME+SIZE+MTIME detector: SILENT   (mtime was restored by the same actor that made the edit)
+    SHA256-of-bytes detector: FIRED
+
+    and git's own reaction (git detects it, because a loose object's
+    NAME IS ITS CONTENT HASH -- that is a different mechanism from the
+    capture, and it is exactly why the capture must not rely on size):
+      $ git cat-file -p 9fc7f661153c7971be5eec436e495430e5e9f581
+        rc=128 stdout=''
+        stderr='error: inflate: data stream error (incorrect data check)\nfatal: unable to stream 9fc7f661153c7971be5eec436e495430e5e9f581 to stdout'
+      $ git fsck --no-progress
+        rc=1
+        error: inflate: data stream error (incorrect data check)
+        error: corrupt loose object '9fc7f661153c7971be5eec436e495430e5e9f581'
+        error: unable to unpack contents of .git/objects/9f/c7f661153c7971be5eec436e495430e5e9f581
+        error: 9fc7f661153c7971be5eec436e495430e5e9f581: object corrupt or missing: .git/objects/9f/c7f661153c7971be5eec436e495430e5e9f581
+        notice: HEAD points to an unborn branch (main)
+        notice: No default references
+      python zlib on the mutated bytes: zlib.error: Error -3 while decompressing data: incorrect data check
+
+    restored: git cat-file -p rc=0 out='z18 loose object payload\n'  sha256 back to golden: True
+
+=== 3. VERDICT ===
+  loose path shape (sha1)   : .git/objects/9f/c7f661153c7971be5eec436e495430e5e9f581
+  matches objects/[0-9a-f]{2}/[0-9a-f]{38} : True
+  loose path shape (sha256) : .git/objects/33/6ffda477610b1d1b6cba645da7e7d9adca4998e4d2424ed631fadd6f4c47f8  tail len=62  matches the {38} regex: False
+  ARMING control (size-changing edit caught by name+size) : FIRED
+  size-preserving edit, name+size detector                : SILENT (F7-1 premise HOLDS)
+  size-preserving edit, sha256 detector                   : FIRED
+
+DEMONSTRATED: a size-preserving byte alteration of a loose object is INVISIBLE to a name+size capture and visible to a content hash.
