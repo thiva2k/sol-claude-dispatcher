@@ -2,7 +2,7 @@
 
 **Lifecycle, evidence and recovery integrity.**
 
-Status: **DESIGN — REVISION 6. NOT APPROVED FOR IMPLEMENTATION.**
+Status: **DESIGN — REVISION 7. NOT APPROVED FOR IMPLEMENTATION.**
 
 Revision 1 (`d098d4b`) was independently reviewed (Lane W) → *APPROVED WITH
 REQUIRED CHANGES*, six blocking findings. Revision 2 (`619b63e`) applied Sol's
@@ -35,9 +35,9 @@ execution surface.** Revision 5 integrates it.
 > from reasoning. Nothing in this document should be read as asserting that the
 > enumeration is complete.
 
-> **NO SOURCE CODE MAY BE WRITTEN until a FIFTH independent review returns ZERO
+> **NO SOURCE CODE MAY BE WRITTEN until a SIXTH independent review returns ZERO
 > blocking findings and WAVE 0 APPROVED TO IMPLEMENT: YES.** That is directive T,
-> its mandate is **§19**, and it is not discretionary. The production freeze
+> its mandate is **§21**, and it is not discretionary. The production freeze
 > remains absolute until then.
 
 Revision 5 (`d197bf08`, pushed and verified as `origin/main`) received a
@@ -94,7 +94,86 @@ hash-mismatched is detectable against its own manifest and lands `FAILED` or
 consistent lie. **Sealing converts a silent substitution into a forgery that must
 be self-consistent. It does not make it impossible.**
 
-### What revision 6 changes
+Revision 6 (`4a0ae9f`, pushed and verified as `origin/main`) received a **fifth**
+independent review: **REJECTED**, six blockers **F5-1 … F5-6**, including a
+**sixth surface** — cached commit parentage — that no pin closed. Sol accepted
+the rejection and issued **twenty directives, §1 … §20**. Revision 7 integrates
+them with the probe **Z12** (`commissioning/gate7-z12-probes/`) and three lanes:
+**Z13** (identity, pins, orders), **Z14** (detached worktrees, `.git` type, the
+snapshot ordering), **Z15** (Fable, the directional matrix, Y-9/Y-10).
+
+> # SOL'S STRUCTURAL RULING — REVISION 7
+>
+> ## Production repository and history identity is NOT dynamically re-derived by graph-walking git commands.
+>
+> **`git rev-list --max-parents=0 HEAD`, and every equivalent graph-walk identity
+> derivation, has no call site in `src/**` on the NEW-DISPATCH path, the RESUME
+> path, or the FABLE REVIEW path.**
+>
+> **Repository approval is already a reviewed authority. What the approval
+> approved is an ONBOARDING FACT. A dispatch reads it. A dispatch does not
+> recompute it.**
+>
+> Deliberate re-onboarding is a separate, reviewed, operator-invoked
+> administrative operation, and no dispatch path may invoke it.
+
+**Why this ruling and not a seventh pin.** The enumeration has now been wrong
+**three times in three consecutive revisions**, each time by exactly one: S-γ,
+then S-δ, then S-ε (which executes nothing), then **S-ζ — cached parentage**,
+which PINs 1, 2 and 3 together do not touch. **MEASURED, independently, by two
+lanes and one probe:** a worker rewrites `objects/info/commit-graph` — a plain
+file write, no git command — and `git rev-list --max-parents=0 HEAD` returns an
+**attacker-chosen decoy at `rc=0`**, from the **primary** repository and from a
+linked worktree, in the **single-file** form and in the **split-chain** form.
+
+The three pins share a shape: *enumerate a mechanism, neutralise it.* That shape
+fails once per revision because the enumeration is of **git's** behaviour, which
+nobody in this build controls. **The ruling has a different shape: delete the
+consumer.** A surface with no reader cannot substitute an answer, whatever git
+does next release — and that is a property of **this codebase**, checkable by AST
+and by an empty journal window, **not** a property of git 2.43.0 that an upgrade
+can revoke.
+
+> ### PIN 4 exists anyway, and it is DEFENCE-IN-DEPTH — with one measured exception that must travel with the sentence.
+>
+> `-c core.commitGraph=false -c core.multiPackIndex=false` joins the pin block.
+> **For IDENTITY it is redundant by construction: if PIN 4 were removed tomorrow
+> no production identity decision would change, because no production identity
+> decision consults the commit DAG.**
+>
+> **The exception is row G9.** `rev-list --objects --missing=print HEAD` — the
+> promisor verifier, which survives the ruling — **is graph-walk-derived, and
+> MEASURED: under the forged graph its object enumeration changed (2 objects
+> hidden, 3 injected).** For G9, PIN 4 is a **defence**, not defence-in-depth.
+> A sentence saying *"PIN 4 is defence-in-depth"* without this exception would be
+> false, and §5.4.3A does not carry one.
+
+### What revision 7 changes
+
+| # | Sol's directive | What this revision does |
+|---|---|---|
+| **§1** | the structural ruling above | **§1A** (new) — ZI-70, the consumer is deleted on all three paths |
+| **§2** | PIN 4 | §5.4.3A — added to `PIN_BLOCK`, with the G9 exception stated and `GIT_TEST_*` scrubbed (**Z12 falsified the requirement as literally worded**) |
+| **§3** | detached task worktrees | **§5.5.2C rewritten** — `worktree add --detach`; `<gitdir>/HEAD` is 40 hex + one `\n`; B2 becomes **eight raw comparisons**; `resolve_head_raw`, `HeadChain`, `head_chain_restructured` and the refname regex are **DELETED** |
+| **§4** | `.git` type policy | §5.8.2A — **`lstat` FIRST**; a symlinked `.git` is a **PREPARE refusal with zero git subprocesses**; `is-file-or-dir` deleted as a field **and as a concept** |
+| **§5** | the three pre-run administrative captures | §5.8.3 — **`pre_run` is deleted as a role name**; `PREPARE_ADMIN_GATE` · `WORKER_START_AUTHORITY` · `WORKER_EXIT_AUTHORITY` · `VALIDATION_EXIT_AUTHORITY`, **one purpose each** |
+| **§6** | the primary tree around dispatcher setup | §5.9 — **three states, two equalities**; `PRIMARY_PREPARE == PRIMARY_WORKER_START` **or refuse before Claude** |
+| **§7** | Fable has zero authority git | §5.4.3B **ORDER 3** — the review's declared row set is **`{}`**, and the six live rows it replaces are **MEASURED at runtime**, not inferred |
+| **§8** | the directional matrix | §5.4.3B — **both directions**, plus **rule C (path coverage)**, plus an **interpreter-level** instrument (a `subprocess.Popen`-only hook is MEASURED incomplete) |
+| **§9** | `git_order.py` staging | §5.4.3B — **`NORMATIVE — INTENDED`** now, generated-and-joined at Wave 0; **`EMPTY_BY_DECLARATION` as a sentinel, never an absent key** |
+| **§10** | new-dispatch identity | §5.5.2D (new) — a sealed identity record, `root_commit` carried as an **approved onboarding fact** |
+| **§11** | resume | §5.4.3B **ORDER 2** — four raw preflight checks; **a resume re-derives nothing** |
+| **§12** | Fable review identity | §5.5.2D — the review loads the sealed record and **refuses** rather than re-measuring |
+| **§13** | **Y-9** | **§17 — RESOLVED.** Sol's ruling text is normative |
+| **§14** | **Y-10** | **§17 — RESOLVED.** Sol's ruling text is normative; `patch_file_complete` becomes a **conjunct** of `review_input_complete` |
+| **§15** | the commit-graph administration row | §5.8.2 — **`MEASURED — FIRES`**, per-file content hashes, **not a listing** |
+| **§16** | pin ordering | §5.4.3A — **`PIN_BLOCK` is a closed, ordered, terminal prefix**; no caller-supplied `-c` may follow it |
+| **§17** | the three normative command orders | **§5.4.3B, printed exactly** — dispatch, resume, **and review = NONE** |
+| **§18** | scope the central claim | §2A — post-worker **and** the whole Fable path; ZI-40's bare `scope` corrected to **the WORKER's scope verdict** |
+| **§19** | preserve without reopening | **§20** (new) — six properties, each with the way revision 7 could weaken it and the detector that catches it |
+| **§20** | the sixth-review mandate | **§21** (new) — twenty attack vectors and the fifteen-item return format, **verbatim** |
+
+### What revision 6 changed
 
 | # | Sol's directive | What this revision does |
 |---|---|---|
@@ -156,13 +235,15 @@ items, carried for Sol.
 | Revision 2 | `619b63e` — reviewed a second time |
 | Revision 3 | `d268f70` — **pushed, `origin/main` verified**; reviewed a third time |
 | Revision 4 | `165aa93` — closed B-1…B-4 and N-1…N-7 |
-| Revision 5 | `d197bf08` — **pushed, `origin/main` verified**; reviewed a fourth time; **the artefact this revision replaces** |
+| Revision 5 | `d197bf08` — reviewed a fourth time (F-1 … F-7) |
+| Revision 6 | `4a0ae9f` — **pushed, `origin/main` verified**; reviewed a fifth time → **REJECTED, F5-1 … F5-6**; **the artefact this revision replaces** |
 | Author | Lane V (integrator). **This lane wrote no `src/**`, no `tests/**`.** |
 | Drafting lanes | **Z1** (evidence authority, §A–F) · **Z2** (phase & ownership, §G–J, §P) · **Z3** (structure & policy, §K–S, Y-mapping) |
-| Probes | `GATE7-CAPABILITY-PROBE.md` (U) · `GATE7-V1-ADJACENT-PROBE.md` (X) · `GATE7-Z5-PREPARE-PROBE.md` (Z5, `2569f31`) · **`GATE7-Z7-SEALING-PROBE.md` (Z7, `e0b1670`)** |
-| Reviews | `GATE7-DESIGN-REVIEW.md` (W) · `-2.md` (Y) · `-3.md` (Z4) · **`-4.md` (Z6) — F-1 … F-7** |
-| Drafting lanes (rev 6) | **Z8** sealing (§1–§5, §13, §14, §16–§18) · **Z9** attribution (§8–§12) · **Z10** policy (§6, §7, §15, §19–§21, Y-map) |
-| Pending probe | **none.** Z5 and Z7 are published and cited. **Where Z7 and a draft disagree, Z7's measurement governs and the disagreement is recorded, not smoothed.** |
+| Probes | `GATE7-CAPABILITY-PROBE.md` (U) · `GATE7-V1-ADJACENT-PROBE.md` (X) · `GATE7-Z5-PREPARE-PROBE.md` (Z5) · `GATE7-Z7-SEALING-PROBE.md` (Z7) · **`GATE7-Z12-DETACHED-PROBE.md` (Z12, scripts at `commissioning/gate7-z12-probes/`)** |
+| Reviews | `GATE7-DESIGN-REVIEW.md` (W) · `-2.md` (Y) · `-3.md` (Z4) · `-4.md` (Z6) — F-1 … F-7 · **`-5.md` (Z11) — REJECTED, F5-1 … F5-6** |
+| Drafting lanes (rev 6) | **Z8** sealing · **Z9** attribution · **Z10** policy |
+| Drafting lanes (rev 7) | **Z13** identity/pins/orders (§1, §2, §10–§12, §15–§18) · **Z14** detached/`.git`/snapshots (§3–§6) · **Z15** Fable/matrix/Y-9/Y-10 (§7–§9, §13, §14, §19) |
+| Pending probe | **none.** Z5, Z7 and Z12 are published and cited. **Where a probe and a draft disagree, the PROBE governs and the disagreement is recorded, not smoothed** — and in revision 7 that rule fired four times (§10.3). |
 | Installed clients | Claude Code **2.1.237**, Codex CLI **0.149.0** |
 
 ---
@@ -197,8 +278,9 @@ not see production guidance (R-9), a mutant that could not be killed (A-d), and
 >
 > **A test that only asserts "the real answer came back" passes against a build
 > where the decoy was never wired up.** That is B-2's failure mode in a new form.
-> Six of §19's sixteen attack vectors execute nothing, so six of them can only be
-> controlled this way.
+> Several of §21's twenty attack vectors execute nothing — the store and
+> reference redirections, the cached-parentage forgery, the symref plant, the
+> gitdir inode swap — **so those can only be controlled this way.**
 
 Concretely: `test_v1_filter_program_not_executed` must (a) arm the sentinel,
 (b) run the **un-hardened** legacy invocation and assert the sentinel **exists**,
@@ -225,7 +307,10 @@ a mutant must **visibly edit**. The three are never blurred.
 §1–§3 are the shared structure and the cross-cutting mechanisms. §4–§7 are the
 four subsystems, each carrying the nine headings §3 of the brief demands. §8–§16
 are the cross-cutting obligations. §17 is the Y-1…Y-10 mapping. §18 is what Sol
-must rule on. Appendix A is measured data; Appendix C is the change log.
+must rule on. **§1A is Sol's revision-7 structural ruling and §2A is the central
+claim with its exact scope; §5.4.3B carries the three normative command orders;
+§20 is what must not be weakened and §21 is the sixth review's mandate.**
+Appendix A is measured data; Appendix C is the change log.
 
 **`REQUIRES-PROBE`** marks a statement that is reasoned but **not measured**. It
 must not be read as a measurement, and Wave acceptance may not depend on one
@@ -245,12 +330,47 @@ without discharging it first.
 | **`VOID`** | an experiment ran and **could not have produced a positive result** | nothing. **A VOID row is not a negative result and must never be recorded as `clean`** |
 
 **`VOID` is new in revision 6 and it exists because it happened three times.**
+**Revision 7 adds a fourth occurrence of the same shape, from a probe that caught
+itself:** Lane Z12's first PIN-4 run invoked its forger with a shifted argv, the
+forgery **never happened**, and the script **printed a full, plausible "PIN 4
+works" block from a repository that was never forged.** What caught it was
+`git commit-graph verify` printing **nothing** where a forged graph must print a
+parent mismatch. **The lesson is not "check your argv": a positive control must be
+a signal that is ABSENT when the setup silently no-ops**, and a bare re-read of
+the value is not that signal. §10.3 carries the row.
 Review 3's N-3 promisor result, review 4's own first attempt at reproducing it,
 and **Lane Z7's own first run** all used a `file://` clone whose `--filter` git
 silently ignored, so every object was present and no fetch could occur. Z7
 reported its own row **VOID** and re-armed with `uploadpack.allowFilter` plus a
 `missing > 0` precondition assertion. **That a probe caught its own invalid
 experiment is the standard every claim carried forward is held to here.**
+
+> ### `NOT TESTABLE` IS BANNED FROM THIS DOCUMENT, BY SOL'S RULING
+>
+> **The fifth review found `NOT TESTABLE` standing in for merely-unattempted
+> work — on the very row that produced F5-2.** `objects/info/commit-graph` was
+> labelled *"`NOT TESTABLE` as a forgery vector"* in revision 6's own capture
+> table. **It was testable in nine lines. Three separate parties then tested it
+> and it fired.** The mislabel is the mechanism by which a wrong protection class
+> survived four reviews: an implementer applying §5.8.3's dependence rule to a row
+> that says *"cannot be tested"* reasonably classifies it REPORT ONLY.
+>
+> **Two labels replace it, and the distinction is the whole point:**
+>
+> | Label | Means | May a row be scored `clean` from it? |
+> |---|---|---|
+> | **`NOT TESTED`** | **no executable experiment exists yet** | **No** |
+> | **`NOT ATTEMPTED`** | **testable — an experiment could have been written — and it deliberately was not, with the reason stated** | **No** |
+>
+> **`NOT TESTABLE` is used as a LABEL nowhere in this document.** Every
+> revision-6 occurrence has been re-labelled, and each re-labelling is listed in
+> Appendix C. **It survives only inside quotations of the banned label itself —
+> in this box, in §5.8.2's account of the defect it caused, in §21's list of
+> unavailable verdicts, and in the retained revision-6 change log — exactly as
+> §10.3 quotes falsified claims so they cannot be re-derived.**
+> `test_no_capture_row_is_labelled_not_testable_for_a_measured_vector` asserts the
+> string appears in no **table cell that scores a row**. *(A documentation
+> tripwire, labelled as one: **YES to a paraphrase**.)*
 
 **`NOT TESTED` / `NOT OBSERVED`** are Lane Z5's discipline, adopted here.
 `NOT TESTED` means *no experiment was run* — the statement claims nothing in
@@ -262,7 +382,36 @@ that distinction is now marked wherever it applies.
 
 ---
 
-## 0.1 Sol's twenty-one revision-6 directives, and where each lands
+## 0.1 Sol's twenty revision-7 directives, and where each lands
+
+**Sol's revision-7 directives are numbered §1 … §20 and supersede the
+revision-6 set (§1 … §21) wherever they touch the same subject.** The
+revision-6 map is retained below it, and every supersession is recorded in §18.
+
+| Sol's § | Directive | Lands in |
+|---|---|---|
+| **§1** | identity is not dynamically re-derived by a graph walk | **§1A** (new), §5.4.3B, §5.5.2D |
+| **§2** | PIN 4 | §5.4.3A |
+| **§3** | detached task worktrees, B2 without a resolver | **§5.5.2C** (rewritten) |
+| **§4** | `.git` type policy — `lstat` first | §5.8.2A, §5.8.2 |
+| **§5** | three pre-run administrative captures | §5.8.3 |
+| **§6** | the primary tree around dispatcher setup | §5.9.2 |
+| **§7** | Fable has zero authority git | §5.4.3B ORDER 3, §5.5.2D |
+| **§8** | the directional matrix, both ways | §5.4.3B |
+| **§9** | `git_order.py` staging | §5.4.3B |
+| **§10** | new-dispatch identity is a sealed six-tuple | §5.5.2D |
+| **§11** | resume re-derives nothing | §5.4.3B ORDER 2 |
+| **§12** | the review loads the sealed identity | §5.5.2D, §5.11 |
+| **§13** | **Y-9 ratified** | **§17** — RESOLVED |
+| **§14** | **Y-10 ratified** | **§17**, §5.5.9 — RESOLVED |
+| **§15** | the commit-graph administration row | §5.8.2 |
+| **§16** | pin ordering and override-resistance | §5.4.3A |
+| **§17** | the three normative command orders | **§5.4.3B**, printed exactly |
+| **§18** | scope the central claim | §2A, §5.17.2 |
+| **§19** | preserve without reopening | **§20** (new) |
+| **§20** | the sixth-review mandate | **§21** (new) |
+
+## 0.1B Sol's twenty-one revision-6 directives (retained)
 
 The twenty directives A–T of revision 3 are retained below as history. **Sol's
 revision-6 directives are numbered §1 … §21 and are a different, superseding
@@ -571,6 +720,239 @@ the working tree contains.**
 
 ---
 
+## 1A. THE STRUCTURAL RULING — IDENTITY IS NOT RE-DERIVED (Sol §1)
+
+### 1A.1 Current failure
+
+**The specific defect is not the surface count. It is that production repository
+and history identity is dynamically re-derived, at dispatch time, resume time and
+review time, by a graph-walking git command run in a repository a previous worker
+had write access to.**
+
+`RepositoryIdentity.root_commit` (`git.py:362-372`) is
+`git rev-list --max-parents=0 HEAD`, reached from **three live call sites**:
+
+| Path | Chain | Window |
+|---|---|---|
+| **new dispatch** | `server.py:1002` → `worker_context.py:581` → `git.py:362` (row **G6**) | pre-worker, after materialisation |
+| **resume** | the same, declared as row **G4′** | **in a repository run 1's worker owned** |
+| **Fable review** | `server.py:1377-1379` → `worker_context.py:581` → `git.py:350, 353, 359, 362` | **F5-3: six git processes on a path the design declared as running zero** |
+
+`git.py:365` additionally refuses when `len(roots) != 1`. **The same forgery
+controls both the value and the fail-closed branch.**
+
+**MEASURED — the sixth surface, S-ζ, reproduced independently by two lanes and
+one probe, each with a control that fired:**
+
+```
+repo:  c1 -> c2 -> c3 on main, plus an orphan root `decoy-root` on a second branch
+TRUE root  C1 = 0a5def31…      DECOY root D = de3c90c8…
+
+before any commit-graph exists
+  rev-list --max-parents=0 HEAD          0a5def31…      (true)
+
+git commit-graph write --reachable  ->  .git/objects/info/commit-graph  0444, 1352 B
+  -- the file is 0444, and the DIRECTORY is worker-owned, so unlink+rewrite
+     needs no write bit --
+
+FORGE: CDAT parent1 of C2 := DECOY, trailing sha1 recomputed
+  rev-list --max-parents=0 HEAD          de3c90c8…      <-- THE DECOY, rc=0
+  rev-parse --verify HEAD^{commit}       648e1710…      (unchanged — peeling
+                                                        needs no parentage)
+
+POSITIVE CONTROL, two independent ways:
+  A  -c core.commitGraph=false rev-list --max-parents=0 HEAD  ->  0a5def31…  TRUE
+  B  git commit-graph verify
+       commit-graph parent for 8eefec14… is de3c90c8… != 0a5def31…
+
+PINS 1+2+3 APPLIED TOGETHER:
+  GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1 git -c core.hooksPath=/nonexistent
+      -c core.fsmonitor=false -c core.attributesFile=/dev/null
+      -c core.quotePath=false --no-pager rev-list --max-parents=0 HEAD
+  ->  de3c90c8…      <-- STILL THE DECOY
+```
+
+**Also MEASURED:** the same forgery works on the **split-chain** form
+(`objects/info/commit-graphs/{commit-graph-chain, graph-<hash>.graph}`), and it
+reaches the dispatcher's own layout — the decoy is returned from `cwd=primary`
+**and** from `cwd=task_worktree`, because a linked worktree reaches the primary's
+graph through `commondir`.
+
+> **And the split form's filename-to-content binding is NOT verified at read
+> time.** The forged layer kept its original name `graph-<hash>.graph` while its
+> recomputed trailer changed, **and git consulted it anyway.** So *"the chain file
+> makes the split form harder to forge"* is **false**, and — the consequence that
+> matters for §5.8.2 — **a capture recording only the `commit-graphs/` directory
+> LISTING would not have seen the forgery at all.** That is the whole
+> justification for per-file content hashes, and it is why *"hash + listing"* is
+> not a sufficient specification.
+
+### 1A.2 The ruling
+
+> ### INVARIANT ZI-70 — PRODUCTION REPOSITORY AND HISTORY IDENTITY IS NOT DYNAMICALLY RE-DERIVED BY GRAPH-WALKING GIT COMMANDS
+>
+> **On the new-dispatch path, the resume path and the Fable review path, the
+> dispatcher executes no git command whose output depends on the commit DAG in
+> order to establish repository identity, history identity, or the
+> guidance-manifest identity comparison.**
+>
+> **`git rev-list --max-parents=0 HEAD` — and any equivalent graph-walk identity
+> derivation — has no call site in `src/**` on any of the three production
+> paths.**
+>
+> **Repository approval is already a reviewed authority. What the approval
+> approved is an ONBOARDING FACT. A dispatch reads it. A dispatch does not
+> recompute it.**
+
+**The sixth surface is accepted and is NOT enumerated-then-trusted.** §5.8.2
+classifies cached parentage as **protected administrative state** and lands
+worker-attributable modification at §8 row 4. **The design does not depend on
+detecting it.** Five independent statements carry the weight, in this order:
+
+| # | Statement | Where |
+|---|---|---|
+| 1 | current evidence comes from **sealed snapshots**, never from a post-spawn git read | §5.5.2A, ZI-51 |
+| 2 | **new dispatch** performs no graph-walk identity derivation | §5.5.2D, ZI-70 |
+| 3 | **resume** uses the sealed task authority and derives nothing | §5.4.3B ORDER 2 |
+| 4 | **review** uses the sealed task authority and runs **zero git** | §5.4.3B ORDER 3 |
+| 5 | **PIN 4** on every permitted pre-worker argv — deliberately redundant | §5.4.3A |
+
+**Statement 5 is last on purpose. That ordering is what "defence-in-depth"
+means**, and a document that listed the pin first would be describing an
+enumerated defence with a structural one bolted on.
+
+### 1A.3 Why `root_commit` existed, and why its reason is gone
+
+`project_guidance.py:201-207` states it plainly: *"`root_commit` is what makes the
+check resistant to a path swap: the nested `Taskforce_AI_Website` repository has
+its own root commit and cannot satisfy full-voice-agent's."*
+
+> **`root_commit` was added to defend a weakness in `toplevel`.** In revision 6
+> and earlier, `toplevel` was `rev-parse --show-toplevel`, which §5.8.2B
+> **MEASURED to be redirectable by worker-writable `core.worktree`** — so
+> `toplevel` could name repository A while the dispatch was really in repository
+> B, and `root_commit` was the second opinion.
+>
+> **ZI-58 deleted that weakness.** `toplevel` is now `realpath(requested_root)`
+> compared against a config-load-time allowlist, and **`core.worktree` cannot move
+> a `realpath`.** The nested-repository case is refused at **R3**, before any git
+> process, because the nested path is not in the allowlist.
+>
+> **So `root_commit`'s job is now done by a raw string comparison that runs
+> earlier and cannot be redirected. Keeping the graph walk buys a second opinion
+> whose second opinion is a worker-writable cache.**
+
+**The residual class this narrowing stops detecting, priced honestly.** *The
+repository at the authorized realpath is a different repository than the one the
+approval was granted against — the whole checkout was replaced.* That is caught at
+**R6**, not by identity: `PREPARE_ADMIN_GATE` compares the whole raw capture
+against an operator-established baseline, and a wholesale replacement moves
+`$GIT_COMMON_DIR/config`, `packed-refs`, the `refs/**` listing and the
+`objects/pack/` listing. It lands `RepositoryAdministrationUnreconciled` at **row
+0, before any git process** — strictly earlier and strictly rawer than the graph
+walk it replaces.
+
+> ### THE DEPENDENCY THIS CREATES, AND IT IS NOT SMALL
+>
+> **That argument is CONDITIONAL on the R6 equivalence relation** (§5.8.3's
+> unresolved half). The minimum this section requires of that relation, stated as
+> a **requirement on the answer** rather than as an assumption:
+>
+> > **REQ-1.** The equivalence relation used by the R6 gate **must** retain, as
+> > exact-equality members: the raw bytes of `$GIT_COMMON_DIR/config`; the raw
+> > bytes of `$GIT_COMMON_DIR/packed-refs`; and the resolved 40-hex value of **at
+> > least one operator-named stable ref** recorded in the baseline
+> > (`baseline.anchor_refs`, supplied at `trust-repo-admin.py` time, defaulting to
+> > the ref `HEAD` names at establishment).
+> >
+> > **If the relation is resolved in a way that excludes any of these three,
+> > §1A.3's substitution coverage is VOID and this section must be re-derived.
+> > This document does not claim the coverage unconditionally.**
+
+### 1A.4 The one place the graph walk survives, and it is cross-checked against itself
+
+> **`scripts/onboard-repo.py <repo> --rederive-history-identity`** — operator-invoked,
+> **never reachable from any dispatch path.**
+
+```
+0. REFUSE unless the repository already has an ESTABLISHED and RECONCILED
+   administrative baseline. Onboarding does not run in a repository whose
+   administrative state has not been trusted by a human.
+
+1. Derive the root commit TWICE, in the same process, in the same second:
+     A =  git <PIN BLOCK, PIN 4 INCLUDED>  rev-list --max-parents=0 HEAD
+     B =  git <PIN BLOCK, PIN 4 REMOVED>   rev-list --max-parents=0 HEAD
+   plus  git <PIN BLOCK> commit-graph verify
+
+2. A != B                       -> HistoryIdentityDerivationDisagreement, REFUSE
+   commit-graph verify rc != 0  -> HistoryIdentityDerivationDisagreement, REFUSE
+   len(A.split()) != 1          -> AmbiguousRepositoryHistory, REFUSE
+                                   (never "pick the first" — git.py:365's rule, kept)
+
+3. Write a PROPOSED pin to <repo>/../onboarding-proposal-<ts>.json and PRINT it.
+   It is not a manifest. Nothing consumes it.
+
+4. A HUMAN copies it into config/approved-guidance.json and bumps
+   approval.version. That is the reviewed act. The script never writes the
+   approved manifest.
+```
+
+> **Step 1's A-vs-B comparison IS the positive control, built into the mechanism
+> rather than into a test:** under the measured forgery, bare returns the decoy
+> and the pinned run returns the true root, **so a lying commit-graph at
+> onboarding time produces a refusal, not a pinned lie.**
+>
+> **What that cross-check does NOT close, said plainly.** It does not close an
+> attacker who **deletes** the commit-graph — then A and B agree, on the true
+> answer, which is harmless — nor one who has rewritten the **object store and
+> the refs** so that both walks agree on a false root. **The latter is a different
+> capability class and the answer to it is step 0's requirement of an established
+> baseline, not this comparison. A test asserting that step 1 detects "any false
+> root" would be asserting a property the mechanism does not have.**
+
+**`onboarding` is declared as a fourth path in `git_order.py`** (§5.4.3B), so
+these two walks are **declared data rather than an undeclared exception.** An
+undeclared exception is how the review path came to run six.
+
+### 1A.5 How ZI-70 is PROVEN, and whether each proof could pass while false
+
+| Obligation | Proof | Could it pass while false? |
+|---|---|---|
+| No graph-walk identity derivation exists in `src/**` | **`test_no_graph_walk_identity_derivation_in_src`** — AST: no `_run_git`/`_git_checked` call whose argv literal begins `"rev-list"` and contains any of `--max-parents`, `--all`, `--branches`, `--reflog`, `--ancestry-path`, `--boundary`, `--not`, `--merges`, `--no-merges`, `--first-parent`; and `collect_repository_identity` has **no call site** | **YES** for an argv assembled from a variable — the standing weakness of every AST test here. **Paired with the runtime half, which does not care how argv was built** |
+| The same, at runtime | **`test_dispatch_resume_and_review_journals_contain_no_graph_walk_row`** — a complete real run on each of the three paths under the **interpreter-level** spawn instrument; assert **no observed `git` argv contains `rev-list`**, with G9 exempted by **full-argv equality** | **YES IF THE INSTRUMENT IS NOT PROVEN LIVE.** The test **must** fire a deliberate `git --version` and assert the instrument observed it, **in the same body**. Without that control this is B-2 verbatim |
+| The G9 exemption cannot be widened | the exemption is the **full argv tuple** `("rev-list","--objects","--missing=print","HEAD")` compared for **equality** against the declared G9 row — **never a substring or prefix test** | **NO** for any argv differing by one token. **YES** if a mutant edits the declaration itself — killed by `test_g9_exemption_is_full_argv_equality`, which asserts a call with argv `("rev-list","--max-parents=0","HEAD")` raises `GitIdentityDerivationAttempted` **through `_run_git`**, not through a linter |
+| The identity actually consumed is the approved/sealed one | **`test_identity_record_provenance_is_approved_or_sealed`** — every consumer takes it from a handle whose `provenance` is `approved_onboarding_fact` or `sealed_at_prepare`, asserted at the seam | **YES if the record could be produced post-spawn.** Closed the way §2A.4 closes its analogue: the discriminator is the **existence of `runs/*/ownership.json`**, a durable file written only from a `WorkerHandle`, **never a clock comparison** |
+
+> **The one that is NOT closed, named rather than argued away.** A mutant that
+> reintroduces the graph walk **inside the onboarding script** and then calls the
+> onboarding script from the dispatch path satisfies the AST test — the walk is in
+> `scripts/`, not `src/` — and defeats the journal test only if the instrument is
+> not whole-process. **The instrument is interpreter-level and whole-process
+> (§5.4.3B), so it catches this — but that is a dependency on a Wave-0 deliverable
+> that MEASURED DOES NOT EXIST.** §1A is therefore load-bearing on a test that has
+> not been written, **and that is recorded here rather than discovered by the
+> seventh review.**
+
+### 1A.6 Backward compatibility
+
+- `RepositoryIdentity` keeps its four field names. **Its provenance changes, not
+  its shape.** `ProjectGuidanceRepositoryMismatch` is retained by name.
+- `collect_repository_identity` is **deleted, not deprecated** — it has no
+  remaining call site. **A permitted producer with no consumer is a future
+  consumer**, the argument that already deleted `is_git_repository` and
+  `write_full_diff`.
+- **`scripts/gate/**` keeps running the walk.** It is gate tooling, not the
+  dispatcher, and ZI-70 is scoped to `src/**` and the three production paths.
+- **`config/approved-guidance.json` is unchanged** — but its `identity_check`
+  string, *"toplevel AND git_dir AND origin_url AND root_commit must ALL match at
+  dispatch"*, **becomes false as written.** It is a lenient documentation field,
+  so nothing breaks; **leaving a false sentence in an approved manifest is how
+  §17's Y-1 headline stayed false for three revisions**, so it must be rewritten in
+  the same commit, with `test_manifest_identity_check_text_matches_the_implemented_comparison`
+  as its tripwire — **labelled as a tripwire, YES to a paraphrase.**
+
+---
+
 ## 2. The subsystems and their seams
 
 ```
@@ -640,7 +1022,21 @@ Seams, stated so a reviewer can attack them:
 
 ---
 
-## 2A. THE CENTRAL INVARIANT (Sol §1)
+## 2A. THE CENTRAL INVARIANT, WITH ITS EXACT SCOPE (Sol rev-6 §1 · Sol rev-7 §18)
+
+> ## After the implementation worker is spawned, the count of git commands the dispatcher executes **for authority or evidence** is **ZERO**.
+> ## During the subsequent Fable review it is **ZERO** — **before the reviewer starts and after it finishes.**
+>
+> **Both halves are literal, not definitional.** Nothing was reclassified as
+> "non-authoritative" to reach `{}`.
+>
+> **The second half is new in revision 7 and it was FALSE in revision 6.**
+> Revision 6 declared the review path zero and marked it
+> `REQUIRES-VERIFICATION`; the path was then measured, twice, by two independent
+> methods, and it runs **SIX** git processes with the production guidance
+> configuration and **TWO** with every optional feature disabled. **Rows 1–2 are
+> unconditional and survive every feature flag.** §5.4.3B ORDER 3 is the repair,
+> and `test_review_runs_zero_git_processes` is **specified RED against `4a0ae9f`**.
 
 ### 2A.1 Current failure
 
@@ -688,17 +1084,31 @@ Lane Z7 then made the count itself measurable and it is **not two**:
 
 **`{}` is literal, not definitional.** No command was reclassified as
 "non-authoritative" to get it out of the set. **Two commands were deleted, each
-by a named mechanism a fifth reviewer can check:**
+by a named mechanism a sixth reviewer can check:**
 
-| Revision 5's post-worker command | What it served | What replaces it | Result |
+| Deleted command | What it served | What replaces it | Removable-check |
 |---|---|---|---|
-| `rev-parse --verify HEAD^{commit}`, `cwd=task_worktree` (`git.py:531` ← `server.py:2005`) | **B2** | **§5.5.2C.** The `.git` indirection, `commondir`, the gitdir back-pointer and the **whole HEAD resolution chain** become protected immutable dispatcher authority, sealed as raw bytes before launch and verified after the worker by **raw filesystem reads only**. `resolve_head_raw` computes the same 40-hex answer with no git process | command eliminated; **the invariant is strictly stronger** — MEASURED: the `rev-parse` form returns a worker-chosen answer under S-ε, the raw form does not, because it reads the sealed chain rather than resolving through a substituted store |
+| `rev-parse --verify HEAD^{commit}`, `cwd=task_worktree` (`git.py:531` ← `server.py:2005`) | **B2** | **§5.5.2C, REWRITTEN IN REVISION 7.** The task worktree is created **detached at the frozen base**, so `<gitdir>/HEAD` is a **regular file of exactly 40 lowercase hex plus one `\n`** and B2 is **eight raw comparisons with a chain length of ONE** | **command eliminated. The honest sentence, corrected:** revision 6 said the replacement *"computes the same 40-hex answer with no git process."* **There is no answer to compute.** `worktree add`'s own argv wrote the expected 40 hex, and `<gitdir>/HEAD` either **is those bytes** or is not. **That is a strictly smaller claim and it is the one that is true** |
 | `cat-file --batch`, lazily at FINALIZE, for the old side | the **old side** of every changed path | **§5.5.2A.** `BaseTreeSnapshot` holds each base path's **exact content bytes** in a dispatcher-owned CAS, sealed before launch. `old_side(p)` has two branches and **both are CAS reads** | command eliminated; **there is no post-worker object read to serve** |
+| **the Fable review path's SIX** — `rev-parse --show-toplevel` ×3, `--absolute-git-dir`, `config --get remote.origin.url`, **`rev-list --max-parents=0 HEAD`** | authorization · lock identity · guidance identity | **ZI-58** (rows 1–4) · **the sealed identity record** (rows 3–5) · **ZI-70** (row 6) | **NEW IN REVISION 7, and without it the second half of the claim was false.** **MEASURED at runtime, not inferred:** six with guidance ON, two with it OFF |
 
-> **If either mechanism is removed, the command comes back and the set is not
-> empty.** That is what makes this checkable rather than asserted, and it is why
-> §17 must never be integrated as a bare *"the post-worker repertoire is empty"*
-> line: the claim is checkable only with its mechanism table attached.
+> **If any of these mechanisms is removed, the command comes back and the set is
+> not empty.** That is what makes this checkable rather than asserted, and it is
+> why the claim must never be integrated as a bare *"the post-worker repertoire is
+> empty"* line: **it is checkable only with its mechanism table attached.**
+
+> ### AND A REVISION-6 SENTENCE THAT MUST NOT SURVIVE INTO REVISION 7
+>
+> **`{}` is not reached by a definitional move, and revision 6's own mechanism
+> table came close to one.** It credited B2's deletion to a raw reader that
+> *"computes the same 40-hex answer"* — and the fifth review then measured that
+> **the reader as specified does not deliver its property** (F5-1: the resolver
+> consults `<gitdir>/refs/**` before `<common_dir>/refs/**`, which is not git's
+> order, so **one plain file write makes it return the sealed base while
+> `git rev-parse HEAD` returns the worker's commit**). A claim of `{}` resting on
+> a mechanism that does not work is `{}` in name only. **§5.5.2C is rewritten so
+> that the mechanism is a byte comparison rather than a resolution, and §10.3
+> carries the row.**
 
 ### 2A.3 The one post-worker spawn that survives, named in the same breath
 
@@ -2090,7 +2500,7 @@ specified `--long` **by name**.
 
 **What the four measurements could and could not have detected.** Each was run
 with a positive control armed for that surface in the same repository in the same
-run; a `clean` row with a dead control is reported **NOT TESTABLE**, never
+run; a `clean` row with a dead control is reported **`NOT ATTEMPTED`**, never
 `clean`. What none of them could detect is **a fifth mechanism nobody
 enumerated** — and the fourth review found one. **It is not an execution surface
 at all.**
@@ -2218,6 +2628,79 @@ Review 4 asked. Three reasons, with the counter-argument stated fairly:
   the original bytes in the seal, gated on the file not being in the trusted
   baseline, and **a named, journaled, reversible act — never a quiet `unlink`.**
 
+#### 5.4.1C S-ζ — CACHED PARENTAGE. The sixth mechanism, and the second that is not an execution surface
+
+**S-ε answers *what does a read resolve against?*. S-ζ answers a narrower and
+worse question: *what does a WALK believe the history is?*** No pin in revision 6
+touched it, and the four-surface matrix has no column that would have described
+it.
+
+**MEASURED, independently by two lanes and one probe, controls fired every
+time** — the transcript is in §1A.1 and Appendix A.2L. The three facts that
+matter here:
+
+1. **A plain file write to `objects/info/commit-graph` makes
+   `rev-list --max-parents=0 HEAD` return an attacker-chosen decoy at `rc=0`.**
+   The file is `0444` — **and the directory is worker-owned, so unlink-and-rewrite
+   needs no write bit.**
+2. **PINs 1+2+3 applied together do not stop it.** PIN 4 does.
+3. **The split-chain form behaves identically, and its filename-to-content
+   binding is NOT verified at read time** — a forged `graph-<hash>.graph` kept its
+   name while its trailer changed and git consulted it anyway. **So a capture
+   recording only the `commit-graphs/` listing sees nothing**, which is why
+   §5.8.2 requires **a hash per file, plus the listing**, and why *"hash +
+   listing"* was an insufficient specification.
+
+**And a fourth fact that keeps this in proportion:** the `multi-pack-index`
+carries **no parentage** — `PNAM`/`OIDF`/`OIDL`/`OOFF` is an object *location*
+index — so `rev-list --max-parents=0 HEAD` is unaffected by its presence.
+**`core.multiPackIndex=false` is therefore not required for the parentage
+question**, and it is adopted on uniformity alone (§5.4.3A). Whether a forged
+`OOFF`/`PNAM` can make `cat-file` serve attacker bytes is a **different surface**
+and is **`NOT ATTEMPTED`** (**T-30**).
+
+> ### HOW S-ζ IS CLOSED — AND IT IS NOT BY THE PIN
+>
+> **ZI-70 deletes the consumer.** After the deletion the forgery has no
+> production identity reader — a property of **this codebase**, checkable by AST
+> and by an empty journal window, **not** a property of git 2.43.0 that an upgrade
+> can revoke.
+>
+> **PIN 4 is the fifth statement, not the first** (§1A.2), **with one measured
+> exception: row G9 survives and IS graph-walk-derived**, so for G9 the pin is a
+> defence rather than defence-in-depth.
+>
+> **And §5.8.2 protects the files regardless** — but the design **does not depend
+> on that detection**. Detection turns a substituted history from an unexplained
+> wrong answer into a **named worker act**; it is not what makes the answer right.
+
+**The false-positive price, measured, because a flag that becomes routine is
+§5.9.4's named failure:**
+
+| Act | Moves `objects/info/commit-graph`? |
+|---|---|
+| **the dispatcher's own G4 `worktree add`** | **NO** — byte-identical. **So the self-inflicted-divergence shape does NOT arise for this class**, unlike `refs/heads/sol-*` and `worktrees/sol-*/` |
+| an ordinary worker `git commit` | **NO** |
+| `git gc --auto` **below** the loose-object threshold | **NO** |
+| `git gc --auto` **above** the threshold | **`NOT TESTED`** — the fixture was below threshold, so the row above proves nothing about it and must not be read as if it did. **T-28** |
+| explicit `git gc` | **YES** — row 4, correctly, a deliberate worker act |
+| `git commit-graph write` | YES by construction — row 4, correctly |
+| `-c gc.auto=0 -c gc.writeCommitGraph=false -c maintenance.auto=false` on G4 | **no change** — the guard pins buy **nothing measured**, because G4 does not move the file anyway |
+
+**Deny-list additions, honestly labelled and NOT the mechanism:**
+`Bash(git gc:*)`, `Bash(git commit-graph:*)`, `Bash(git maintenance:*)`,
+`Bash(git multi-pack-index:*)` join `CORE_DENIED_GIT_OPERATIONS`. **`Write`
+reaches `objects/info/commit-graph` as a plain file with no git command at all —
+which is exactly how every measurement of it was constructed.** The fingerprint is
+the mechanism; the deny list raises the cost.
+
+**The remediation string must name the cause**, because a `POLICY_VIOLATION` whose
+operator-facing text says only *"administrative divergence"* on a `git gc` is the
+failure §5.9.4 describes. It reads: *"cached commit parentage (`<path>`) changed
+during the worker's run window. `git gc`, `git maintenance` and
+`git commit-graph write` rewrite this file. If the worker ran one deliberately,
+this verdict is correct."*
+
 #### 5.4.2 The prohibited set, by name and by class
 
 | Prohibited after worker launch | S-α filter | S-β fsmonitor |
@@ -2234,24 +2717,28 @@ Review 4 asked. Three reasons, with the counter-argument stated fairly:
 | any attribute-selected transform | textconv, external diff, clean/smudge/process, `ident`, `working-tree-encoding` | — |
 | any command that refreshes or writes **the worktree's** index | — | the refresh **is** the trigger. `read-tree` into an external `GIT_INDEX_FILE` is **not** this — see §5.4.3 (N-2). |
 
-#### 5.4.3 The repertoire — TEN PREPARE rows, and `{}` after the spawn (Sol §16, §17)
+#### 5.4.3 The repertoire — SEVEN PREPARE rows on dispatch, ONE on resume, and `{}` on the Fable path
 
-> **The post-worker set is EMPTY** (§2A). The table below is therefore the
-> **PREPARE** repertoire and nothing else. It is enumerated, and the enumeration
-> is now the *only* thing defending that window — there is no structural
-> fallback, and the surface count has been wrong twice.
+> **The post-worker set is EMPTY, and so is the whole Fable path** (§2A). The
+> table below is therefore the **dispatch PREPARE** repertoire and nothing else.
+> It is enumerated, the enumeration is the only thing defending that window, and
+> **the count has been wrong three times in three revisions.**
+>
+> **§5.4.3B is authoritative for the orders. This table is the per-command
+> surface record that each row in those orders cites.**
 
-**The ten rows, in the order §5.4.3B declares them:**
+**The rows, in the order §5.4.3B declares them. Three are deleted in revision 7
+and the deletions are the substance of Sol §1, §3 and §7:**
 
 | # | Command (exact argv) | `cwd_role` | Purpose | Sealed into |
 |---|---|---|---|---|
 | G1 | `rev-parse --verify --end-of-options <base_commit>^{commit}` | primary | §4.14 verification. **Post-condition: `stdout == base_ref`, byte for byte** | `base_commit` |
 | G2 | `ls-tree -r -z <base_commit>` **(no `--long`)** | primary | base tree **identity** | `base-tree.json` |
 | G3 | `worktree list --porcelain` | primary | is the task worktree registered? | `repo-authority.json` |
-| G4 | `worktree add --quiet -b <branch> <path> <base_commit>` | primary | **the ONE PREPARE execution-capable operation.** Gated by §5.8 **and** argv-pinned; neither alone (§5.5.5) | — |
-| G5 | `rev-parse --verify HEAD^{commit}` | task_worktree | **pre-launch** confirmation that the checkout landed on the base | `worktree-base.json.pre` |
-| G6 | `rev-list --max-parents=0 HEAD` | primary | identity: root commit | identity record |
-| G7 | `config --get remote.origin.url` | primary | identity: origin. **`rc=1` is a measurement, not a failure** | identity record |
+| G4 | `worktree add --quiet --detach <path> <base_commit>` | primary | **the ONE PREPARE execution-capable operation.** Gated by §5.8 **and** argv-pinned; neither alone. **`--detach` in revision 7 (Sol §3)** | — |
+| ~~G5~~ | ~~`rev-parse --verify HEAD^{commit}`~~ | — | **DELETED** — §5.5.2C's raw seal asserts the same property from `<gitdir>/HEAD`'s bytes with no git process | — |
+| ~~G6~~ | ~~`rev-list --max-parents=0 HEAD`~~ | — | **DELETED — ZI-70.** An approved onboarding fact, not a measurement | — |
+| ~~G7~~ | ~~`config --get remote.origin.url`~~ | — | **DELETED pending T-26** — read from the raw config bytes R6 already captured | — |
 | G8 | `cat-file --batch` fed **object ids** | primary | **Route B sealing** (§5.5.2A) | `cas/` |
 | G9 | `rev-list --objects --missing=print HEAD` | primary | **the promisor verifier** (§5.5.2B) | `repo-authority.json` |
 | G10 | `rev-parse --absolute-git-dir` / `--git-common-dir` | primary | §5.8.2A **fallback only**, and **never on the authorization path** (§5.8.2B) | `repo_authority.resolver` |
@@ -2261,6 +2748,9 @@ rather than measurement:**
 
 | Deleted row | Why |
 |---|---|
+| **~~`rev-list --max-parents=0 HEAD`~~ (G6, G4′, review row 6)** | **Sol §1, ZI-70.** **MEASURED substitutable** by a plain file write to `objects/info/commit-graph` — single-file **and** split-chain forms, from `cwd=primary` **and** from `cwd=task_worktree`, `rc=0`, with two independent controls. **PINs 1+2+3 together do not stop it.** Its output is an approved onboarding fact. **The graph walk survives only in `scripts/onboard-repo.py`, where it is cross-checked pinned-against-unpinned (§1A.4), and in `scripts/gate/**`, which is gate tooling and not the dispatcher** |
+| **~~`config --get remote.origin.url`~~ (G7, G5′, review row 5)** | **Deleted pending T-26.** It is *configuration* identity, not a graph walk, so neither Sol §1 nor Sol §17 literally reaches it — **it is deleted anyway on §5.8.2's own rule: never ask git what the configuration says when the raw bytes were read moments earlier at R6.** §5.4.3B prints the one-row delta if Sol declines |
+| **~~`rev-parse --verify HEAD^{commit}` in the task worktree~~ (G5)** | **Sol §3.** Under `--detach`, `<gitdir>/HEAD` **is** the expected 40 hex plus one `\n`. **A raw seal asserts the same property with no git process**, and `test_g5_has_no_call_site` guards its return |
 | ~~`rev-parse --show-toplevel`~~ | **Sol §7.** It asks git *which repository is authorized* — a question git must not answer — and F-7 found it is **the earliest git command of every dispatch and absent from A.2B entirely**. Authorization becomes `realpath` equality (§5.8.2B). **Deleted from `src/**`, not measured.** |
 | ~~`read-tree <base>` with an external `GIT_INDEX_FILE`~~ | Z-4 is retired (§5.5.5(c)), so `dispatcher_raw` buys nothing on execution safety and this row **has no call site**. Z7 independently measured that `read-tree` **fires `post-index-change` even with an external `GIT_INDEX_FILE`**. **All three revision-6 lanes independently recommended deletion.** A permitted row with no caller is a standing invitation to acquire one. Killer `ZM-E7` is retained — it already catches its return |
 | ~~`rev-parse --is-inside-work-tree`~~ | **no call site in `src/**`** (measured, revision 5). Same argument. `is_git_repository` (`git.py:238`) is **deleted, not deprecated** — no compatibility wrapper |
@@ -2280,8 +2770,8 @@ object):
 | `rev-parse --verify <ref>^{commit}` | **PREPARE ONLY** (G1, G5) | clean | clean | clean | **clean** | clean on all four |
 | ~~`rev-parse --show-toplevel`~~ | — | clean | clean | clean | **NOT IN A.2B** | **DELETED (Sol §7).** Its S-δ column in revision 5 **came from nowhere** — F-7 |
 | `rev-parse --absolute-git-dir` / `--git-common-dir` | PREPARE (G10, fallback) | clean | clean | clean | **clean** | **retires `REQUIRES-PROBE`** |
-| `rev-list --max-parents=0 HEAD` | PREPARE (`git.py:362`) | clean | clean | clean | **clean** | clean on all four |
-| `config --get remote.origin.url` | PREPARE (`git.py:359`) | clean | clean | clean | **clean** | clean on all four |
+| ~~`rev-list --max-parents=0 HEAD`~~ | — | clean | clean | clean | clean | **DELETED — and its four-surface row was never the question.** **MEASURED to return an attacker-chosen decoy at `rc=0` on S-ζ**, the sixth mechanism, which is not an execution surface and which no column of this table describes |
+| ~~`config --get remote.origin.url`~~ | — | clean | clean | clean | **clean** | **DELETED pending T-26** |
 | `worktree list --porcelain` | PREPARE | clean | clean | clean | **clean** | **retires `REQUIRES-PROBE`** |
 | **`ls-tree -r -z <base>`** *(NO `--long`)* | PREPARE | clean | clean | clean | **clean** | **clean on all four — this is the argv the design now uses** |
 | ~~`ls-tree -r -z --long <base>`~~ | — | clean | clean | clean | **FIRES, silently, `rc=0`** | **REMOVED — `--long` is what arms S-δ** |
@@ -2289,7 +2779,8 @@ object):
 | `cat-file blob <oid>` | PREPARE | clean | clean | clean | **FIRES (`rc=128`)** | **permitted ONLY under PIN 1** |
 | **`rev-list --objects --missing=print HEAD`** *(new — G9)* | PREPARE | clean | clean | clean | **clean under PIN 1: `rc=0`, lists absent oids prefixed `?`** | **the only command that REPORTS absence instead of dying of it** (Z7 §5.3) |
 | ~~`read-tree <base>` with an external `GIT_INDEX_FILE`~~ | — | clean | clean | **FIRES `post-index-change`** † | clean | **DELETED from the permitted set.** No call site; Z7 confirms an external index does not avoid the hook |
-| `worktree add` (any form) | PREPARE, only after §5.8 passes | **FIRES** smudge (checkout forms) | **FIRES** (checkout forms) | **FIRES `reference-transaction` in EVERY form, `--no-checkout` and `--detach` included** | FIRES (checkout form) | **gated + argv-pinned** |
+| `worktree add --detach` | PREPARE, only after R6 passes | **FIRES** smudge ×2 | **FIRES** | **FIRES `reference-transaction` in EVERY form** | FIRES | **gated + argv-pinned. `--detach` is a B2-CORRECTNESS change and NOT an execution-safety change** — measured, it fires the same surfaces as `-b`, and PIN 2 governs S-γ, not S-α |
+| `worktree add --detach --no-checkout` **under PIN 2** | *(measured option, not adopted)* | **clean** | clean | clean | clean | **the ONLY measured `worktree add` invocation whose execution log is EMPTY.** Control: the same argv **without** PIN 2 produced two executed-program lines. **`--detach` WITH checkout under the full pin block still runs the worker's smudge filter twice.** Recorded as a measured option — the dispatcher already seals the base tree in a CAS, so materialising the files itself would remove S-α from PREPARE entirely rather than gating it. **The tree-materialisation cost and the missing `index` are Sol's to price — T-31** |
 | ~~`rev-parse --is-inside-work-tree`~~ | — | clean | clean | clean | **clean** | **DELETED.** No call site in `src/**`; `is_git_repository` is removed from `git.py` |
 
 **Two rows measured by Z7 that must be read next to this table, because they are
@@ -2454,14 +2945,33 @@ Three consequences follow, and each is a rule rather than a hope:
    no. **For a fifth nobody has armed, yes — and that is stated rather than
    hidden.**
 
-##### 5.4.3A The global git invocation policy, stated as one block
+##### 5.4.3A `PIN_BLOCK` — the global git invocation policy, as a closed ordered terminal prefix
 
 Every git call in `src/**` goes through `_run_git`, which applies this
 unconditionally. **Every line is an enumerated defence and is labelled as one.**
 
+> ### INVARIANT ZI-71 — `PIN_BLOCK` IS A CLOSED, ORDERED, TERMINAL PREFIX
+>
+> `_run_git` constructs every argv as exactly
+>
+> ```
+> [git_executable] + PIN_BLOCK + [subcommand] + row_args
+> ```
+>
+> where `PIN_BLOCK` is a **module-level frozen tuple**, emitted **verbatim and in
+> a fixed declared order**, and `subcommand` is a member of the declared
+> subcommand set.
+>
+> **No call site may contribute any element that precedes the subcommand token.**
+> `_run_git` raises **`GitArgvPinDisplaced`** (`InternalDispatcherError`, raised,
+> never logged-and-continued) when `row_args` contains any of `-c`,
+> `--config-env`, `-C`, `--git-dir`, `--work-tree`, `--namespace`, `--exec-path`,
+> `--no-pager`, or when the first caller-supplied element is not in the declared
+> subcommand set.
+
 ```
 env:   GIT_NO_LAZY_FETCH=1        # PIN 1 — closes the whole S-δ column (measured)
-       GIT_NO_REPLACE_OBJECTS=1   # PIN 3 — closes refs/replace/** (measured, Z7)
+       GIT_NO_REPLACE_OBJECTS=1   # PIN 3 — closes refs/replace/** (measured)
        GIT_CONFIG_NOSYSTEM=1      # ignore /etc/gitconfig
        GIT_CONFIG_GLOBAL=/dev/null# ignore ~/.gitconfig
        GIT_TERMINAL_PROMPT=0      # existing
@@ -2470,21 +2980,153 @@ env:   GIT_NO_LAZY_FETCH=1        # PIN 1 — closes the whole S-δ column (meas
        + existing redirect-var stripping (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR,
          GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES,
          GIT_CEILING_DIRECTORIES, GIT_NAMESPACE)
-       + NEW scrubbing (hygiene, not a worker path under this threat model):
-         GIT_CONFIG_COUNT, GIT_CONFIG_KEY_*, GIT_CONFIG_VALUE_*, GIT_EXTERNAL_DIFF,
-         GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, GIT_PAGER, GIT_ATTR_NOSYSTEM
+       + scrubbing (hygiene, not a worker path under this threat model):
+         GIT_CONFIG_COUNT, GIT_CONFIG_KEY_*, GIT_CONFIG_VALUE_*,
+         GIT_CONFIG_PARAMETERS,        <-- ADDED IN REVISION 7
+         GIT_TEST_*  (PREFIX, NOT AN ENUMERATION)   <-- ADDED IN REVISION 7,
+                                       and it is the one that makes PIN 4 true
+         GIT_EXTERNAL_DIFF, GIT_SSH, GIT_SSH_COMMAND, GIT_ASKPASS, GIT_PAGER,
+         GIT_ATTR_NOSYSTEM
 
-argv:  git -c core.hooksPath=<empty dir>   # PIN 2 — neutralises all 28 hooks
+argv:  git -c core.hooksPath=<empty dir>       # PIN 2 — neutralises all 28 hooks
+           -c core.commitGraph=false           # PIN 4a — MEASURED
+           -c core.multiPackIndex=false        # PIN 4b — NOT TESTED, uniformity
            -c core.fsmonitor=false
-           -c core.attributesFile=/dev/null   # partial — see the caveat
+           -c core.attributesFile=/dev/null    # partial — see the caveat
            -c core.quotePath=false
            --no-pager  <subcommand> …
+       ^^ THIS IS PIN_BLOCK. It is a frozen tuple. Nothing may follow it before
+          the subcommand token, and nothing after the subcommand token can be a
+          config assignment (MEASURED: `git rev-list -c k=v …` is rc=128,
+          `fatal: ambiguous argument`).
 ```
 
 > **The `--attr-source=<base_commit>` line of revision 5 is DELETED** (F-7's
 > third instance). §5.4.4 deletes every diff-producing subcommand from `src/**`;
 > **a policy line specifying flags for a class of command that cannot exist is an
 > invitation to conclude that a hardened `git diff` is permitted after all.**
+
+##### PIN 4, and the exception that must travel with it
+
+> **PIN 4 — `-c core.commitGraph=false -c core.multiPackIndex=false`.**
+>
+> **MEASURED:** `core.commitGraph=false` returns the true root where the bare
+> command, **and the command under PINs 1+2+3 together**, return an
+> attacker-chosen decoy — in the **single-file** form, the **split-chain** form,
+> from `cwd=primary` and from `cwd=task_worktree`. Controls fired every time, two
+> independent ways: the unpinned leg, and `git commit-graph verify` `rc=1` naming
+> the substituted parent.
+>
+> **`core.multiPackIndex=false` is `NOT TESTED` as a defence and is adopted on
+> UNIFORMITY, not on a measurement.** What *is* measured is that it is **accepted
+> (`rc=0`)** and that it changes no output on any permitted row. And a second
+> measurement narrows the question: **the `multi-pack-index` carries no
+> parentage** — its chunks are `PNAM`/`OIDF`/`OIDL`/`OOFF`, an object *location*
+> index — and `rev-list --max-parents=0 HEAD` is unaffected by its presence.
+> **So PIN 4b is not required for the parentage question at all.** Whether a
+> forged `OOFF`/`PNAM` can make `cat-file` serve attacker bytes is a **different
+> surface** (object *location* redirection) and is **`NOT ATTEMPTED`** — testable,
+> deliberately not run, because a hurried version of it would produce exactly the
+> half-armed result this build has been burned by five times. **It must not
+> inherit the commit-graph result, and it must not inherit Z7's object-transplant
+> result either.** *(Escalated as **T-30**.)*
+
+> ### PIN 4 IS DEFENCE-IN-DEPTH — WITH ONE MEASURED EXCEPTION
+>
+> **For repository and history IDENTITY, PIN 4 is redundant by construction.**
+> The structural mechanism is ZI-70: **there is no consumer.** Row G6 is deleted
+> from all three production paths. **If PIN 4 were removed tomorrow, no
+> production identity decision would change.**
+>
+> **The exception is row G9.** `rev-list --objects --missing=print HEAD` — §5.5.2B's
+> promisor verifier — **is graph-walk-derived. MEASURED under the forged graph: 2
+> objects present in the pinned enumeration were hidden from the unpinned one, and
+> 3 objects absent from the pinned one were injected into it** (symmetric
+> difference 5). Control fired: the pinned and unpinned runs went through the same
+> harness against the same repository in the same second and differed, and with a
+> blob deleted from the store **both** still reported it `?`-prefixed, so the
+> harness reads the missing-set rather than returning a constant.
+>
+> **For G9, PIN 4 is a DEFENCE, not defence-in-depth.**
+>
+> **What was NOT shown, so nobody reads more into it:** this does **not** show
+> that a forged graph can hide a blob the seal needs. It cannot hide a **base-tree
+> blob**, because `BaseTreeSnapshot` ranges over **G2 `ls-tree -r -z <base_commit>`**,
+> which walks the base commit's tree directly and is **MEASURED byte-identical
+> under the forgery.** Whether G9's divergence can defeat §5.5.2B's
+> materialisation decision **against a genuine partial clone** is **`NOT
+> ATTEMPTED`** — three parties have already filed a VOID row here for want of a
+> real promisor remote, and a fourth un-armed one is worth nothing.
+
+##### The pin-ordering rules — MEASURED, both directions
+
+| Rule | Statement | The control that makes it ordering rather than a safe default |
+|---|---|---|
+| **R-PIN-1** | an argv config assignment **outranks every environment and config-file source** — repo `config`, `include.path`, `includeIf.gitdir`, `config.worktree`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_COUNT/KEY_n/VALUE_n`, `GIT_CONFIG_PARAMETERS` | each row was run **with the pin and without it**, and the no-pin leg returned the DECOY — so the source is genuinely consulted. **And the two-way control: `GIT_CONFIG_PARAMETERS='core.commitGraph=false'` with argv `-c …=true` returns the DECOY — argv wins in the UNSAFE direction too** |
+| **R-PIN-2** | among argv assignments, **the LAST for a key wins**; `--config-env` participates in the same ordering | `-c false -c true` → DECOY; `-c true -c false` → TRUE; `-c z12.src=A -c …=B -c …=C` → `C` |
+| **R-PIN-3** | **nothing after the subcommand token is a config assignment** | `git rev-list -c k=v --max-parents=0 HEAD` → `rc=128 fatal: ambiguous argument` |
+| **R-PIN-4** | duplicate identical assignments are idempotent | measured |
+| **R-PIN-5** | **a malformed pin value is `rc=128`, not a silent no-op** | `-c core.commitGraph=notabool` → `fatal: bad boolean config value`. **The failure mode of a typo in the pin block is a loud, total, first-command failure — not a quiet loss of protection** |
+
+> ### THE MEASURED PRECEDENCE ORDER, AND IT IS THE REVERSE OF THE OBVIOUS ASSUMPTION
+>
+> `git config --show-origin --get-all` with every source armed at once resolves
+> the stack in this exact order, **later winning**:
+>
+> ```
+> file:<global.cfg>                              GLOBAL
+> file:<repo>/.git/config                        LOCAL
+> file:<repo>/.git/worktrees/wt/config.worktree  WORKTREE
+> command line:                                  <- GIT_CONFIG_COUNT/KEY_n/VALUE_n
+> command line:                                  <- GIT_CONFIG_PARAMETERS
+> command line:                                  <- argv -c #1
+> command line:                                  <- argv -c #2   (WINS)
+> ```
+>
+> **`GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS` are injected into the
+> COMMAND-LINE scope, AHEAD of the real argv `-c` entries** — not into the
+> environment scope, and not after argv. **So the pin block must be appended LAST,
+> and no caller-supplied `-c` may follow it.** A `-c` appended after the pins
+> **silently wins** — measured. **That is a real hazard and not a hypothetical
+> one, because `validation.py:228` already accepts a caller-supplied `argv[0]`.**
+
+> ### SOL'S §16 REQUIREMENT IS FALSIFIED AS LITERALLY WORDED, AND ONE LINE MAKES IT TRUE AGAIN
+>
+> Sol's directive: *"no environment or config source can override a later
+> command-line pin."*
+>
+> **Every genuine CONFIG source loses to the pin — measured, seven of them.** But:
+>
+> ```
+> no pin, no env                                    -> DECOY (pin LOST)
+> -c core.commitGraph=false                         -> TRUE  (pin HELD)
+> GIT_TEST_COMMIT_GRAPH=1  + -c false   [rev-list]  -> DECOY (PIN LOST)
+> GIT_TEST_COMMIT_GRAPH=1  + -c false   [log]       -> DECOY (PIN LOST)
+> GIT_TEST_COMMIT_GRAPH=0  + -c false               -> TRUE  (pin HELD)
+> GIT_TEST_COMMIT_GRAPH=true + -c false             -> DECOY (PIN LOST)
+> ```
+>
+> **`GIT_TEST_COMMIT_GRAPH` is read as a plain environment boolean, NOT through
+> the config stack**, so `--show-origin` never sees it and **no argv `-c` can
+> outrank it.** Five such names exist in the 2.43 binary
+> (`GIT_TEST_COMMIT_GRAPH`, `…_CHANGED_PATHS`, `…_DIE_ON_PARSE`,
+> `GIT_TEST_MULTI_PACK_INDEX`, `…_WRITE_BITMAP`) and a git upgrade adds more.
+>
+> **Scoped honestly:** under this threat model the worker controls *repository
+> content and configuration*, **not the dispatcher's process environment**, so
+> this is **not a worker-reachable bypass on its own.** It matters for two
+> concrete reasons. **(1) Adopting Sol's sentence as written would be adopting a
+> statement that is measurably false — the exact failure shape five reviews have
+> found.** **(2) The design already scrubs environment variables for precisely
+> this reason**, and `GIT_TEST_*` belongs in that list by exactly that argument.
+> **Its absence is the difference between a pin that is true and a pin that is
+> true-unless-somebody's-shell-profile.**
+>
+> **`GIT_TEST_*` is scrubbed as a PREFIX, not as an enumeration** — enumerating
+> the five names invites the enumeration-is-the-defence error this whole document
+> is about. **`test_pin4_survives_every_config_source` gains a
+> `GIT_TEST_COMMIT_GRAPH=1` row that must be RED before the scrub and GREEN
+> after.**
 
 **Measured caveats that must travel with this block, not be inferred from it:**
 
@@ -2493,16 +3135,22 @@ argv:  git -c core.hooksPath=<empty dir>   # PIN 2 — neutralises all 28 hooks
   checkout" combination is genuinely incomplete**, which is why `worktree add` is
   gated by §5.8 rather than trusted.
 - `GIT_OPTIONAL_LOCKS=0` suppresses `post-index-change` for **`status` only**,
-  and **not** for `read-tree`. Lane X's C7c note is correct for `status` and
-  **does not generalise**.
-- **Zero `-c key=value` occurrences exist in `src/**` today**, so none of these
-  pins is implemented; all are Wave 0 work.
+  and **not** for `read-tree`.
+- **PINs 1–4 coexist with no conflict** — all four applied to one argv against
+  every permitted PREPARE row, in the forged repository, returned `rc=0` with **no
+  output change other than the corrected parentage PIN 4 exists to correct**.
+- **Zero `-c key=value` occurrences exist in `src/**` today**, and
+  `GIT_NO_LAZY_FETCH`, `GIT_NO_REPLACE_OBJECTS`, `core.hooksPath`, `attr-source`
+  and `core.commitGraph` have **zero hits**. **None of the four pins is
+  implemented.** Every acceptance row that depends on one is **UNMEASURABLE, not
+  green**, and §16 prints that word.
 - `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` is a viable *alternative* lever for
-  pinning `core.hooksPath` without touching argv. **Recorded, not adopted** — argv
-  is simpler to assert in the journal. (Z5's first attempt used `GIT_CONFIG_KEY0`
-  without the underscore and git refused with `rc=128`; **that row is reported
-  NOT TESTABLE as run, never `clean`** — a reading from a command that never
-  executed proves nothing.)
+  pinning without touching argv. **Recorded, not adopted** — argv is simpler to
+  assert in the journal, and **R-PIN-1 makes the env form silently lose the moment
+  any call site gains a `-c`.** (Z5's first attempt used `GIT_CONFIG_KEY0` without
+  the underscore and git refused with `rc=128`; **that row is `NOT ATTEMPTED` as
+  run, never `clean`** — a reading from a command that never executed proves
+  nothing.)
 
 ##### Lane X's TIER-0 table is corrected
 
@@ -2515,143 +3163,482 @@ Both move to **executed**. `credential.helper` and `core.alternateRefsCommand`
 remain **NOT OBSERVED** from the repertoire, each from an experiment whose control
 fired.
 
-##### 5.4.3B The pre-worker command ORDER, declared as data (Sol §19, closes F-7)
+##### 5.4.3B THE THREE NORMATIVE COMMAND ORDERS (Sol §17), and the matrix that enforces them in BOTH directions (Sol §8, §9)
 
-**F-7's defect is not that two rows were missing from a matrix. It is that the
-matrix was ordered by how interesting a command looked, not by when it ran** — so
-the enumeration omitted the earliest command of every dispatch, the one that
-decides whether the repository is even allowed. **An enumeration ordered by
-interest will always omit its own plumbing, and plumbing runs first.**
+**These are the exact, complete, normative orders. There is no category-based
+repertoire.** Every remaining row carries **purpose · exact argv shape · exact
+pins · execution phase · `cwd_role` · its positive control · and why the raw
+`PREPARE_ADMIN_GATE` makes it permissible.**
 
-**Measured order in the tree at `d197bf0`, dispatch path — nine git processes,
-three of them `--show-toplevel`, one of them `git status`, and the first three
-run before anything has established that this repository is safe to run git in:**
+**`PIN_BLOCK`** below is, verbatim and in this order (§5.4.3A):
 
-| # | `server.py` | Command | Runs before |
-|---|---|---|---|
-| 1 | `904` → `security.py:217` → `git.py:271` | `rev-parse --show-toplevel` | **the lock, the authorization decision it feeds, and any establishment** |
-| 2 | `909` → `locks.py:72` → `git.py:271` | `rev-parse --show-toplevel` again | the lock it is naming |
-| 3 | `918` → `git.py:386` | `rev-parse --verify HEAD^{commit}` | materialisation |
-| 4 | `954` → `git.py:608` | `worktree add …` | — |
-| 5 | `977` → `git.py:531` | `rev-parse --verify HEAD^{commit}` (B2) | — |
-| 6 | `1002` → `git.py:350,353,359,362` | `--show-toplevel`, `--absolute-git-dir`, `config --get`, `rev-list --max-parents=0` | — |
-| 7 | `1037` → `git.py:904` + `:386` | **`git status --porcelain`** + `rev-parse HEAD` | the spawn, by ~5 lines |
+```
+-c core.hooksPath=<empty dir>  -c core.commitGraph=false  -c core.multiPackIndex=false
+-c core.fsmonitor=false  -c core.attributesFile=/dev/null  -c core.quotePath=false  --no-pager
+```
 
-**There is no administrative establishment step in the tree at all**; §5.8.3's
-step 0 is design, not code.
+with env `GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1 GIT_CONFIG_NOSYSTEM=1
+GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0` plus the
+strip and scrub lists. **PINs 1–4 are on every row below without exception.**
 
-> ### INVARIANT ZI-53 — NO GIT PROCESS PRECEDES THE RAW ESTABLISHMENT THAT MAKES IT ACCEPTABLE
+> ### STATUS OF THESE TABLES — `NORMATIVE — INTENDED ORDER, NOT AN OBSERVATION`
 >
-> The pre-worker git sequence is **declared as data, in execution order, in one
-> place, per dispatch path**. **Step R6 — raw administrative establishment —
-> runs before the first git process of the dispatch and runs no git process
-> itself.**
+> **Revision 6 required return item 6 to be *"GENERATED from `git_order.py`, not
+> typed"* — and `git_order.py` is a Wave-0 module that does not exist, because the
+> design forbids implementation before approval.** The fifth reviewer recorded a
+> permanent `NOT TESTED` and said so rather than typing a list and calling it
+> generated. **That reviewer behaved correctly and the requirement was still
+> unsatisfiable.**
 >
-> `_run_git` **refuses to execute** (`GitBeforeEstablishment`,
-> `InternalDispatcherError`) when the current `ToolExecution` carries no
-> establishment marker.
+> **A gate that cannot be passed honestly by a compliant reviewer is a defective
+> gate**, and it has exactly two failure modes: an honest reviewer records a
+> permanent `NOT TESTED`, or a less scrupulous one **types a list and labels it
+> generated** — a fabricated provenance claim inside the appendix whose whole
+> purpose is provenance. **The second outcome is worse than the finding the
+> requirement was written to prevent.**
+>
+> ### INVARIANT ZI-72 — THE ORDER IS NORMATIVE DESIGN DATA IN THE DESIGN PHASE, AND A GENERATED RUNTIME ARTEFACT IN WAVE 0
+>
+> **Design phase:** the tables below are **normative architecture data**, labelled
+> `NORMATIVE — INTENDED`. This is permissible **precisely because implementation
+> does not yet exist.** They are the specification the implementation is held to.
+>
+> **Wave 0:** `git_order.py` encodes them, the journal generates the **observed**
+> order, and acceptance **joins** the two bidirectionally.
+>
+> **No hand-authored `git_order.py` is required before Wave 0. No reviewer is
+> asked to generate anything from a module that does not exist. Do not fake a
+> generated artefact during design review** — `test_no_return_item_claims_generation_without_a_generator`.
 
-**DISPATCH. Everything above the line is raw: no subprocess of any kind.**
+---
+
+#### ORDER 1 — INITIAL DISPATCH
 
 ```
 ── PRE-GIT. RAW ONLY. ZERO GIT PROCESSES. ──────────────────────────────────────
- R0  request shape / transport validation            pure Python
- R1  validation-budget assertion (Gate 6, K-1)       pure Python
- R2  production base_ref exactness      (§4.14)      pure string   -> row 0
- R3  repository AUTHORIZATION           (§5.8.2B)    realpath == allowlist -> row 0
- R4  raw git layout resolution          (§5.8.2A)    open()/stat() -> row 0
- R5  repository lock acquisition                     flock on the realpath digest
- R6  RAW ADMINISTRATIVE ESTABLISHMENT   (§5.8.3)     open(path,"rb") ONLY
-       capture(role="pre_run"); no baseline -> Unestablished (row 0)
-       != baseline -> Unreconciled (row 0, NOT retryable)
+ R0  request shape / transport validation           pure Python
+ R1  validation-budget assertion (Gate 6, K-1)      pure Python
+ R2  production base_ref exactness      (§4.14)     pure string          -> row 0
+ R3  repository AUTHORIZATION           (§5.8.2B)   realpath equality    -> row 0
+ R4  raw `.git` CLASSIFICATION + layout (§5.8.2A)   lstat FIRST, then
+                                                    open()/stat()        -> row 0
+ R5  repository lock acquisition                    flock on the realpath digest
+ R6  CAPTURE  PREPARE_ADMIN_GATE        (§5.8.3)    open(path,"rb") ONLY
+       no baseline  -> RepositoryAdministrationUnestablished             -> row 0
+       != baseline  -> RepositoryAdministrationUnreconciled   row 0, NOT retryable
        writes the ESTABLISHMENT MARKER row into git-invocations.jsonl
- R7  PRIMARY_START raw snapshot         (§5.9)       raw HEAD + FsSnapshot + admin
+ R7  PRIMARY_PREPARE raw snapshot       (§5.9.2)    raw HEAD + FsSnapshot(excl .git)
+ R8  IDENTITY RECORD ASSEMBLY           (§5.5.2D)   pure Python + the approved
+       manifest + R3/R4/R6's own results. NO SUBPROCESS. NO REPOSITORY READ
+       beyond what R4 and R6 already performed.
 ── THE FIRST GIT PROCESS OF THE DISPATCH IS HERE, AND NOT BEFORE ───────────────
- G1 … G10   exactly §5.4.3's ten rows, in that order
-── SEAL (§5.5.2A) — manifest written LAST, atomically ──────────────────────────
-── worker spawns ───────────────────────────────────────────────────────────────
 ```
 
-**RESUME declares its own order, and a second table is not optional** — F-7's
-shape is *an enumeration that forgot a path*, and declaring only the dispatch
-order repeats it:
+| # | Purpose | Exact argv shape | Pins | Phase | `cwd_role` | Positive control | Why `PREPARE_ADMIN_GATE` makes it permissible |
+|---|---|---|---|---|---|---|---|
+| **G1** | §4.14 base verification. Post-condition **`stdout == base_ref`, byte for byte** | `git PIN_BLOCK rev-parse --verify --end-of-options <base_commit>^{commit}` | 1,2,3,4 | PREPARE | primary | `test_base_commit_absent_refuses_and_fetches_nothing`, whose **step (b)** runs the same read **without PIN 1** against an absent object and asserts the transport sentinel **FIRES** | R6 has reconciled **every** exec key — `filter.*`, `diff.*`, the 28 hooks, `core.sshCommand`, `core.gitProxy`, transport and promisor keys, **and cached parentage** — against an operator-established baseline. **MEASURED clean on S-α…S-δ; MEASURED byte-identical under a forged commit-graph** |
+| **G2** | base tree **identity** | `git PIN_BLOCK ls-tree -r -z <base_commit>` **(no `--long`)** | 1,2,3,4 | PREPARE | primary | `test_base_tree_argv_has_no_long_flag`; `--long`'s S-δ firing is the control that justifies its removal | as G1. **MEASURED byte-identical under a forged commit-graph — the base tree is walked from an explicit commit, not from the DAG. This is what makes the seal immune to S-ζ** |
+| **G3** | is the task worktree registered? | `git PIN_BLOCK worktree list --porcelain` | 1,2,3,4 | PREPARE | primary | the four-surface pass with a control per surface | as G1. **CAVEAT, MEASURED:** with a symlinked primary `.git` this command names the gitdir **target** as the primary worktree rather than the working-tree root — which is why §5.8.2A **refuses** a symlinked `.git` at R4, before this row can run |
+| **G4** | **the ONE PREPARE execution-capable operation** | `git PIN_BLOCK worktree add --quiet --detach <path> <base_commit>` | 1,2,3,4 | PREPARE | primary | `test_worktree_add_executes_no_planted_hook`, whose control is **the same argv without PIN 2**, which **must** fire | **This is the row R6 exists for.** ZI-20: no git command that could execute a repository-supplied program runs before the gate passes, and **filesystem quarantine is measurably not a defence** — only PIN 2 on the argv is. **Gate AND pin; neither alone.** `<base_commit>` is the **already-verified 40-hex token** of G1's post-condition, **never a name** |
+| ~~**G5**~~ | ~~pre-launch `rev-parse --verify HEAD^{commit}` in the task worktree~~ | **DELETED** | — | — | — | — | **§5.5.2C.** Under `--detach`, `<gitdir>/HEAD` **is** the expected 40 hex plus one `\n`, so the raw seal asserts the same property with **no git process.** `test_g5_has_no_call_site` guards its return |
+| ~~**G6**~~ | ~~identity: root commit~~ | **DELETED** | — | — | — | — | **§1A / ZI-70.** Its output is an **approved onboarding fact**. **MEASURED substitutable** in both graph forms, from both cwds |
+| ~~**G7**~~ | ~~identity: origin~~ | **DELETED — pending T-26** | — | — | — | — | `remote.origin.url` is read from the **raw `$GIT_COMMON_DIR/config` bytes R6 already captured**, with §5.8.2's own minimal INI reader. **Asking git what the config says, of a repository whose config the capture decided to trust moments earlier, is the exact shape §5.8.2's rule forbids** |
+| **G8** | **Route B sealing** (§5.5.2A) | `git PIN_BLOCK cat-file --batch` fed object ids on stdin, **writer on its own thread** | 1,2,3,4 | PREPARE | primary | `test_absent_base_object_executes_nothing`, whose **step (b)** runs it **without PIN 1** and asserts the program **FIRED at `rc=0`** | as G1. **Permitted ONLY under PIN 1** — it is S-δ's silent `rc=0` vector. MEASURED byte-identical under a forged commit-graph |
+| **G9** | **the promisor verifier** (§5.5.2B) | `git PIN_BLOCK rev-list --objects --missing=print HEAD` | 1,2,3,**4 — LOAD-BEARING** | PREPARE | primary | `test_g9_output_changes_under_a_forged_graph_without_pin4` — the unpinned and pinned runs over the forged fixture **must differ**, asserted as a non-empty symmetric difference **before** anything is asserted about production | as G1 — **and additionally PIN 4, which for this row is a DEFENCE rather than defence-in-depth.** It is the only command that **reports** absence instead of dying of it |
+| **G10** | §5.8.2A **fallback only**, never on the authorization path | `git PIN_BLOCK rev-parse --absolute-git-dir` / `--git-common-dir` | 1,2,3,4 | PREPARE | primary | `test_gitdir_resolver_matches_rev_parse_on_every_layout`, whose control is a **deliberately broken parser that must report DISAGREE** | as G1. **Its identity consumer is deleted** (§5.5.2D types `layout_resolver: Literal["raw"]`), so it survives only as the administrative capture's diagnostic fallback. **Its remaining justification is weaker than revision 6's — T-20 is narrowed, not resolved** |
 
 ```
- R0–R7 identical, except R2 is N/A: the base is the stored, already-exact base_commit.
- G1'  worktree list --porcelain                 cwd=primary
-        A MISSING REGISTRATION IS A PREPARE REFUSAL, NEVER A RE-MATERIALISATION.
-        Re-materialising would run `worktree add` — the exec vector — after a
-        previous worker has already written to this repository.
- G2'  (no B2 git command: §5.5.2C's raw chain verification)
- G3'  ls-tree / cat-file  ONLY IF the task has no persisted seal — and a seal
-        that is absent while any run has ownership.json is SealAbsentAfterWorker,
-        never a rebuild (§5.5.2A).
- G4'  rev-list --max-parents=0 HEAD             cwd=primary
- G5'  config --get remote.origin.url            cwd=primary
+── SEAL the §5.5.2C worktree authority (raw) ───────────────────────────────────
+── SEAL the §5.5.2A content CAS + the §5.5.2D identity record;
+   seal-manifest.json written LAST, atomically ────────────────────────────────
+── S1  CAPTURE  WORKER_START_AUTHORITY   (§5.8.3)   raw, ZERO git ──────────────
+── S2  PRIMARY_WORKER_START raw snapshot (§5.9.2) ──────────────────────────────
+── S3  ASSERT PRIMARY_PREPARE == PRIMARY_WORKER_START, or REFUSE (row 0) ───────
+── S4  START FsSnapshot of the task worktree ───────────────────────────────────
+── ONLY NOW MAY CLAUDE BE SPAWNED ─────────────────────────────────────────────
+── POST-SPAWN AUTHORITY GIT SET: {}  (§2A) ────────────────────────────────────
 ```
 
-**FABLE REVIEW: the review path runs ZERO git commands before the reviewer
-starts.** It reads persisted evidence. **Status: `REQUIRES-VERIFICATION` against
-`server.py:1328-1500` by the implementer.** The requirement and its test are
-declared here; **no lane read the whole review path, and stating it as measured
-would be the F-7 error in a new place.**
+> **If Sol declines T-26 and keeps `origin_url` as a git measurement**, exactly
+> one row returns: **G7 `git PIN_BLOCK config --get remote.origin.url`**,
+> `cwd_role=primary`, phase PREPARE, pins 1–4, control = the four-surface pass,
+> permissible for the same reason as G1, with the note that **`rc=1` is a
+> measurement and not a failure.** **Nothing else in this order changes.** That is
+> the whole delta, printed so the order is unambiguous either way.
 
-**Why the order stops being prose — three mechanisms, and both of the last two
-are required:**
+---
 
-1. **The order is data.** A Wave-0 module `git_order.py` declares, per path
-   (`dispatch` | `resume` | `review`), an ordered list of
-   `(position, subcommand, argv_shape_sha256, cwd_role, permitted_by_row, requires, conditional)`,
-   where `requires` names the raw step that must precede it — `R6` for every git
-   row, plus `R3`/`R4` for anything that opens a file inside the repository.
-2. **The runtime interlock is the property.** `_run_git` reads the current
-   `ToolExecution` (§3.1's contextvar-carried identity, Wave 0's by D-24) and
-   raises `GitBeforeEstablishment` if no establishment marker has been recorded
-   for this execution. **This is a refusal at the chokepoint, not a post-hoc
-   assertion.**
-3. **The journal is the audit.** `git-invocations.jsonl` gains a monotone `seq`
-   per run, and R6 writes one non-git row:
+#### ORDER 2 — RESUME
 
-```json
-{"seq": 7, "phase": "PREPARE", "subcommand": "(raw-admin-establishment)",
- "argv_sha256": null, "cwd_role": "primary", "permitted_by": "§5.8.3",
- "returncode": null}
+```
+── PRE-GIT. RAW ONLY. ZERO GIT PROCESSES. ──────────────────────────────────────
+ P1  RAW CANONICAL ROOT CHECK
+       canonical := realpath(envelope.repository.root)              (R3, ZI-58)
+       canonical in {realpath(r) for r in allowed_repository_roots}
+         else RepositoryNotAllowed                                       row 0
+       canonical == identity_record.canonical_root   (BYTES, not str)
+         else RepositoryIdentityUnsealed                                 row 0
+       -- the sealed root is compared against the CURRENT authorization
+          decision, so a task cannot be resumed into a different repository
+          than the one it was sealed against, EVEN IF BOTH ARE ALLOWLISTED.
+ P2  RAW TASK WORKTREE AUTHORITY CHECK    (§5.5.2C) the EIGHT raw comparisons,
+       open()/lstat only.  verdict != base_held -> WorktreeBaseMismatch   row 2
+                           indirection moved    -> WorktreeIndirectionChanged row 4
+ P3  CAPTURE  PREPARE_ADMIN_GATE          (§5.8.3) raw; ESTABLISHMENT MARKER row
+ P4  CONTEXT / LIFECYCLE PREFLIGHT        (§4.5)   pure Python            row 0
+ P5  LOAD THE SEAL                        (§5.5.2A/D)  identity-record.json,
+       repo-authority.json, base-tree.json, cas/ — verified against
+       seal-manifest.json.  NEVER REBUILT. NO SUBPROCESS.
+── THE FIRST GIT PROCESS OF THE RESUME IS HERE, AND NOT BEFORE ────────────────
 ```
 
-   `test_prepare_journal_matches_the_declared_order` asserts the PREPARE rows are
-   a **prefix-preserving subsequence** of the declared order for that path —
-   subsequence because G3/G8/G9 are conditional, but **no reordering and no
-   unlisted row** — and that **every git row's `seq` exceeds the marker's**.
+| # | Purpose | Exact argv shape | Pins | Phase | `cwd_role` | Positive control | Why `PREPARE_ADMIN_GATE` makes it permissible |
+|---|---|---|---|---|---|---|---|
+| **G1′** | is the task worktree still registered? **A missing registration is a REFUSAL, never a re-materialisation** — re-materialising would run `worktree add`, the exec vector, **after** a previous worker has written to this repository | `git PIN_BLOCK worktree list --porcelain` | 1,2,3,4 | PREPARE | primary | the four-surface pass with a control per surface | **P3 has re-reconciled the whole administrative capture against the operator baseline in THIS run, before this row.** MEASURED byte-identical under a forged commit-graph |
+| ~~G2′~~ | ~~B2~~ | **none** — §5.5.2C's raw comparison is **P2** | — | — | — | — | — |
+| **G3′** | seal the base tree, **only if the task has no persisted seal** | `git PIN_BLOCK ls-tree -r -z <base_commit>` then `git PIN_BLOCK cat-file --batch` — **the G2/G8 pair, unchanged** | 1,2,3,4 | PREPARE | primary | G2's and G8's own controls, unchanged | **CONDITIONAL, and the condition is an assertion, not a comment:** reachable **only** when `not any(runs/*/ownership.json)`. A missing seal while any run has `ownership.json` is **`SealAbsentAfterWorker` → `FINALIZATION_FAILED`, never a rebuild.** `_run_git` refuses these two rows otherwise |
+| ~~**G4′**~~ | ~~identity: root commit~~ | **DELETED** | — | — | — | — | **§1A / ZI-70.** It ran **in a repository run 1's worker had write access to** — the sixth surface's own window |
+| ~~**G5′**~~ | ~~identity: origin~~ | **DELETED — pending T-26** | — | — | — | — | as G7 |
 
-> **Why both (2) and (3).** With only the journal check, a mutant that moves
-> *both* the marker and the command keeps their order and passes — **the marker
-> is written by the same code the mutant is editing.** With the interlock,
-> `_run_git` itself fails closed from state the mutant would also have to forge.
-> **The interlock is the property; the journal is the audit.** This is the same
-> shape as §5.4.5's *"the journal is only as good as the chokepoint"* box, and
-> the same answer.
+> **A resume's expected git row count is ONE (`G1′`), or THREE in the
+> never-had-a-worker case. Zero of them walk the commit DAG**, which is the whole
+> of Sol §11. **A resume has no G9**, so
+> `test_resume_runs_zero_graph_walk_git_commands` asserts *no `rev-list` at all*
+> rather than needing G9's argv exemption.
+>
+> **P2 before P3 is deliberate and is a change from ORDER 1.** On a dispatch, R6
+> precedes everything because G4's checkout is the execution vector and ZI-20
+> requires the gate first. **On a resume there is no `worktree add`**, so that
+> constraint does not bind and the cheaper, more specific check runs first. **If
+> any future revision reintroduces a resume-path `worktree add`, P3 must move
+> above P2 in the same commit** — `test_resume_declares_no_worktree_add` is the
+> tripwire, and it is an assertion over the declared rows, not over prose.
+
+---
+
+#### ORDER 3 — FABLE REVIEW
+
+```
+── RAW ONLY. ZERO GIT PROCESSES. ───────────────────────────────────────────────
+ V0  validate_task_id · assert_no_recursion · assert_validation_budget   pure
+ V1  load envelope + record                                        state files
+ V2  canonical_root := envelope.repository.root
+       -- MEASURED: this is ALREADY the canonical root, written by
+          TaskEnvelope.from_request(..., canonical_root=…) at server.py:920-926.
+          The review path re-derives, WITH A GIT PROCESS, a value it already
+          holds in a sealed, dispatcher-written envelope.
+       realpath(canonical_root) == canonical_root  else RepositoryRootDrift  row 0
+       canonical_root in the realpath'd allowlist  else RepositoryNotAllowed row 0
+       NO git_top_level. NO --show-toplevel.
+ V3  lock := RepositoryLock(canonical_root)   digest of the string from V2;
+       lock_identity_for is TOTAL and runs no git                  (§5.8.2B)
+ V4  LOAD THE SEALED IDENTITY  (§5.5.2D)  identity-record.json, verified against
+       seal-manifest.json. No subprocess. No repository file opened for authority
+ V5  evidence read: state/tasks/<id>/evidence/**   (server.py:2353, :2385)
+ V6  RAW INTEGRITY against the SEALED TASK AUTHORITY — lstat/readlink/byte
+       compare of the `.git` indirection and gitdir. NO git process. NOT the
+       operator baseline — see the convergence box in §5.8.3
+ V7  review-context projection (Gate 4.5 §15, fail-closed on an unapproved scope)
+ V8  compose prompt, build invocation
+── the reviewer spawns here. It is the FIRST process of the review. ────────────
+```
+
+> **Why the review needs no R6 gate, and the condition that would falsify it.**
+> R6 exists because ZI-20 requires that **no git command capable of executing a
+> repository-supplied program runs before the gate passes.** **The review path
+> runs no git command at all**, so R6's ordering premise is **vacuous** on this
+> path — and requiring it here would pay the T-36 baseline-drift refusal on every
+> review for a hazard that does not exist.
+>
+> **The marker, stated as a tripwire rather than a hope:** *if any future
+> review-path code opens a file **inside the repository** for an authority
+> purpose, R6 must precede it in the same commit.*
+> **`test_review_path_opens_no_repository_file_for_authority`** — a real review
+> under an `open()`/`os.open` audit, asserting the paths opened under
+> `canonical_root` are **none** and that everything opened is confined to
+> `state/tasks/<id>/**` and the reviewer's spool. **COULD IT PASS WHILE FALSE?
+> YES if the audit is not proven live** — so the test **first opens a deliberate
+> probe file under `canonical_root` and asserts the audit observed it.** **And YES
+> for a read from a C extension bypassing CPython's audit events**, which is the
+> same `NOT TESTED` residual §5.4.3B(ii) records and is not re-argued here.
+
+> # **EXPECTED: NONE.**
+>
+> | # | Command |
+> |---|---|
+> | — | **`{}` — `EMPTY_BY_DECLARATION`** |
+>
+> **The review path's declared git row set is EMPTY, it is a SENTINEL VALUE
+> rather than an absent key, and — unlike revision 6 — the declaration is
+> accompanied by the measurement it is declaring against.**
+>
+> **MEASURED against `4a0ae9f`, at runtime, by two independent methods:**
+>
+> ```
+>   1  GIT  git rev-parse --show-toplevel        cwd=primary   security.py:217
+>   2  GIT  git rev-parse --show-toplevel        cwd=primary   locks.py:72
+>   3  GIT  git rev-parse --show-toplevel        cwd=primary   git.py:350
+>   4  GIT  git rev-parse --absolute-git-dir     cwd=primary   git.py:353
+>   5  GIT  git config --get remote.origin.url   cwd=primary   git.py:359
+>   6  GIT  git rev-list --max-parents=0 HEAD    cwd=primary   git.py:362
+>   --- reviewer spawns here ---
+>   (zero further processes of any kind before the review returns)
+> ```
+>
+> **SIX with `[project_guidance] enabled = true` — which is what
+> `config/dispatcher.toml` ships. TWO with guidance disabled** — rows 1–2 are
+> **unconditional and survive every feature flag**, so the review path is
+> non-zero even for a dispatcher with every optional feature off.
+>
+> **`test_review_runs_zero_git_processes` is specified RED against `4a0ae9f`,
+> where it observes six.** Declaring it green today would be F5-3 in a new place.
+>
+> **And it MUST run in BOTH guidance configurations.** A single-configuration
+> test exercises the review path, satisfies a naive path-coverage rule, and
+> **still misses four of the six live rows.** *(An implementer testing against
+> `config/dispatcher.example.toml`, which ships `enabled = false`, would measure
+> two and conclude the claim was nearly true.)*
+
+**What each of the six becomes:**
+
+| Row | Was | Becomes | By |
+|---|---|---|---|
+| 1 | `validate_repository_root` → `--show-toplevel` | `realpath` equality against the config-load-time allowlist | **ZI-58 / §5.8.2B** — already ruled |
+| 2 | `lock_identity_for` → `--show-toplevel` | the canonical root row 1 already returned. **PROVABLY REDUNDANT:** `security.py:219` had already proven `path == git_top_level(path)` **one statement earlier**, so this row re-asks git a question just answered. **It needs no seal and no design change: pass `canonical_root` through** | §5.8.2B |
+| 3 | `--show-toplevel` (identity) | `identity_record.canonical_root`, **read from the seal** | §5.5.2D |
+| 4 | `--absolute-git-dir` | `identity_record.git_dir` — and §5.8.2A's raw resolver **already computes this value** without a subprocess | §5.5.2D |
+| 5 | `config --get remote.origin.url` | the raw config bytes R6 captured / `identity_record.pin_origin_url` | §5.5.2D, T-26 |
+| 6 | **`rev-list --max-parents=0 HEAD`** | `identity_record.pin_root_commit`, an **approved onboarding fact** | **ZI-70** |
+
+> **Row 6 is the one with no raw substitute — a root commit is a GRAPH fact — and
+> it is the row that forces the sealing choice.** The two options are **not**
+> equivalent: *declaring the true order* leaves the graph walk running,
+> post-worker, in a repository the worker owned, which is the sixth surface's own
+> window and makes ZI-51 false for `RepositoryIdentity`; *sealing* removes the
+> reader rather than pinning it. **Sealing is strictly stronger and is the only
+> one of the two that reaches the declared number.**
+>
+> **The cost, named rather than discovered:** a **sealed** identity is by
+> definition the identity **as of dispatch**, so a review of a task whose
+> repository legitimately gained a remote or was re-rooted compares against a
+> stale seal and **refuses**. That is the correct fail-closed behaviour —
+> `ProjectGuidanceResumeDrift` already exists for exactly this shape — **but it is
+> a behaviour change to name, not a free win.**
+
+> **Two properties of the six that revision 6's declaration did not carry.**
+> **(a) Rows 1 and 2 run synchronously on the asyncio event loop** — only rows 3–6
+> are offloaded to a thread — so a hung `rev-parse` stalls the whole MCP server.
+> The 10 s timeout bounds the window; it does not remove it. Not an authority
+> defect, and a second reason rows 1–2 should be raw. **(b) The declared
+> verification window in revision 6 was `server.py:1328-1500`; the handler is
+> `server.py:1292-1482`.** The window **started 36 lines inside the function**.
+> The prologue happens to be git-free so nothing was missed — **but a window
+> chosen by eye rather than by the function's own boundaries is F-7's own habit**,
+> and the corrected citation is `server.py:1292-1482`.
+
+---
+
+#### ORDER 4 — ONBOARDING (declared so that it is not an undeclared exception)
+
+| # | Purpose | Exact argv shape | Pins | Phase | `cwd_role` |
+|---|---|---|---|---|---|
+| **O1** | the pinned root-commit derivation | `git PIN_BLOCK rev-list --max-parents=0 HEAD` | 1,2,3,**4** | ONBOARDING | primary |
+| **O2** | **the unpinned cross-check — this IS the positive control** | `git <PIN_BLOCK minus core.commitGraph> rev-list --max-parents=0 HEAD` | 1,2,3 | ONBOARDING | primary |
+| **O3** | the independent complaint | `git PIN_BLOCK commit-graph verify` | 1,2,3,4 | ONBOARDING | primary |
+
+**`O1 != O2`, or `O3` non-zero, is `HistoryIdentityDerivationDisagreement` and a
+REFUSAL** (§1A.4). **These three rows exist in `git_order.py` as a declared path
+so that the graph walk that survives is declared data. An undeclared exception is
+how the review path came to run six.**
+
+---
+
+#### 5.4.3B(i) The matrix must run in BOTH directions, and a third rule is required
+
+> ### INVARIANT ZI-73 — WAVE 0 REQUIRES ALL THREE RULES. NO ONE OF THEM IS ACCEPTANCE.
+>
+> **A. POLICY COVERAGE — `declared → tested`.** Every declared row, for every
+> declared path, is exercised by a **named positive** test and a **named
+> negative** test. A declared row with no named pair is `NOT TESTED` and blocks
+> Wave 0.
+>
+> **B. RUNTIME CLOSURE — `observed → declared`.** All dispatcher process creation
+> is instrumented. For every authority-path test, **every observed git invocation
+> MUST map to exactly one declared row of that path — or, if it occurs after the
+> worker spawn, MUST NOT EXIST.**
+>
+> **An undeclared live git command FAILS THE BUILD even if no declaration
+> mentions it, and especially then. This is the direction that kills F5-3.**
+>
+> **C. PATH COVERAGE.** Every declared path must have **≥ 1 journaled run**, and
+> **every `_run_git` call site in `src/**` must be exercised by ≥ 1 journaled
+> test.** A path with zero journaled runs is `PATH_NOT_EXERCISED / NOT TESTED`
+> and blocks Wave 0.
+
+**Why direction A alone is not acceptance, stated formally because the informal
+version is what shipped.** Let `D` be the declared rows for a path and `O` the
+observed authoritative invocations. Revision 6 tested `∀d ∈ D. ∃o ∈ O. o ≈ d`.
+**F5-3 is a witness to `∃o ∈ O. ∀d ∈ D. o ≉ d` with `D = ∅` — and with `D = ∅`
+the tested implication is VACUOUSLY TRUE.** **The stronger the declaration is
+trimmed, the greener the report gets.** That is a test whose reward gradient
+points away from correctness, which is what makes F-7 a *class* rather than an
+incident.
+
+**Why rule C is required and is not in the directive.** ***Runtime closure is
+quantified over observations, and an unobserved path contributes no
+observations.*** A closure suite that never exercises the review path is **exactly
+as blind as revision 6's declaration was** — F5-3's own shape recurring inside
+F5-3's fix. F5-3 exists because *"no lane read the whole review path"*, and
+`if not self.guidance_enabled: return None` is precisely the kind of branch a
+path-level coverage rule misses. **Hence: enumerate `{dispatch, resume, review,
+onboarding}` explicitly, and require call-site-level coverage as well as
+path-level.**
+
+**The acceptance report is a JOIN, not a projection:**
+
+| tag | meaning | verdict |
+|---|---|---|
+| `DECLARED_AND_OBSERVED` | in both, `match` holds | **PASS** |
+| `DECLARED_NOT_OBSERVED` | declared, never journaled | **NOT TESTED** — never PASS. Revision 6's only failure mode |
+| `OBSERVED_NOT_DECLARED` | journaled, no declared row | **FAIL — `UndeclaredAuthoritativeGit`.** This row class did not exist before revision 7 and **it is the whole of F5-3** |
+| `OBSERVED_AFTER_SPAWN` | authority-domain row after the worker spawn | **FAIL, unconditionally** |
+| `PATH_NOT_EXERCISED` | a declared path with zero journaled runs | **NOT TESTED** — blocks Wave 0 |
+
+**A join cannot be made green by trimming either side**: trimming the declaration
+converts rows to `OBSERVED_NOT_DECLARED`, trimming the tests converts rows to
+`NOT TESTED`. **Both cheats become visible in the artefact instead of invisible in
+its absence.**
+
+`match(o, d)` is `sha256(argv_shape(o)) == d.argv_shape_sha256 ∧ cwd_role(o) ==
+d.cwd_role`, where `argv_shape` replaces **only** SHA-like tokens, absolute paths
+and configured values with typed placeholders — **never flags, never
+subcommands**. **`∃!` — exactly one — not `∃`:** two declared rows matching one
+observation means the declaration is ambiguous, **and an ambiguous declaration is
+how a real row hides behind a near-identical neighbour.**
+`test_argv_shape_does_not_collapse_distinct_commands` asserts a table of near-miss
+pairs hash **differently**, and it is specified over **the full repertoire crossed
+against itself**, not a hand-picked sample, because a short table is how that test
+passes while false.
+
+#### 5.4.3B(ii) The instrument is INTERPRETER-LEVEL, and a `Popen`-only hook is MEASURED incomplete
+
+> ### INVARIANT ZI-74 — RUNTIME CLOSURE IS MEASURED BY A WHOLE-PROCESS AUDIT HOOK OVER THE EVENT FAMILY, NEVER BY A WRAPPER AROUND `_run_git`
+>
+> ```python
+> # tests/support/spawn_journal.py — TEST SUPPORT, WAVE 0. Never imported by src/**.
+> _EVENTS = ("subprocess.Popen", "os.posix_spawn", "os.posix_spawnp",
+>            "os.exec", "os.spawn", "os.fork", "os.forkpty")
+> sys.addaudithook(hook)      # cannot be removed once installed
+> ```
+
+**MEASURED — three spawn styles, one hook:**
+
+| Spawn style | `subprocess.Popen` event | `os.posix_spawn` event |
+|---|---|---|
+| `subprocess.run(["git","--version"])` | **FIRES** | — |
+| `asyncio.create_subprocess_exec("git","--version")` | **FIRES** | — |
+| `os.posix_spawn("/usr/bin/git", ["git","--version"], env)` | **DOES NOT FIRE** | **FIRES** |
+
+1. **`asyncio.create_subprocess_exec` funnels through `subprocess.Popen`**, so
+   `runner.py:1428` and `validation.py:228` are both visible to a `Popen`
+   subscriber.
+2. **A `subprocess.Popen`-only instrument is INCOMPLETE.** `os.posix_spawn` is a
+   real, reachable stdlib bypass that produces a live child and **no `Popen`
+   event.** **Any acceptance built on a `Popen`-only hook is a green report with a
+   documented hole. The event family is mandatory, not defensive.**
+3. **Hooking two layers DOUBLE-COUNTS.** One reviewer's two-layer probe recorded
+   the reviewer spawn twice — once as `loop.subprocess_exec`, once as
+   `subprocess.Popen` — **for a single process.** **Therefore every closure
+   assertion in this document is over ROW SETS AND MAPPINGS, never over integers:
+   a closure test that asserts a COUNT can be inflated into passing by an
+   instrumentation bug.** *(This is written down because a lane made the mistake
+   and reported it.)*
+
+**Residual, stated rather than argued away:** a `ctypes`-driven `fork`/`execve`,
+a C extension that spawns without touching the audit machinery, and any process
+the **child** creates are outside this instrument. The first is partially
+observable via `ctypes.dlopen` / `ctypes.call_function` audit events and those are
+recommended as a **REPORT ONLY** row; **no probe was built for the ctypes route,
+so it is `NOT TESTED`.** The third is out of scope by construction: the
+dispatcher's claim is about the dispatcher's own process.
+
+> ### INVARIANT ZI-75 — DOMAIN IS DECIDED BY PROVENANCE, NEVER BY `argv[0]`
+>
+> Every observed row is classified `authority` or `execution` from the
+> **contextvar-carried `ToolExecution` phase and the declaring call site** —
+> **never from `argv[0]`.**
+>
+> **`argv[0] == "git"` is WORKER-CONTROLLABLE:** `models.py:355-366` rejects only
+> shells and NUL, so `["git","diff","--exit-code"]` is a legal trusted validation
+> command. **A partition keyed on argv would classify a worker-chosen validation
+> command as an authority violation, and — worse — could be EVADED by an authority
+> call spelled `/usr/bin/git`.**
+>
+> Execution-domain rows go to `validation-invocations.jsonl` and are **not**
+> closure violations; the two journals stay disjoint by construction, and the
+> audit hook asserts **every observed row lands in exactly one of them.**
+
+#### 5.4.3B(iii) §5.4.3B checked against itself — five ways it could pass while false
+
+**(i) The instrument is not live.** The classic B-2 shape. **Closed:** every
+journaled test begins by spawning a deliberate `git --version` and asserting the
+journal observed it, with the control row tagged `domain="control"` and excluded
+from closure. **A test whose control did not fire is `NOT TESTED`.**
+
+**(ii) The instrument hooks a layer some spawns bypass.** **MEASURED to be a real
+hole** (`os.posix_spawn`), closed by the event family. **The residual — ctypes, C
+extensions — is stated as `NOT TESTED`, not argued away.**
+
+**(iii) Runtime closure only closes the paths tests actually run.** **This is the
+serious one and it is F5-3's shape inside F5-3's fix.** Closed by **rule C**,
+which is not optional.
+
+**(iv) The declaration is written to match whatever was observed.** Run the suite,
+paste the observed rows into `git_order.py`, ship green. **Closed by direction A:**
+a declared row needs a **named negative** test, and a negative test requires
+someone to state the row's failure mode, **which cannot be derived from an
+observation.** **A row reverse-engineered from a journal has no negative test and
+shows as `NOT TESTED`.** Direction A is the anti-tautology half.
+
+**(v) `match()` is too loose.** Closed by the narrow `argv_shape` normalisation,
+the `∃!` requirement, and the full-cross-product near-miss table.
+
+**And one level up, the same trap:** `test_git_order_matches_the_design_document`
+parses this document's tables and compares them row-for-row against
+`git_order.py`. **COULD IT PASS WHILE FALSE? Yes — if the parser silently fails to
+find a table and compares two empty sets.** Closed by asserting a **minimum row
+count per path**, with the review path's zero recorded as an explicit
+**`EMPTY_BY_DECLARATION` sentinel row rather than as an absence.**
+
+> **An empty set and a missing table must not be the same value anywhere in this
+> machinery. That identity is F5-3's root cause**, and `test_review_path_declares_the_empty_set_explicitly`
+> asserts `DECLARED["review"] == EMPTY_BY_DECLARATION`, distinguishable from a
+> `KeyError` and from `[]`-by-omission.
+
+**The design document is the third party neither side can edit to win.** Without
+`test_git_order_matches_the_design_document`, an implementer whose runtime
+disagrees with the design can edit `git_order.py` until the join is green — the
+tautology of (iv), one level up.
+
+#### 5.4.3B(iv) Enforcement — the interlock is the property, the journal is the audit
+
+> ### INVARIANT ZI-53 (retained) — NO GIT PROCESS PRECEDES THE RAW ESTABLISHMENT THAT MAKES IT ACCEPTABLE
+>
+> `_run_git` **refuses to execute** (`GitBeforeEstablishment`,
+> `InternalDispatcherError`) when the current `ToolExecution` carries no
+> establishment marker. `git-invocations.jsonl` carries a monotone `seq` and R6/P3
+> write a non-git marker row; the journal assertion is that **every git row's
+> `seq` exceeds the marker's** and that the rows are a **prefix-preserving
+> subsequence** of the declared order for that path.
+
+> **Why both.** With only the journal check, a mutant that moves **both** the
+> marker and the command keeps their order and passes — **the marker is written by
+> the same code the mutant is editing.** With the interlock, `_run_git` fails
+> closed from state the mutant would also have to forge.
 >
 > **And the interlock is blind to `validation.py:228`**, which does not go through
 > `_run_git` at all. That is not a gap in the interlock; it is §5.17's subject,
-> and §19's vectors 7 and 8 exist to attack it.
-
-**A.2B IS GENERATED, NOT MAINTAINED — and this is F-7's structural fix.**
-
-> The four-surface matrix's row set is **generated** from the declared pre-worker
-> order (all three paths) plus the FINALIZE set. **The acceptance report fails if
-> any declared row has no measured row.** `test_declared_order_is_the_matrix_row_set`
-> — **RED today**, because `--show-toplevel` is declared in revision 5's §5.4.3
-> and absent from A.2B.
->
-> **A hand-maintained matrix will drift again; a derived one cannot.** F-7 is
-> discharged by *deleting* both of its missing rows rather than by measuring
-> either, and the derivation rule prevents the class from recurring.
-
-**`test_worktree_add_is_the_only_mutating_pre_worker_command`** replays the whole
-declared order against a **read-only bind mount** of a throwaway repository and
-asserts every declared pre-worker row except G4 is read-only. **COULD IT PASS
-WHILE FALSE?** Yes if the mount is not actually read-only — so the test first
-attempts a control write that **must** fail. **No existing test asserts this.**
+> and §21's vectors 8 and 9 exist to attack it.
 
 #### 5.4.4 `git.py` splits
 
@@ -2664,7 +3651,7 @@ git.py            ONLY the permitted invocations, each a named function.
 evidence/
   basetree.py     BaseTreeSnapshot          (ls-tree identity + SEALED bytes)
   seal.py         SealManifest, the CAS, Route A/Route B    [WAVE 0]
-  headchain.py    resolve_head_raw — B2 with no git process [WAVE 0]
+  worktreeauth.py the EIGHT raw B2 comparisons — no git, no resolver [WAVE 0]
   attribution.py  the three deltas and the closure theorem  [WAVE 0]
   freeze.py       EvidenceFreeze                            [WAVE 0]
   git_order.py    the declared pre-worker order + interlock [WAVE 0]
@@ -2860,21 +3847,27 @@ comparison agrees with itself**), and what F-3's laundering route depends on.
 §9's fix.**
 
 ```
-── PREPARE ─────────────────────────────────────────────────────────────
- 0. RAW ADMINISTRATIVE PREFLIGHT  (§5.8)     NO git process has run yet  [R6]
+── PRE-GIT. RAW ONLY. ZERO GIT PROCESSES. ──────────────────────────────
+ R6. CAPTURE  PREPARE_ADMIN_GATE             the gate's ONLY operand    (§5.8.3)
+ R7. PRIMARY_PREPARE raw snapshot                                       (§5.9.2)
+ R8. IDENTITY RECORD ASSEMBLY                pure Python                (§5.5.2D)
+── PREPARE — the first git process is HERE ─────────────────────────────
  1. verify the immutable base SHA            rev-parse         [G1, §4.14]
  2. BaseTreeSnapshot IDENTITY                ls-tree -r -z     [G2, no --long]
- 3. materialise the task worktree            worktree add      [G4] ← the ONE
-                                                                PREPARE exec vector
- 4. RepositoryAuthoritySnapshot(role=pre_run) RAW FILE READS ONLY  (§5.5.2C)
+ 3. materialise the task worktree            worktree add --detach   [G4] ← the
+                                                          ONE PREPARE exec vector
+ 4. SEAL the worktree authority              RAW lstat/open ONLY, NO git (§5.5.2C)
  5. START FsSnapshot                         dispatcher-owned lstat/readlink/hash
  6. BaseReconciliation(2 vs 5)               dispatcher-owned; DECIDES the old side
  7. SEAL THE CONTENT                         Route A (free) + Route B [G8]
  8. seal-manifest.json written LAST, ATOMICALLY   ← the seal exists iff this does
+ S1. CAPTURE  WORKER_START_AUTHORITY         THE attribution baseline  (§5.8.3)
+ S2. PRIMARY_WORKER_START raw snapshot                                 (§5.9.2)
+ S3. ASSERT PRIMARY_PREPARE == PRIMARY_WORKER_START, or REFUSE (row 0) (§5.9.2)
 ── only now may a worker be launched ───────────────────────────────────
 ── worker runs ─────────────────────────────────────────────────────────
  9. worker reaped
-10. RAW admin re-capture #1 + RAW B2 over the sealed HEAD chain  (§5.5.2C)
+10. CAPTURE WORKER_EXIT_AUTHORITY + RAW B2 — the EIGHT byte comparisons (§5.5.2C)
 11. WORKER_EXIT = FsSnapshot                 ← state 2. NO git status.
 12. worker_delta = delta(START, WORKER_EXIT) → PathIdentitySet
 13. SCOPE + primary-tree policy                        (§8 rows 4, 5)
@@ -2885,11 +3878,11 @@ comparison agrees with itself**), and what F-3's laundering route depends on.
 17. run_validations(envelope, worktree, config)
 ── after validation ────────────────────────────────────────────────────
 18. POST_VALIDATION = FsSnapshot              ← state 3
-19. RAW admin re-capture #2; evidence-freeze re-hash
+19. CAPTURE VALIDATION_EXIT_AUTHORITY; evidence-freeze re-hash
 20. validation_delta, final_delta, attribution.json
 ```
 
-**Steps 2, 6, 7 and 8 happen ONCE PER TASK** and are **never re-created** — a
+**Steps 2, 4, 6, 7, 8 and R8 happen ONCE PER TASK** and are **never re-created** — a
 missing seal with any run's `ownership.json` present is `SealAbsentAfterWorker`,
 **`FINALIZATION_FAILED`, never a rebuild** (§5.5.2A). Steps 5 and 9–20 happen
 once per run.
@@ -2901,6 +3894,24 @@ once per run.
 > **Steps 10 and 19 are TWO post-worker administrative captures, not one.**
 > Revision 5 has one. With one capture you cannot tell whether the worker or a
 > validation command planted the hook, and `attributed_to` is undecidable.
+>
+> **And S1 is a THIRD capture, distinct from R6's** (§5.8.3). **`WORKER_START_AUTHORITY`
+> is captured BEFORE the spawn, not AT it** — the window between S1 and the spawn
+> contains S2, S3, the START walk and the spawn itself, all dispatcher-owned.
+> **`NOT TESTED`: whether an `FsSnapshot` of a large worktree between S1 and the
+> spawn admits a race with a concurrent process outside the threat model.** Under
+> the same-uid threat model this is the residual §5.8.4 already records; **it is
+> not new, and it is recorded rather than claimed closed.**
+>
+> **A crash between S1 and the spawn lands `ABORTED_PRELAUNCH`, §8 row 1, task
+> lifecycle unchanged, NO FAKE WORKER RUN.** The seal and the baseline exist and
+> no `ownership.json` does — **indistinguishable from a PREPARE that never
+> launched, and it must land exactly there. A recovery path that saw
+> `WORKER_START_AUTHORITY` and INFERRED a worker had run would manufacture a run
+> out of a dispatcher-side artefact.** `test_crash_between_start_authority_and_spawn_is_aborted_prelaunch`.
+> **And a `WORKER_START_AUTHORITY` whose `captured_at_ns` postdates
+> `ownership.json` is the same dispatcher defect as `SealProvenanceInvalid` and
+> raises the same `InternalDispatcherError`.**
 
 #### 5.5.2 Step 1–2 — the base tree, and the content hash IS the git blob oid
 
@@ -3369,181 +4380,641 @@ Mutant **Z8-M10** (*"drop PIN 1 because the seal makes it unnecessary"*) and
 **Z8-M27** (the same for PIN 2) exist because that is a genuinely tempting
 simplification and nothing else in this document forbids it.
 
-#### 5.5.2C B2 without a git command — the sealed HEAD chain (Sol §5)
+#### 5.5.2C B2 WITHOUT A RESOLVER — the detached worktree (Sol §3, closes F5-1)
 
-> ### INVARIANT ZI-56 — THE WORKTREE HEAD CHAIN AND THE `.git` INDIRECTION ARE PROTECTED, IMMUTABLE DISPATCHER AUTHORITY
->
-> **§5.8.3's exceptions for `worktrees/sol-<id>/{HEAD, gitdir, commondir}` are
-> DELETED.** There is no allowlist (§5.8).
->
-> Before launch the dispatcher records — **raw** — the worktree `.git` bytes, the
-> resolved gitdir, the `commondir` bytes **and** its resolution, the gitdir
-> back-pointer, **every file on the HEAD resolution chain**, and the expected
-> exact 40-hex base SHA. After the worker it verifies those exact bytes and
-> identities **using raw filesystem reads only. No `rev-parse`. No git process of
-> any kind.**
->
-> **The dispatcher NEVER adopts observed state.** The expected value is the one
-> recorded at `worktree add`. There is no path on which a mismatch is resolved by
-> believing the file.
+##### The defect, and it is worse than an ordering bug
 
-##### Sol's directive is FALSIFIED as literally written, and is corrected rather than silently satisfied
+Revision 6 specified `resolve_head_raw(gitdir, common_dir)`: read
+`<gitdir>/HEAD`, and if it begins `ref: `, **look in `<gitdir>/refname` first,
+then `<common_dir>/refname`, then scan `packed-refs`.**
 
-Sol §5 directs recording *"gitdir `HEAD` bytes · expected exact 40-char SHA"* and
-verifying *"those exact bytes."* **MEASURED, with the dispatcher's actual argv
-(`git.py:608`, `worktree add --quiet -b <branch> <path> <sha>`):**
+**That order is not git's.** For a linked worktree git resolves `refs/heads/**`
+from the **common dir** and **ignores `<gitdir>/refs/heads/**` entirely.**
+
+**MEASURED, against the dispatcher's own argv (the `-b` form):** a worker runs an
+ordinary `git commit`, which moves `<common>/refs/heads/sol-abc`, then writes
+**one plain file** `<gitdir>/refs/heads/sol-abc` containing the base SHA:
 
 ```
-after worktree add:
-  <gitdir>/HEAD        = "ref: refs/heads/sol-abc\n"   ← NOT 40-hex, ever
-  refs/heads/sol-abc   = "<base sha>\n"                ← the value lives HERE
-
---- worker runs `git commit` inside the worktree ---
-  <gitdir>/HEAD        = "ref: refs/heads/sol-abc\n"   ← BYTE-IDENTICAL
-  refs/heads/sol-abc   = "<worker sha>\n"              ← MOVED
+SHAPE=-b      RESOLVER=gitdir-first     (§5.5.2C as revision 6 wrote it)
+  sealed <gitdir>/HEAD        b'ref: refs/heads/sol-abc\n'
+  worker: git commit + plant <gitdir>/refs/heads/sol-abc = BASE
+  GROUND TRUTH rev-parse HEAD 779bdfa7…            <-- TWO COMMITS
+  now <gitdir>/HEAD           b'ref: refs/heads/sol-abc\n'   <-- BYTE-IDENTICAL
+  raw chain consulted         [gitdir:HEAD, gitdir:refs/heads/sol-abc]
+  now resolved                8bcad420…            <-- THE SEALED BASE
+  VERDICT                     base_held
+  >>> *** MISS ***
 ```
 
-> **A B2 that compares only `<gitdir>/HEAD` bytes against an expected 40-hex
-> would pass while HEAD had moved to the worker's own commit — the exact defect
-> B2 exists to catch. Sol's §5 as literally written contains that trap.**
-> Independently confirmed by Z7, which observed the *form* change (sealed symref
-> → attacker's detached oid) **before any value comparison**.
+**Three things are all true at once and each is independently disqualifying:**
 
-**And a second measurement makes the naive fix wrong too.** A worker running
-`git pack-refs --all` — its own git, in its own worktree, and **not in
-`CORE_DENIED_GIT_OPERATIONS`** — **deletes the loose ref file** while the value is
-unchanged and now lives in `packed-refs`. **A raw byte comparison of the sealed
-loose ref sees ABSENT** and would either report a violation that did not happen
-or, if implemented as *"absent ⇒ skip"*, silently drop the check.
+1. **The design's own named killer passes against the defect.**
+   `test_worker_commit_moves_the_ref_and_is_caught` was described as *"the one a
+   HEAD-bytes-only implementation fails"* — and it is. **It is also passed by the
+   gitdir-first resolver**, because in the un-attacked case the gitdir copy does
+   not exist, the resolver falls through, and it gets the moved value. **Fifth
+   instance of the §10.3 shape.**
+2. **The document contained two incompatible raw resolvers.** §5.9.2's primary
+   reader is *"resolve against `<common_dir>/<ref>` or scan `packed-refs`"* —
+   common-dir only, **correct** — while §5.5.2C's was gitdir-first and called
+   itself *"the same reader §5.9.2 specifies … generalised"*. **It was not.**
+3. **The whole class exists only because the sealed HEAD is symbolic.** The
+   shadow ref, the `pack-refs --all` restructure, the five-hop traversal, the
+   `refs/heads/../../../tmp/evil` refusal regex, `HeadChainLink`,
+   `head_chain_restructured` and its companion false-positive killer are **all**
+   consequences of **B2 having to resolve a name.**
 
-**So the sealed object is the CHAIN and the invariant is over the RESOLVED VALUE.**
+> **The resolver is the defect. B2 is not repaired by building a better one.** A
+> correct resolver is a larger, subtler artefact than the thing it protects, it
+> must track git's ref-lookup rules across versions, and **F5-1 is the proof that
+> an author, a reviewer and a named killer test did not notice it was wrong.**
+
+##### The invariants
+
+> ### INVARIANT ZI-76 — A GATE-7 TASK WORKTREE IS DETACHED AT THE FROZEN BASE, AND ITS HEAD IS A LITERAL 40-HEX FILE FOREVER
+>
+> Every dispatcher-created task worktree is created
+> **`git worktree add --quiet --detach <path> <40-char-sha>`**, where the SHA is
+> the already-verified, already-frozen `base_commit` of §4.14 — **never a name,
+> never a branch, never `HEAD`.**
+>
+> **`<worktree-gitdir>/HEAD` is a REGULAR FILE whose content, after normalising at
+> most ONE trailing `\n`, is the EXACT expected lowercase 40-hex base SHA.**
+>
+> **NO SYMREF IS ACCEPTED FOR A GATE-7 TASK WORKTREE, EVER, AT ANY PHASE.**
+> Content beginning `ref: ` is **not resolved, not followed, not hopped, not
+> looked up** in `<gitdir>/refs`, in `<common_dir>/refs`, or in `packed-refs`.
+> **It is a MISMATCH.**
+>
+> **There is no refname. There is no chain. There is no lookup order to get
+> wrong.** `resolve_head_raw`, `HeadChain`, `HeadChainLink`,
+> `head_chain_restructured` and the ref-name allowlist regex are **DELETED from
+> the task-worktree path**, and the tests that exercised them are deleted with
+> them.
+
+> ### INVARIANT ZI-77 — B2 IS RAW FILESYSTEM EQUALITY, POST-WORKER, AND NOTHING ELSE
+>
+> | # | Read | Comparison |
+> |---|---|---|
+> | 1 | `lstat(<worktree>/.git)` | must be a **regular file** (§5.8.2A) |
+> | 2 | `open(<worktree>/.git,"rb")` | **exact bytes** == sealed |
+> | 3 | `lstat(<worktree-gitdir>)` | directory; **`(st_dev, st_ino)` == sealed** |
+> | 4 | `open(<gitdir>/commondir,"rb")` | **exact bytes** == sealed |
+> | 5 | resolved `common_dir` path | **exact bytes** == sealed |
+> | 6 | `open(<gitdir>/gitdir,"rb")` | **exact bytes** == sealed |
+> | 7 | `lstat(<gitdir>/HEAD)` | must be a **regular file** |
+> | 8 | `open(<gitdir>/HEAD,"rb")` | **exact whole-file byte equality** against the sealed bytes |
+>
+> **PROHIBITED, each a separately named mutant:** no `rev-parse` in any form · no
+> refname resolution · no `packed-refs` read · no `<gitdir>/refs/**` or
+> `<common_dir>/refs/**` lookup · no symref hop · **no prefix or truncated-SHA
+> equality** · no case-insensitive comparison · **no whitespace-stripping
+> normalisation beyond one trailing `\n` at PREPARE** · **no adoption of an
+> observed head under any condition** · **no "absent ⇒ skip"** · no git process of
+> any kind.
+
+##### What ZI-77 does NOT claim — stated first, so it cannot be over-read
+
+> **B2 asserts that `<gitdir>/HEAD` still names the same 40-hex string. It does
+> NOT assert that the string still names the same object graph.** S-ε variants C
+> and H substitute the *objects* while HEAD reads correctly; `refs/replace/**` and
+> `info/grafts` do the same; **S-ζ substitutes the parentage.** **That class is
+> closed by §5.8.2's object-store and routing capture, PIN 1 / PIN 3 / PIN 4 and
+> the §5.5.2A seal — not by B2, and B2 does not borrow their credit.**
+
+##### MEASURED — the detached shape, and why the class cannot recur
+
+```
+git worktree add --detach <path> <BASE>
+  <worktree>/.git        regular file, 54 B   b'gitdir: …/worktrees/wt\n'
+  <gitdir>/HEAD          regular file, 41 B   b'ff87d7f6…b9735e0f\n'
+     is 40hex + exactly one \n : True     strip()==BASE : True
+  <gitdir>/ORIG_HEAD     41 B      <gitdir>/commondir  6 B  b'../..\n'
+  <gitdir>/gitdir        28 B      <gitdir>/refs       ABSENT (no such directory)
+
+contrast, the -b form, same repo, same BASE:
+  <gitdir>/HEAD                 b'ref: refs/heads/sol-abc\n'   (24 B)
+  <common>/refs/heads/sol-abc   ff87d7f6…
+  <gitdir>/refs/heads/sol-abc   ABSENT           <-- THE WHOLE OF F5-1 LIVES HERE
+```
+
+**The detached form has no third line: there is no ref to shadow, because there
+is no ref.** The raw chain consulted by B2 is **one entry long**.
+
+**45 distinct worker actions were run against a detached worktree, and the
+verdict was compared against `git rev-parse HEAD` every time. MISSES: 0.** The
+matrix includes `commit`, `checkout <sha>`, `checkout -b`, `reset --hard/--soft`,
+`stash`, `pack-refs --all`, `gc`, `gc --aggressive --prune=now`, `update-ref
+--no-deref HEAD`, `symbolic-ref HEAD`, **the F5-1 shadow-ref plant**, **a fake
+branch ref in the common dir with and without a forged `packed-refs` line**,
+`cherry-pick`, a stopped `rebase`, `bisect`, `am`, `commit --amend`,
+`worktree move`, `worktree repair`, `replace`, `reflog expire`, a second
+`worktree add`, an appended `extensions.refStorage = reftable`, four malformed
+HEAD encodings, `sparse-checkout set`, `read-tree`, `config.worktree
+core.worktree`, and *"commit then rewind the HEAD file to BASE"*.
+
+> **The harness is proven able to produce a MISS.** The identical four-cell rig
+> reproduced **F5-1** in the `-b`/gitdir-first cell. **So a `base_held` from a
+> detached cell is a measured pass, not an unarmed sentinel.**
+
+**Why the class cannot recur, structurally, on git 2.43:** in the detached shape
+**the value and the file are the same object. There is no indirection to disagree
+about.** The three ways to reintroduce one were each measured shut:
+
+1. **Make `HEAD` a symlink** — **git itself refuses the worktree** (`rc=128`).
+   Both git and the raw reader stop; they cannot disagree.
+2. **Repoint the gitfile** — caught by comparison 2 *and* rejected by git.
+3. **Move ref storage out of files** — `extensions.refStorage = reftable` gives
+   `rc=128 fatal: unknown repository extension found: refstorage`; git 2.43 has no
+   reftable backend and no `git refs migrate`. **`NOT TESTED` as a live vector,
+   and it is a host-capability absence, not a choice.**
+
+> **The consequence that must be recorded anyway:** on a future git **with**
+> reftable, `<gitdir>/HEAD` could be stale or absent while git reports a different
+> HEAD — **reopening F5-1's class against the detached shape.** **A raw reader
+> that only reads `HEAD` would notice nothing**, and the gate's `git --version`
+> pin fires on *upgrade*, not on a repository that arrives already migrated.
+> **The `UnsupportedRefStorage` refusal must therefore come from the raw parse of
+> `$GIT_COMMON_DIR/config` for `core.repositoryformatversion` / `extensions.*`,
+> never from asking git.**
+
+##### THE KILLER — and why detachment alone is not enough
+
+**MEASURED — a detached worktree can be converted to symbolic by ONE plain file
+write, and F5-1's exact failure returns:**
+
+```
+SEAL:   <gitdir>/HEAD = "8e4aa907…\n"   (== BASE)
+worker: printf 'ref: refs/heads/main\n' > <gitdir>/HEAD      # one plain write
+  git -C <worktree> rev-parse HEAD = 8e4aa907…  == BASE   <-- GROUND TRUTH AGREES
+worker: git commit --allow-empty -m evil
+  git -C <worktree> rev-parse HEAD = f3fa6003…            HEAD HAS MOVED
+  raw <gitdir>/HEAD                = b'ref: refs/heads/main\n'  BYTE-IDENTICAL
+```
+
+**Read the second line carefully. At the moment of the plant, git's own answer is
+still the base SHA.** Therefore:
+
+- **Any B2 phrased as *"does HEAD point at the base commit?"*** — including a
+  perfectly correct git-order resolver, **including `rev-parse --verify
+  HEAD^{commit}` itself** — **returns `base_held` at the plant and proceeds.**
+- **Any B2 phrased as *"is `<gitdir>/HEAD` literally the expected 40 hex
+  bytes?"*** **refuses at the plant, before the commit is ever made.**
+
+**These two phrasings are indistinguishable by every test that asserts B2 detects
+a moved HEAD, and they are separated by exactly one test.**
+
+> ### `test_symref_plant_in_a_detached_worktree_is_a_mismatch_even_when_it_resolves_to_the_base`
+>
+> **Fixture.** Throwaway repo, one commit `BASE`, branch `main` at `BASE`,
+> `worktree add --detach`. Seal. The fake worker performs **exactly one action**:
+> `printf 'ref: refs/heads/main\n' > <gitdir>/HEAD`. **No commit.** Reap. Run B2.
+>
+> **Four assertions, all required:**
+> 1. `git -C <task> rev-parse HEAD == BASE` — **asserted INSIDE the test, as a
+>    control**, so the test proves the trap is armed rather than assuming it;
+> 2. verdict is **`base_mismatch`** — not `base_held`, not `unknown`;
+> 3. the run lands **`FAILED` at §8 row 2, before any evidence exists**;
+> 4. the B2 journal window is **empty**.
+>
+> **COULD IT PASS WHILE THE PROPERTY IS FALSE?**
+> — **Against a symref-resolving implementation: NO.** It resolves to `BASE`,
+> returns `base_held`, assertion 2 fails. **This is the assertion F5-1's design
+> could not make, because its B2 was DEFINED as a resolution.**
+> — **Against a `rev-parse`-based implementation: NO**, same reason, plus 4.
+> — **Against a "40-hex or else fall back to resolution" implementation: NO** —
+> assertion 2 still fails.
+> — **YES, in exactly one way, and it is closed by construction:** **if the
+> fixture planted a symref pointing at a DIFFERENT commit, every implementation
+> would fire and the test would prove nothing. The plant MUST resolve to the
+> base.** A future editor who "simplifies" the fixture by pointing `main`
+> elsewhere **destroys the test without breaking it** — which is why the fixture's
+> own control is assertion 1 and why a meta-test **executes** the fixture rather
+> than string-searching it.
+
+##### The one-LF normalisation, and it is STRICTER THAN GIT
+
+```python
+def normalise_head(raw: bytes) -> bytes:
+    # EXACTLY ONE optional trailing b"\n" is removed. NOTHING ELSE.
+    # No .strip(). No .rstrip(). No CR handling. No case folding.
+    # No leading-whitespace tolerance. No second newline.
+    return raw[:-1] if raw.endswith(b"\n") else raw
+```
+
+**Then, and only then, `expected_head_bytes` is frozen as the raw bytes read at
+seal time** — so the post-worker comparison is a **raw whole-file `bytes ==`**,
+and the normalisation is a **PREPARE-time validation, not a post-worker
+transformation.** **That removes the normaliser from the post-worker path
+entirely, which is what makes "loosen the normalisation" killable at all.**
+
+**MEASURED — git is LOOSER than this rule in three ways, and every one is a FALSE
+POSITIVE, never a false negative:**
+
+| `<gitdir>/HEAD` content | `git rev-parse HEAD` | ZI-77 verdict | direction |
+|---|---|---|---|
+| `<SHA>\n` (git's own form) | rc=0 | **match** | correct |
+| `<SHA>` (no LF) | rc=0 | **mismatch** | fail-closed |
+| `<SHA>\r\n` | **rc=0** | **mismatch** | fail-closed |
+| `<SHA>\n\n` | **rc=0** | **mismatch** | fail-closed |
+| `<SHA-UPPERCASE>\n` | **rc=0** | **mismatch** | fail-closed |
+| ` <SHA> \n` | rc=128 | mismatch | agrees with git |
+| `<SHA-7-CHAR>\n` | rc=128 | mismatch | agrees with git |
+| `ref: refs/heads/main\n` | rc=0, resolves | **mismatch** | **the killer above** |
+
+> **This asymmetry is deliberate, is priced, and is written into the design rather
+> than discovered by an implementer.** A repository or tool that legitimately
+> rewrote `<gitdir>/HEAD` in CRLF or uppercase form would land
+> `WorktreeBaseMismatch`. **No such tool is known and none was found — the search
+> was three greps and one experiment, so the claim is `NOT TESTED`, not "none
+> exists."** The direction of the error is **refusal**, which §8 row 2 lands as
+> `FAILED` **before evidence exists**, so **the cost is availability, never a
+> laundered verdict.** **Sol should ratify the asymmetry explicitly — T-32.**
+
+##### The post-worker function, in full
+
+```python
+def verify_worktree_base_raw(sealed, worktree) -> WorktreeVerdict:
+    # NO git. NO rev-parse. NO refname. NO packed-refs. NO <gitdir>/refs.
+    # NO prefix equality. NO observed-head adoption. NO "absent => skip".
+    st = os.lstat(worktree + b"/.git")
+    if not stat.S_ISREG(st.st_mode):                    return indirection_changed
+    if open(worktree + b"/.git","rb").read() != sealed.gitfile_bytes:
+                                                        return indirection_changed
+    gitdir = sealed.gitdir_realpath          # SEALED, NEVER re-derived
+    gst = os.lstat(gitdir)
+    if (gst.st_dev, gst.st_ino) != (sealed.gitdir_dev, sealed.gitdir_ino):
+                                                        return indirection_changed
+    if open(gitdir + b"/commondir","rb").read() != sealed.commondir_bytes:
+                                                        return indirection_changed
+    if os.path.realpath(...) != sealed.common_dir_realpath:
+                                                        return indirection_changed
+    if open(gitdir + b"/gitdir","rb").read() != sealed.gitdir_backptr_bytes:
+                                                        return indirection_changed
+    hst = os.lstat(gitdir + b"/HEAD")
+    if not stat.S_ISREG(hst.st_mode):                   return base_mismatch
+    if open(gitdir + b"/HEAD","rb").read() != sealed.head_bytes:
+                                                        return base_mismatch
+    return base_held
+```
+
+**Three properties of this function are the entire fix:**
+
+1. **`gitdir` is read from the seal, never re-derived from `<worktree>/.git`.**
+   If it were re-derived, a rewritten gitfile would **redirect B2's own reads** —
+   §5.8.2A's hole, inside B2. **PROVEN BY**
+   `test_b2_reads_the_sealed_gitdir_not_the_live_gitfile`: repoint
+   `<worktree>/.git` at a **complete, valid, attacker-built** gitdir whose `HEAD`
+   holds the expected SHA; B2 must return `indirection_changed`, **and the test
+   asserts the attacker gitdir's HEAD was never opened**, via an `open()` audit
+   whose liveness is proven by a canary the audit **must** record.
+2. **Every comparison is `==` on `bytes`.** There is no parse on the post-worker
+   path — no hex validation, no normalisation, no `int(x,16)`. **A parser is a
+   place a mutant can live; a `bytes ==` is not.**
+3. **There is no branch on absence.** `FileNotFoundError` is caught **once**, at
+   the top of the caller, and converted to `RepositoryAuthorityCaptureFailed` ⇒
+   verdict `unknown` ⇒ **treated as mismatch, never as held.**
+
+**MEASURED — why `(st_dev, st_ino)` is in the tuple:**
+
+```
+SEAL   gitdir dev=64769 ino=333072
+worker: cp -a <gitdir> <gitdir>.copy && rm -rf <gitdir> && mv <gitdir>.copy <gitdir>
+AFTER  gitdir dev=64769 ino=333073          <-- ino CHANGED
+  <worktree>/.git bytes : unchanged     <gitdir>/HEAD : unchanged
+  ground truth          : unchanged
+```
+
+**Every byte comparison passes; only the inode moves.** Under ZI-57 the
+`worktrees/<id>/` registration directory is protected, so this is **row 4,
+`WorktreeIndirectionChanged`.**
+
+> **`NOT TESTED`: whether any ordinary, legitimate git operation inside the
+> worker's own worktree changes the gitdir directory's inode.** `commit`, `add`,
+> `checkout`, `pack-refs` and `gc` were run and none moved it, **but git's full
+> surface was not enumerated.** If a later probe finds one, **this row must move
+> from `POLICY_VIOLATION` to REPORTED with its own false-positive killer** — the
+> §5.9.4 failure mode of a routine flag. **T-33.**
+
+##### Persistent data
 
 ```python
 @dataclass(frozen=True)
-class HeadChainLink:
-    kind: Literal["head_file", "loose_ref", "packed_refs", "terminal_sha"]
-    path: bytes                  # absolute, RAW
-    present: bool
-    raw_bytes: bytes | None      # None iff not present
-    sha256: str | None
-
-@dataclass(frozen=True)
-class HeadChain:
-    links: tuple[HeadChainLink, ...]   # resolution order, <= 5 symbolic hops
-    refname: bytes | None              # b"refs/heads/sol-abc"; None if detached
-    resolved: str                      # 40-hex, ^[0-9a-f]{40}$
-    resolution: Literal["detached", "loose", "packed"]
-```
-
-**`resolve_head_raw(gitdir, common_dir) -> HeadChain`** — plain `open()`/`stat()`,
-no git process, the same reader §5.9.2 specifies for the primary, generalised to
-a linked worktree and made to record its chain:
-
-```
-1. h = read(gitdir/"HEAD")                             link kind="head_file"
-2. exactly 40 hex + optional LF        -> resolution="detached", done
-3. starts b"ref: ":
-     refname = h[5:].strip()
-     REFUSE unless refname matches ^refs/[A-Za-z0-9._/-]+$
-       and contains no b"..", no b"//", no b"\\", no leading/trailing b"/",
-       and no component beginning b"."
-       -- MEASURED: git itself refuses `ref: refs/heads/../../../tmp/evil`
-          with `fatal: ambiguous argument 'HEAD'`, rc=128. The raw resolver
-          REFUSES THE SAME SHAPES rather than following them.
-     look in gitdir/refname   (per-worktree: refs/bisect, refs/worktree, refs/rewritten)
-       then common_dir/refname                          kind="loose_ref"
-     if neither exists: scan common_dir/"packed-refs"   kind="packed_refs"
-       (hash the WHOLE file as the link; parse only the matching line;
-        an unparseable line is fail-closed)
-     the value may itself be b"ref: " -> hop, max 5 hops
-4. terminal must match ^[0-9a-f]{40}$ else RefResolutionFailed (fail closed)
-5. record EVERY file consulted, present or absent, as a link.
-```
-
-**The post-worker comparison, raw:**
-
-| Check | Rule |
-|---|---|
-| `worktree_gitfile.raw_bytes` | must equal the sealed bytes exactly. Change ⇒ `WorktreeIndirectionChanged` |
-| `commondir_file.raw_bytes` **and** the resolved `common_dir` | **both.** MEASURED: `commondir` is **relative** (`../..\n`), so comparing only the resolved path misses a rewrite that resolves to the same place by a different route, and comparing only the bytes misses a change of the anchor |
-| `gitdir_file.raw_bytes` (`<gitdir>/gitdir`) | must equal the sealed bytes — the back-pointer git uses to prune |
-| `head_chain.resolved` | must equal the sealed `resolved`, which must equal the base SHA `worktree add` was given |
-| `head_chain.refname` | must equal the sealed refname (or both `None`) |
-| every `HeadChainLink` | compared as `(present, sha256)`. A link whose `present` or `sha256` changed **while `resolved` is unchanged** is **`head_chain_restructured`** — reported and enumerated, and row 4 **only if it is attributable to a worker-written protected file** |
-
-**`head_chain_restructured` is the one place this section chooses report over
-refuse, and the reason is measured, not assumed:** `pack-refs` shows a
-value-preserving restructure is reachable by an ordinary git command in the
-worker's own worktree, and landing `POLICY_VIOLATION` on it would make the flag
-routine — the failure §5.9.4 names.
-
-**`ZM-A9`'s tempting single-sided test is named:** `Z8-M15` (*treat an absent
-loose ref as "unchanged, skip"*) is killed by
-`test_pack_refs_does_not_produce_a_false_violation` **and** a companion in which
-the packed value **differs**, `test_pack_refs_with_a_moved_value_is_a_mismatch`.
-**One without the other is not a killer: the first alone is passed by an
-implementation that skips the check.**
-
-**The `rev-parse` fallback is DELETED for the post-worker path.** §5.8.2A permits
-a fallback to `rev-parse --absolute-git-dir` / `--git-common-dir` where the raw
-resolver cannot decide, recording `resolver="rev-parse-fallback"`.
-
-- **PREPARE: RETAINED** (row G10) — it runs before any worker exists, after
-  §5.8's gate, and is measured clean on four surfaces.
-- **POST-WORKER: DELETED.** `RepositoryAuthoritySnapshot.resolver` is typed
-  `Literal["raw"]` for `role="post_run"` — **the fallback cannot be
-  represented.** A layout the raw resolver cannot decide post-worker is
-  `RepositoryLayoutUnreadable` ⇒ verdict `unknown` ⇒ **treated as mismatch, never
-  as held.**
-- **Consequence, stated:** a repository layout that needs the fallback can be
-  dispatched but its run lands `FAILED` at finalisation. **That is a real
-  usability cost and it is the correct direction** — the alternative is a
-  post-worker `rev-parse` whose answer S-ε chooses.
-
-**`worktree-base.json` keeps its name and its `expected_base_commit` field** and
-becomes:
-
-```python
-@dataclass(frozen=True)
-class WorktreeBaseRecord:
-    schema_version: int
-    expected_base_commit: str            # from `worktree add`, NEVER re-derived
+class WorktreeAuthorityRecord:
+    """Sealed once at PREPARE, immediately after `worktree add --detach`.
+       NEVER re-derived. NEVER adopted."""
+    schema_version: int          # 2  (1 = the revision-6 symbolic form)
+    worktree_id: str
+    expected_base_commit: str    # 40-hex lowercase; == worktree add's argv token
     created_argv_sha256: str
-    pre:  RepositoryAuthoritySnapshot    # role="pre_run"  — sealed
-    post: RepositoryAuthoritySnapshot | None   # None ⇒ NOT MEASURED
+    gitfile_bytes: bytes;   gitfile_mode: int        # MUST be S_ISREG
+    gitdir_realpath: bytes; gitdir_dev: int; gitdir_ino: int
+    commondir_bytes: bytes  # RAW (MEASURED: b"../..\n");  common_dir_realpath: bytes
+    gitdir_backptr_bytes: bytes
+    head_bytes: bytes       # <gitdir>/HEAD, RAW, WHOLE FILE
+    head_mode: int          # MUST be S_ISREG
+    # There is NO refname. NO links. NO resolution. Their absence is asserted
+    # by an AST test.
+
+@dataclass(frozen=True)
+class WorktreeVerdictRecord:
+    schema_version: int
     verdict: Literal["base_held","base_mismatch","indirection_changed","unknown"]
-    head_chain_restructured: bool
-    differences: tuple[AuthorityDifference, ...]   # field, before_sha256, after_sha256
+    observed_head_bytes: bytes | None   # RECORDED FOR EVIDENCE, NEVER COMPARED
+    differences: tuple[AuthorityDifference, ...]
 ```
 
-**`verdict="unknown"` is treated as mismatch, never as held** — the same rule
-§5.12 applies to `GitAdministrativeCaptureFailed`.
+> **`observed_head_bytes` is the one field that could re-create the adoption bug.**
+> It exists because an operator reading a `base_mismatch` needs to know what the
+> head became. **It is written to the record and read by nothing.**
+> `test_observed_head_is_recorded_and_never_read` (AST) asserts it appears in
+> exactly one assignment and **zero comparisons** in `src/**`.
 
-**Row ordering, because it looks wrong until it is explained.**
-`WorktreeIndirectionChanged` lands at **row 4** and `WorktreeBaseMismatch` at
-**row 2**, so an indirection change is evaluated *after* a base mismatch. That is
-correct: if the base moved, **no evidence is collected at all**, so there is
-nothing to protect; if the indirection changed but the sealed chain still resolves
-to the base, the run **does** produce evidence — from the seal — that evidence is
-sound, and the run must reach row 4 to be judged. **Neither verdict is laundered
-into the other.**
+`worktree-base.json` **keeps its filename** and gains `schema_version: 2`. **A
+version-1 file is not upgraded and not read**: a task whose seal is version 1
+lands `WorktreeSealSchemaUnsupported`, a **PREPARE refusal at row 0** on resume,
+with a named human remediation. **Silently reading a v1 seal would mean comparing
+a symref against a 40-hex rule and failing every resume — a false `FAILED` on live
+tasks.**
 
-**Tests, and the parameterisation that is load-bearing:**
+##### What is DELETED, with its replacement
 
-| Test | Proves | Could it pass while false? |
+| Deleted | Replacement / reason |
+|---|---|
+| `resolve_head_raw()` on the task-worktree path | **it is the defect** |
+| `HeadChain`, `HeadChainLink`, `HeadChain.refname`, `.resolution` | no chain exists |
+| `head_chain_restructured` (verdict class **and** field) | no chain to restructure |
+| the ref-name allowlist regex and its traversal checks | no refname is ever read. **Its content is preserved and strengthened:** a `ref: ` shape is now a **mismatch**, which is stricter than a traversal regex |
+| the 5-hop symbolic loop | no hop is ever taken |
+| `packed-refs`, `<gitdir>/refs/**`, `<common>/refs/**` **as B2 INPUTS** | **they remain §5.8.2 capture rows.** A worker that creates `<gitdir>/refs/heads/main` still lands `POLICY_VIOLATION` at row 4 — **as a write to protected administrative state, on the `refs/` listing row's own evidence, NOT as a B2 verdict.** **This is the correct split and it is exactly what F5-1 said was broken: the file was captured, the verdict field was wrong** |
+| `test_worker_commit_moves_the_ref_and_is_caught` | **DELETED — F5-1 proved it passes against its own named defect.** Replaced by `test_detached_worktree_commit_moves_head_and_raw_b2_fails`, which asserts over `<gitdir>/HEAD` **bytes**, not over a ref |
+| `test_pack_refs_does_not_produce_a_false_violation` and `test_pack_refs_with_a_moved_value_is_a_mismatch` | **DELETED — `pack-refs` is MEASURED inert** under detachment. **Keeping them would assert a property the mechanism no longer has a way to violate, and a green test that proves nothing is worse than no test** |
+| `test_head_chain_traversal_is_refused` | **DELETED** — unreachable; its content is subsumed by the symref-is-a-mismatch rule |
+| the `-b` parameterisation of `test_worktree_head_moved_during_run_is_refused` | the test **survives, de-parameterised to `--detach`** |
+
+> **A deletion not accompanied by a replacement is a coverage regression**, so
+> `test_deleted_b2_tests_have_named_replacements` asserts this table's right
+> column is non-empty for every row **and that every named replacement exists in
+> `tests/`.**
+
+##### The remaining tests, and the two that need companions
+
+| Test | Could it pass while the property is false? |
+|---|---|
+| `test_detached_worktree_commit_moves_head_and_raw_b2_fails` — Sol's named positive test | **YES, two ways, both closed.** A **prefix-equality** implementation passes, because two real SHAs will not share a 7-char prefix — closed by a **dedicated** companion, `test_head_differing_only_in_the_last_hex_digit_is_a_mismatch`, using a **constructed** record rather than a natural SHA pair. And an implementation that **adopts** the observed head and compares it to itself passes — closed by asserting `expected_base_commit` is **byte-identical to `worktree add`'s argv token** |
+| `test_head_byte_variants_are_each_a_mismatch` | **NO** for the eight measured shapes, each asserting **git's own rc and answer as a live control** so the table is proven armed. **YES for a ninth nobody wrote — stated.** Closed structurally by the seal freezing `head_bytes`, so no normaliser exists on the post-worker path |
+| `test_deleted_head_file_is_a_mismatch_not_a_skip` | **NO** — asserts verdict `unknown`, the row-2 landing, **and** that no evidence exists |
+| `test_symlinked_head_is_a_mismatch` | **NO** — `lstat` is checked before `open` |
+| `test_shadow_ref_under_gitdir_is_row_4_not_a_b2_verdict` | **YES if it only asserts row 4.** It must **also** assert `verdict == "base_held"` — **the whole point is that the two answers are now separate and both right** |
+| `test_g4_argv_is_detach_and_the_worktree_has_no_branch` | **NO** — asserts the pinned `argv_shape_sha256`, that `<common>/refs/heads/sol-*` does **not** exist after PREPARE, and that `<gitdir>/HEAD` matches `^[0-9a-f]{40}\n$` |
+| `test_b2_runs_no_git_command` | **NO** for in-interpreter spawns including a forked child; **YES** for an `exec` from a C extension — the same residual §5.4.3B(ii) records |
+| `test_no_refname_resolution_exists` (AST) | **YES** for a dynamically-built literal — paired with the symref killer, which is behavioural |
+
+##### What detachment does NOT buy — the honest column
+
+**MEASURED: `worktree add --detach` fires the same execution surfaces as `-b`.**
+
+```
+worktree add --detach               -> reference-transaction x3, SMUDGE x2,
+                                       post-index-change, post-checkout
+worktree add --detach --no-checkout -> reference-transaction (prepared+committed)
+worktree add --detach  under PIN 2  -> hooks silent, SMUDGE STILL FIRES x2
+```
+
+The only differences from `-b` are that **`-b` forks an extra `git branch` child
+process** and runs its ref transaction on `refs/heads/sol-<id>` where `--detach`
+runs one on `HEAD`.
+
+> **Detachment is a B2-CORRECTNESS change. It is NOT an execution-safety change.**
+> Nothing in §5.8, §5.5.5 or PINs 1–4 is relaxed by it, **and an implementer must
+> not read "detached" as "safer to run".**
+
+##### What detachment DOES buy elsewhere, measured
+
+**`--detach` creates NINE administrative paths, all under
+`.git/worktrees/<id>/`. `-b` creates ELEVEN — the same nine plus
+`refs/heads/sol-<id>` and `logs/refs/heads/sol-<id>`, which are `sol-`-prefixed
+REF paths, and `sol-`-prefixed exemptions are exactly what ZI-57 forbids.**
+**Under `--detach` the R6 equivalence relation needs to account for ONE class —
+`worktrees/**` — instead of three, and that class is keyed on git's own layout
+rather than on a prefix the dispatcher chose.** *(It does **not** close the
+cross-dispatch drift; see the convergence box in §5.8.3.)*
+
+##### Crash points and backward compatibility
+
+**B2 adds no new canonical crash point.** It is a pure read between the worker's
+reaping and the WORKER_EXIT snapshot, it writes nothing, and a crash inside it is
+indistinguishable from a crash at the reap — which §15 already covers as
+`WorkerExitSnapshotMissing` ⇒ `FINALIZATION_FAILED`, **never re-measured.**
+
+**Branch names `sol-<id>` are no longer created.** Anything that displayed the
+task branch shows the detached base SHA instead. **No consumer of the worktree
+branch name was found in `src/**` other than `worktree add`'s own argv — and that
+is `NOT TESTED` as an exhaustive claim, so it must be grepped before
+implementation.** The five existing forensic tasks and the `Rakesh` worktree carry
+`-b` worktrees and are **untouched**; a resume attempt against one refuses at row
+0 with `state.json` byte-identical.
+
+#### 5.5.2D THE SEALED IDENTITY RECORD (Sol §10, §11, §12)
+
+##### Current failure
+
+Revision 6 seals `BaseTreeSnapshot`, `RepositoryAuthoritySnapshot`,
+`StartFilesystemSnapshot` and `PrimaryStartSnapshot` — **and does not seal
+identity at all.** `collect_repository_identity` returns four strings which
+`ProjectGuidanceEngine._assert_repository` compares field-by-field against the
+manifest pin **and which are persisted nowhere**: `ProjectGuidanceRecord` keeps
+only the manifest's *logical* `repository_id`. **There is today no sealed
+artefact for a resume or a review to load, which is exactly why they re-measure.**
+
+**So the fix is an ADDITION, not a deletion**, and that is why deleting the six
+review-path rows is not sufficient on its own.
+
+##### The invariant
+
+> ### INVARIANT ZI-78 — NEW-DISPATCH IDENTITY IS A SEALED SIX-TUPLE, AND THE APPROVED ROOT COMMIT IS AN ONBOARDING FACT
+>
+> A new dispatch's repository identity is exactly:
+>
+> 1. the **canonical repository root realpath** — R3, raw, byte-for-byte the
+>    value the authorization decision used;
+> 2. the **approved repository authority and its version** — manifest path,
+>    manifest sha256, `approval.state`, `approval.version`, `repository_id`;
+> 3. the **raw `PREPARE_ADMIN_GATE` result**, verbatim, including the capture's
+>    own digest;
+> 4. the **exact caller-supplied 40-character base SHA**, byte-verified at G1;
+> 5. the **complete sealed `BaseTreeSnapshot`**, by its manifest hash;
+> 6. the **raw git layout** — `gitdir` and `common_dir` as `resolve_gitdir()`
+>    produced them, **never `rev-parse`**.
+>
+> **If approved project guidance stores `root_commit`, it is an APPROVED
+> ONBOARDING FACT. It is copied. It is not recomputed. No dispatch runs
+> `rev-list` to check it.**
+
+> ### INVARIANT ZI-79 — RESUME AND REVIEW RE-DERIVE NOTHING
+>
+> A resume and a review use **the exact `RepositoryAuthoritySnapshot` and
+> `RepositoryIdentityRecord` sealed at the task's initial dispatch**, loaded and
+> verified against `seal-manifest.json`.
+>
+> **The count of graph-walk git identity queries a resume executes is ZERO. The
+> count of git processes a review executes is ZERO.**
+>
+> **A resume or review that cannot load a verifying identity record does NOT
+> rebuild one. It refuses** — `RepositoryIdentityUnsealed` — with the same
+> two-case split as `SealAbsentAfterWorker`: **row 0** while no run has
+> `ownership.json`, **row 4** once one does.
+
+##### Mechanism — a fifth sealed artefact under the same manifest
+
+```
+state/tasks/<task-id>/materialisation/       0700, once per task, IMMUTABLE
+  seal-manifest.json          EXT    gains the identity-record row
+  identity-record.json        NEW    RepositoryIdentityRecord
+  repo-authority.json         =      RepositoryAuthoritySnapshot
+  base-tree.json              =      BaseTreeSnapshot
+  base-reconciliation.json    =
+  primary-start.json          =
+  fs-snapshot-start.json      =
+  cas/<oid[:2]>/<oid[2:]>     =
+```
+
+> **A refinement of Sol's §11 wording, flagged so it can be rejected.** Sol writes
+> that resume *"uses the exact `RepositoryAuthoritySnapshot` sealed at initial
+> dispatch."* This design adds a **separate** `identity-record.json` rather than
+> folding identity into `RepositoryAuthoritySnapshot`, because that type has **two
+> roles and is captured multiple times per run** while identity is **per-task and
+> captured once.** **Folding a once-per-task fact into a many-times-per-run type
+> is precisely the shape that produced F5-4's `pre_run` ambiguity.** Both
+> artefacts are covered by the same manifest, so **"the seal" remains one root of
+> trust.** *(Recorded as a refinement — **T-34**.)*
+
+```python
+@dataclass(frozen=True)
+class RepositoryIdentityRecord:
+    schema_version: int
+    task_id: str
+
+    canonical_root: bytes                       # realpath, RAW bytes (R3)
+    canonical_root_source: Literal["r3_realpath"]
+
+    authority: Literal["approved_guidance", "no_guidance"]
+    manifest_path: str | None;  manifest_sha256: str | None
+    approval_state: str | None; approval_version: str | None
+    repository_id: str | None
+
+    pin_toplevel: str | None;  pin_git_dir: str | None
+    pin_origin_url: str | None; pin_root_commit: str | None
+    root_commit_provenance: Literal["approved_onboarding_fact", "absent"]
+    origin_url_provenance: Literal["raw_config_bytes",
+                                   "approved_onboarding_fact", "absent"]
+
+    admin_gate: RawAdminGateResult              # decision + capture + baseline digest
+    base_commit: str                            # ^[0-9a-f]{40}$, G1-verified
+    base_commit_verified_by: Literal["g1_byte_equality"]
+    base_tree_manifest_hash: str
+    git_dir: bytes; common_dir: bytes
+    layout_resolver: Literal["raw"]             # NOT "rev-parse-fallback"
+
+    pins_applied: tuple[str, ...]               # the pin set live at measurement
+    sealed_at: str
+    provenance: Literal["sealed_at_prepare"]
+```
+
+**`root_commit_provenance` is a FIELD, not a comment.** It is what makes ZI-70
+checkable **in evidence** rather than by reading source: **an identity record
+whose `root_commit_provenance` is anything but `approved_onboarding_fact` or
+`absent` is unrepresentable, so a build that resumed measuring it cannot serialise
+its own answer.**
+
+**`layout_resolver: Literal["raw"]` makes the §5.8.2A fallback unrepresentable on
+this record.** A layout the raw resolver cannot decide is
+`RepositoryLayoutUnreadable` — a **PREPARE refusal at row 0.** **Consequence: row
+G10 loses its identity consumer** and survives only as the administrative
+capture's diagnostic fallback, so **T-20 is narrowed, not resolved**, and Sol may
+wish to delete G10 outright.
+
+**`pins_applied` is load-bearing and is not decoration.** S-ζ shows `root_commit`
+is forgeable through cached parentage. **Sealing it does not make it true; it
+makes it TRUE AS OF A STATED MOMENT UNDER A STATED PIN SET**, which is the
+strongest honest claim available and is exactly what a later reader needs in order
+to decide whether the seal predates PIN 4. **A seal whose `pins_applied` lacks a
+pin the current build requires is `SealPinSetStale` — a PREPARE refusal, NEVER a
+re-measurement.**
+
+##### What the guidance identity check becomes
+
+| Pin field | revision 6 source | **revision 7 source** | Load-bearing? |
+|---|---|---|---|
+| `toplevel` | `rev-parse --show-toplevel` — **MEASURED worker-redirectable via `core.worktree`** | **`canonical_root`** from R3, a `realpath`, **the same value the authorization decision used** | **YES.** Raw string equality |
+| `git_dir` | `rev-parse --absolute-git-dir` | **`resolve_gitdir(canonical_root)`** — raw `open()`/`lstat()` | **YES.** Raw bytes equality |
+| `origin_url` | `config --get remote.origin.url` (G7) | **the raw `$GIT_COMMON_DIR/config` bytes already captured at R6**, read with §5.8.2's own minimal INI reader | **YES** — pending T-26 |
+| `root_commit` | `rev-list --max-parents=0 HEAD` (G6) | **not compared against any measurement.** Carried as an approved fact | **NO — deliberately** (§1A.3) |
+
+##### Error taxonomy
+
+| Error | Class | Phase | Row |
+|---|---|---|---|
+| `RepositoryIdentityUnsealed` | `DispatcherError` | PREPARE | **row 0** while **no** run has `ownership.json` |
+| `RepositoryIdentityUnsealed` *(after a worker)* | — | FINALIZE | **row 4** once **some** run has `ownership.json` — worker-attributable damage to evidence authority, **the same discriminator as `SealIntegrityFailed`** |
+| `SealPinSetStale` | `DispatcherError` | PREPARE | row 0 — the seal was measured under a pin set the current build no longer accepts |
+| `RepositoryRootDrift` | `DispatcherError` | PREPARE (review) | row 0 — `realpath(envelope root) != envelope root` |
+| `GitIdentityDerivationAttempted` | `InternalDispatcherError` | any | row 0 — `_run_git` refused an argv matching the graph-walk predicate on a production path. **Raised, never logged-and-continued** |
+| `HistoryIdentityDerivationDisagreement` / `AmbiguousRepositoryHistory` | `DispatcherError` | **onboarding only** | **not in §8's ladder** — the script is not a dispatch |
+
+##### Tests
+
+| Test | Could it pass while the property is false? |
+|---|---|
+| **`test_dispatch_runs_no_root_commit_walk`** — a complete dispatch under the interpreter-level instrument | **YES IF THE INSTRUMENT IS NOT PROVEN LIVE.** Must fire a deliberate `git --version` and assert it was observed, **in the same test body** |
+| **`test_forged_commit_graph_does_not_change_the_dispatch_identity_record`** | **four legs.** (a) *control, same body:* the unpinned walk in the forged fixture returns the **DECOY**, proving the forgery took; (b) production: `pin_root_commit == the approved pin` and `root_commit_provenance == "approved_onboarding_fact"`; (c) the field is **non-`None`** whenever guidance is enabled — otherwise a build that never populates it passes; (d) it equals the manifest's value **read independently by the test from `config/approved-guidance.json`**, not through any dispatcher helper. **(d) is what defeats a naive provenance field** |
+| **`test_the_forged_graph_fixture_is_self_checking`** | the fixture builder itself asserts at construction that an unpinned walk returns the decoy **and raises if it does not.** **Without this, a fixture whose forgery silently failed makes the production leg green for the wrong reason — which is exactly what happened to a probe in this gate** |
+| **`test_resume_into_a_different_allowlisted_repository_is_refused`** | **NO** — and the fixture **must use two allowlisted roots**, because with a single-entry allowlist the sealed-root clause is genuinely redundant and the test cannot go red |
+| **`test_resume_with_a_revision_6_seal_is_seal_integrity_failed`** | **YES if the fixture's manifest happens to verify anyway** — closed by asserting the **specific failing artefact is named** in the error's `details` |
+| **`test_review_loads_identity_and_never_measures_it`** | **YES** if it asserts only that the returned identity equals the sealed one — **a build that re-measured and got the same answer passes.** **Closed by mutating the SEALED value to something the live repository does not have and asserting the review uses the SEALED value and refuses on the manifest comparison.** A re-measuring build gets the true value and does **not** refuse. **This is the direction that distinguishes "loaded" from "coincidentally equal"** |
+| **`test_review_with_no_seal_refuses_and_does_not_degrade`** | **YES if the assertion is only on the error type** — so it also asserts **no reviewer process was spawned**, which a degrading build would have done |
+| **`test_nested_repository_is_refused_at_r3_before_any_git`** | **YES WITHOUT THE INTEGRITY CONTROL.** Per Z-RULE-1B: first run the **deleted** `rev-parse --show-toplevel` in the same fixture and assert it returns the **nested** path — proving the old mechanism would have accepted it — then run production |
+| **`test_onboarding_refuses_a_forged_commit_graph`** | **YES for a build that removed leg B** — so the test asserts the error's `details` carry **both** answers and that they **differ**, which a single-walk build cannot produce |
+
+##### Named mutants
+
+| Mutant | Killer | Red? |
 |---|---|---|
-| `test_worktree_head_moved_during_run_is_refused` *(ZM-A8's killer, retained verbatim)* | a fake worker checks out another commit inside its worktree; the run lands `FAILED` with `WorktreeBaseMismatch` **before any evidence exists** | **YES as revision 5 specified it.** It **must** be parameterised over **both** worktree forms — `--detach` (HEAD is 40-hex) and **`-b` (HEAD is symbolic and the value is in the ref)** — **and the `-b` case must be the one that fires.** Without that parameterisation it cannot distinguish a correct chain resolver from one that compares HEAD bytes |
-| **`test_worker_commit_moves_the_ref_and_is_caught`** | the `-b` case explicitly: a worker `git commit` leaves `<gitdir>/HEAD` byte-identical and moves `refs/heads/sol-<id>`; B2 must fire | **NO.** This is the measurement turned into a test, and it is the one a HEAD-bytes-only implementation fails |
-| `test_b2_runs_no_git_command` | the fd-backed spawn log is empty across the B2 window | **NO** for in-interpreter spawns |
-| `test_gitfile_repointed_mid_run_is_policy_violation` | S-ε variant A: evidence is still produced from the seal and is **byte-identical**; verdict `POLICY_VIOLATION` | **YES if the fixture's fake repository happens to produce the same evidence anyway.** The fake repo **must** differ in content, and the test asserts the produced patch equals the **real** repository's patch, not merely that a patch exists |
-| `test_head_chain_traversal_is_refused` | `ref: refs/heads/../../../tmp/evil` and siblings are refused, fail-closed | **NO** for the enumerated shapes; **YES** for a shape not in the fixture — so the refusal is an **allowlist regex**, not a denylist of bad substrings, and the test asserts the regex **rejects by default** |
-| `test_dispatcher_never_adopts_observed_head` (AST) | no assignment writes an observed HEAD value into `expected_base_commit` anywhere in `src/**` | **YES** for an indirection the AST cannot follow. Paired with `test_worker_commit_moves_the_ref_and_is_caught`, which fails outright if adoption happens |
+| restore G6 *"so the pin comparison stays four-field"* | `test_dispatch_runs_no_root_commit_walk` | **YES** |
+| **recompute `root_commit` and compare it against the approved fact, "belt and braces"** | `test_forged_commit_graph_…` leg (b) | **YES — and this is the tempting one.** It looks strictly safer and is strictly worse, because it re-imports the graph walk to check a fact that is already reviewed |
+| widen G9's exemption from full-argv equality to `startswith("rev-list")` | **`test_g9_exemption_is_full_argv_equality`** — a call with argv `("rev-list","--max-parents=0","HEAD")` must raise `GitIdentityDerivationAttempted` **through `_run_git`**, not through a linter | **YES.** Named because the AST test alone cannot catch it |
+| call the onboarding derivation from PREPARE *"to auto-onboard a new repository"* | `test_no_dispatch_path_imports_the_onboarding_module` **and** `test_dispatch_runs_no_root_commit_walk` | **YES** — the second is behavioural and does not care how the call was reached |
+| default `root_commit_provenance` to `"approved_onboarding_fact"` while populating the field from a measurement | leg (d) | **YES** |
+| **drop leg (a) — the control — "because the production leg is what matters"** | `test_the_forged_graph_fixture_is_self_checking` | **YES** |
+| a seal manifest missing the identity row is *"a revision-6 seal, treat it as valid"* | `test_resume_with_a_revision_6_seal_is_seal_integrity_failed` | **YES** |
+| **declare the review's true six rows instead of deleting them** | **no killer, deliberately.** Declaring them would make the matrix honest and ZI-79 false. **It is a legitimate design Sol did not choose, and a mutation suite must not punish it as a defect.** Recorded so a later lane does not "fix" the absent killer by inventing one | — |
 
-**Cost.** ≤ 5 small file reads plus, in the packed case, one `packed-refs` read.
-`packed-refs` is a few KB here and **UNMEASURED on a repository with very many
-refs**, where it could be megabytes — recorded as a gap, with the note that it is
-read **once per snapshot, twice per run**, and that only the matching line is
-parsed while the whole file is hashed.
+##### Backward compatibility
+
+- `SealManifest.artefacts` gains one row — **a schema bump.** **A revision-6 seal
+  has no identity-record row and therefore does not verify under revision 7**,
+  landing `SealIntegrityFailed` → row 0 for a task with no worker, row 4 for one
+  with. **That is correct and must not be softened into "treat the missing
+  artefact as absent-but-fine".**
+- **A task sealed under revision 6 cannot be resumed or reviewed under revision
+  7.** Named, not discovered. Remediation: the task's runs are preserved; a new
+  task must be dispatched. **Whether an offline migration may synthesise an
+  `identity-record.json` from an existing `repo-authority.json` is a Sol decision
+  (T-29); the recommendation is NO**, because such a migration would **synthesise
+  an approved onboarding fact after a worker existed**, which §5.5.2A(i) and §15.4
+  forbid by name.
+- `RepositoryIdentity`'s four field names, `ProjectGuidanceRepositoryMismatch`
+  and the MCP surface are unchanged. `worker_context.repository_identity()`
+  becomes `sealed_identity(task_id)` — **a state read, not a measurement** — and
+  still returns `None` when guidance is off, so a guidance-disabled dispatcher's
+  behaviour is unchanged.
+- **Genuine behaviour change, named rather than discovered:** a review against a
+  repository **moved or unmounted since dispatch** fails today with
+  `InvalidRepository` from git; after this section it fails with
+  `RepositoryRootDrift` from `realpath`. **Same outcome, different reason,
+  different class — and "same outcome" is the claim a reviewer should test**, so
+  `test_review_refuses_a_moved_repository` carries both spellings explicitly.
 
 #### 5.5.3 Step 4 — `FsSnapshot`, dispatcher-owned filesystem code
 
@@ -3745,6 +5216,18 @@ OPEN, and what it now says is weaker than what revision 4 hoped for.
 > the dispatcher asks nothing later.** *(The residual is unchanged and is stated
 > in §2A.6: a PREPARE-window compromise produces a SEALED LIE, and §5.8's gate
 > plus the operator's trust step are the only things standing there.)*
+>
+> **REVISION 7 ADDS ONE MEASURED OPTION AND DOES NOT ADOPT IT.**
+> **`worktree add --detach --no-checkout` under PIN 2 is the ONLY measured
+> `worktree add` invocation whose execution log is EMPTY** — control: the same
+> argv without PIN 2 produced two executed-program lines. **`--detach` WITH
+> checkout under the full pin block still runs the worker's smudge filter twice**,
+> because PIN 2 governs S-γ and not S-α, exactly as §5.4.3A's caveat says.
+> **Since the dispatcher already seals the base tree into a content-addressed
+> store before launch, materialising the worktree files itself would remove S-α
+> from PREPARE ENTIRELY rather than gating it.** The tree-materialisation cost and
+> the absent `index` are Sol's to price — **T-31, recorded as a measured option,
+> not as a recommendation.**
 
 ##### (a) The ordering fix does not work — filesystem quarantine is not a defence
 
@@ -3836,7 +5319,7 @@ mechanism achieves it. It is escalated as **T-8** (§18.3A), not adopted.
 git -c core.hooksPath=<empty dir>        # PIN 2 — the enumerated defence
     -c core.fsmonitor=false
     … the rest of §5.4.3A …
-    worktree add --quiet -b <branch> <path> <base_commit>
+    worktree add --quiet --detach <path> <base_commit>
 ```
 
 preceded by §5.8's gate, which refuses on any administrative divergence **before
@@ -4871,9 +6354,9 @@ under a `subprocess.Popen` audit hook.
 | index bits (report only) | `<gitdir>/index` | hash + `mtime_ns` + size. **Not parsed** — ZI-19 makes the flags irrelevant; the hash exists so "the index moved" is visible. |
 | worktree registrations | `$GIT_COMMON_DIR/worktrees/*/{gitdir,commondir,HEAD}` | contents |
 | **transport and promisor keys** | any config reached above | `remote.*.url`, `url.*.insteadOf`, `extensions.partialClone`, `remote.*.promisor`, `remote.*.partialclonefilter`, `core.alternateRefsCommand`, `credential.helper` — **recorded and PRINTED VERBATIM to the operator** (see below) |
-| **worktree `.git` indirection** | `<worktree>/.git` | present · **raw bytes** · sha256 · is-file-or-dir. **NEW — and §5.8.2A only *read* it before, to find the gitdir it was about to capture, so a redirected gitfile made the CAPTURE ITSELF describe the repository the worker chose** |
+| **`.git` indirection** | `<worktree>/.git` **and** `<root>/.git` | **`lstat` MODE BITS** (the classification) · **`shape ∈ {directory, gitfile, symlink, other}`** · raw bytes + sha256 **IF AND ONLY IF `shape == "gitfile"`** · **`readlink` raw bytes IF `shape == "symlink"`** · resolved gitdir realpath · **`(st_dev, st_ino)` of the resolved gitdir**. **`is-file-or-dir` is DELETED as a field name AND as a concept: it is a two-valued field describing a four-valued world, and it is what made the symlink invisible. A boolean where an enum belongs is the shape of this bug** |
 | **worktree gitdir `HEAD`** | `<gitdir>/HEAD` | raw bytes · sha256. **NEW — was allowlisted** |
-| **the whole HEAD chain** | every file `resolve_head_raw` consults (§5.5.2C) | per-link present · sha256. **NEW** |
+| **the sealed worktree authority** | `<gitdir>/HEAD`, `<gitdir>/commondir`, `<gitdir>/gitdir`, and the gitdir's own `(st_dev, st_ino)` | raw bytes · sha256 · mode bits · **inode identity**. **B2's eight comparisons read these and nothing else** (§5.5.2C) |
 | **`commondir`** | `<gitdir>/commondir` | **raw bytes** (MEASURED: relative, `../..\n`) · resolved path · sha256. **NEW — was allowlisted** |
 | **gitdir back-pointer** | `<gitdir>/gitdir` | raw bytes · sha256. **NEW — was allowlisted** |
 | **`objects/info/alternates`** | every one reachable from `$GIT_COMMON_DIR` and each worktree admin dir, **transitively, depth ≤ 8** | raw bytes · sha256 · resolved targets · `transitive_depth_reached`. **NEW** |
@@ -4884,8 +6367,42 @@ under a `subprocess.Popen` audit hook.
 | **`packed-refs`** | `$GIT_COMMON_DIR/packed-refs` | full bytes + hash. **NEW** — a worker `pack-refs --all` moves the chain without moving a value |
 | **`refs/` listing** | `$GIT_COMMON_DIR/refs/**` and `<gitdir>/refs/**` | names + per-file sha256. **NEW** |
 | **object presence** | `$GIT_COMMON_DIR/objects/pack/` listing (names + sizes) and the 256 loose-object fan-out directory listings | sorted raw names + per-file size. **NEW — this is what makes a deleted base blob DETECTABLE rather than INFERRED** (§5.12) |
-| `shallow`, `objects/info/commit-graph`, `objects/info/commit-graphs/**`, `objects/info/multi-pack-index` | as named | hash + listing. **`commit-graph` and `multi-pack-index` are `NOT TESTABLE` as forgery vectors — inventoried, never measured.** Given that `refs/replace` and `info/grafts` both fired, **an un-probed cached-parentage file is not a safe assumption** |
-| `modules/**` (submodule admin) | `$GIT_COMMON_DIR/modules/**` | **NOT TESTABLE — not inventoried by any probe.** Escalated as **T-18** |
+| `shallow` | `$GIT_COMMON_DIR/shallow`, `<gitdir>/shallow` | raw bytes + sha256 |
+| **cached parentage, single-file** | `$GIT_COMMON_DIR/objects/info/commit-graph` **and each gitdir's** | **raw-bytes sha256** + `st_size` + `st_mode`. **`MEASURED — FIRES`** |
+| **cached parentage, split chain** | `objects/info/commit-graphs/commit-graph-chain` **and EVERY `objects/info/commit-graphs/graph-*.graph`** | **the sorted listing AND a sha256 PER FILE.** **`MEASURED — FIRES`** |
+| **multi-pack index** | `objects/info/multi-pack-index`, `multi-pack-index-*.bitmap` | sorted listing + per-file sha256. **`NOT TESTED` as a substitution vector — no experiment exists.** Protected on **uniformity**, not on a measurement. **T-30** |
+| `modules/**` (submodule admin) | `$GIT_COMMON_DIR/modules/**` | **`NOT ATTEMPTED` — testable with a synthetic superproject, deliberately not run because neither host repository has a submodule and a synthetic negative would prove nothing about production.** Escalated as **T-18** |
+
+> ### THE PER-FILE CONTENT HASH IS THE MECHANISM; THE LISTING IS NOT — AND HERE IS WHY
+>
+> **The measured split-chain forgery PRESERVED THE FILENAME.** The layer is named
+> `graph-<hash>.graph`, and the hash in that name is a **chain identity git does
+> not re-verify against the file's content on read.** The bytes were rewritten in
+> place and the name did not move.
+>
+> **So a capture recording only the `objects/info/commit-graphs/` directory
+> LISTING would not have seen the forgery at all.** Revision 6's row said *"hash +
+> listing"* for the whole group — **ambiguous between one hash of one file and a
+> hash per file.**
+>
+> **It must be a hash PER FILE, plus the listing.** The listing catches a layer
+> added or removed; the per-file hash catches a layer **rewritten in place**;
+> **neither catches what the other catches.**
+
+> ### AND A `NOT TESTABLE` LABEL PRODUCED A WRONG PROTECTION CLASS — ONE SENTENCE SO THE NEXT LANE SEES IT
+>
+> Revision 6's row said `commit-graph` was *"`NOT TESTABLE` as a forgery vector"*.
+> An implementer applying §5.8.3's **dependence** rule to that row asks *"does the
+> dispatcher depend on it?"*, reasons as the design reasons for the pack listings
+> (*"NO for correctness, nothing is read post-seal"*), and classifies it
+> **REPORT ONLY**. **That answer is measured false** — for the deleted G6, and
+> **still false today for the surviving G9.**
+>
+> **The dependence rule, applied honestly, gives the right answer here — but only
+> because someone ran the experiment. Revision 6 applied the same rule to the same
+> file and got the wrong answer, because the row it was reasoning from said the
+> experiment was impossible.** That is the mechanism by which a mislabel becomes a
+> wrong protection class, and it is why `NOT TESTABLE` is banned (§0).
 | `logs/**` (reflogs) | `<gitdir>/logs/**`, `$GIT_COMMON_DIR/logs/**` | listing + hash, **REPORT ONLY** — see §5.8.3 |
 
 **`include.path` is resolved by the dispatcher's own minimal INI reader**, not by
@@ -4904,36 +6421,208 @@ forbade. That is N-5, and it is closed by specifying the resolver:
 ```
 resolve_gitdir(root: bytes) -> (gitdir: bytes, common_dir: bytes)
   1. p = root / b".git"
-  2. if p is a DIRECTORY  -> gitdir = p
-     elif p is a FILE     -> read it; it must be exactly
-                             b"gitdir: " + <path> + b"\n";
-                             gitdir = that path, resolved relative to root
-     else                 -> RepositoryLayoutUnreadable   (fail closed)
+  2. st = os.lstat(p)          # <-- lstat FIRST. ALWAYS. NO EXCEPTION.
+     S_ISLNK -> REFUSE      RepositoryAdministrationUnsupported   (row 0)
+     S_ISDIR -> gitdir = p
+     S_ISREG -> read it; it must be exactly b"gitdir: " + <path> + b"\n";
+                gitdir = that path, resolved relative to root
+     else    -> REFUSE      RepositoryAdministrationUnsupported   (row 0)
   3. c = gitdir / b"commondir"
      if c exists -> common_dir = contents, stripped, resolved relative to gitdir
      else        -> common_dir = gitdir
   4. both must be existing directories, or RepositoryLayoutUnreadable
 ```
 
-Plain `open()` and `stat()`; **no git process**. It matches the layout the
-dispatcher itself creates (`gitdir: …/.git/worktrees/<name>`).
+> ### INVARIANT ZI-80 — `lstat` IS THE CLASSIFICATION PRIMITIVE FOR EVERY `.git` ENTRY THAT BEARS AUTHORITY (Sol §4, closes F5-5)
+>
+> Every `.git` entry involved in **authorization, layout resolution,
+> administrative capture, the seal or B2** is classified by **`os.lstat()` on the
+> entry itself, FIRST, before any read, any resolution and any branch.**
+>
+> **`Path.is_dir()`, `Path.is_file()`, `Path.exists()`, `os.path.isdir()`,
+> `os.path.isfile()` and `os.stat()` are FORBIDDEN as classification primitives on
+> these paths.** They may appear nowhere in `src/**` on a `.git` path.
+>
+> **DO NOT FOLLOW IT FIRST AND THEN DECIDE WHAT IT WAS.** The type decision is
+> made from the `lstat` of the entry, and **there is no path on which a
+> `readlink`/`realpath`/`open` happens before the type is known.**
 
-**Fallback, and it is honest.** Where the resolver cannot decide — an unusual
-layout, a relative `commondir` chain it does not model — the capture falls back
-to `rev-parse --absolute-git-dir` / `--git-common-dir`, **measured clean on S-α,
-S-β and S-γ**, and **records `resolver="rev-parse-fallback"` in the snapshot**, so
-the weaker path is legible in the evidence rather than silent.
+> ### INVARIANT ZI-81 — A SYMLINKED `.git` IS A PRELAUNCH REFUSAL
+>
+> `S_ISLNK(lstat(<root>/.git).st_mode)` ⇒ **`RepositoryAdministrationUnsupported`**,
+> a **PREPARE refusal at §8 row 0**, raised at **R3/R4 — before the first git
+> process of the dispatch**, before the lock, before establishment, before
+> `worktree add`.
+>
+> **ZERO git subprocesses run.** `state.json` byte-identical, no task id, no run
+> index, no worktree, one `refusals.jsonl` row. **The refusal record carries
+> `os.readlink()`'s raw bytes AS EVIDENCE FOR THE OPERATOR, and that read happens
+> AFTER the refusal decision is made, never as an input to it.**
 
-**PROVEN BY** `test_gitdir_resolver_matches_rev_parse_on_every_layout` — a
-throwaway primary repository, a linked worktree and a detached worktree; the raw
-resolver's answer must equal `rev-parse`'s for each, byte for byte.
+##### F5-5 needs one correction, and it WIDENS the finding
+
+**MEASURED, both symlink forms:**
+
+```
+--- <root>/.git -> a DIRECTORY ---
+  Path.is_dir()=True  Path.is_file()=False  Path.is_symlink()=True
+  lstat S_ISLNK=True  S_ISDIR=False  S_ISREG=False
+  resolve_gitdir() step 2 takes: DIRECTORY branch   -> gitdir = <root>/.git
+  git rev-parse --absolute-git-dir : rc=0  <the TARGET>
+  git status --porcelain           : rc=0  ''            <-- FULLY FUNCTIONAL
+
+--- <worktree>/.git -> a GITFILE ---
+  Path.is_dir()=False Path.is_file()=True   Path.is_symlink()=True
+  resolve_gitdir() step 2 takes: GITFILE branch -> parses the TARGET's 'gitdir:'
+  git rev-parse --absolute-git-dir : rc=0                <-- FULLY FUNCTIONAL
+
+--- <worktree>/.git -> a DIRECTORY ---
+  git rev-parse --absolute-git-dir : rc=128 fatal: not a git repository
+                                                          <-- INERT on 2.43
+```
+
+> **F5-5 says *"`Path.is_dir()` follows symlinks, so the gitfile branch is never
+> entered."* That is exactly right for symlink→DIRECTORY. For symlink→GITFILE the
+> GITFILE BRANCH IS ENTERED — `is_file()` is `True` — and the resolver happily
+> parses the target's `gitdir:` line. **The link is uncaptured in BOTH branches.**
+> So the defect is present on **both** branches of step 2, and a fix that only
+> hardened the directory branch would leave half of it open.**
+
+##### And v7 is worse than "uncaptured" — MEASURED
+
+```
+primary .git is a symlink -> $R/realgit, then `git worktree add --detach`:
+  worktree add rc=0
+  <wt>/.git bytes           : gitdir: $R/realgit/worktrees/wt   <-- the TARGET path
+  worktree list --porcelain : worktree $R/realgit               <-- NOT $R/p, the
+                              HEAD 60c9bd55…  branch refs/heads/main    real tree
+                              worktree $R/wt  HEAD 60c9bd55…  detached
+
+then repoint the symlink to a copy ($R/realgit2):
+  git -C wt rev-parse --absolute-git-dir : $R/realgit/worktrees/wt   <-- task worktree
+                                                                       stays on the OLD repo
+  git -C p  rev-parse --absolute-git-dir : $R/realgit2               <-- primary is now a
+                                                                       DIFFERENT repository
+```
+
+> **Two concrete production consequences.** `worktree list --porcelain` — **row
+> G1′ of the RESUME order, whose missing-registration case is a HARD PREPARE
+> REFUSAL** — reports the primary worktree as **the gitdir target path, not the
+> working-tree root**, so a registration match on that path is comparing the wrong
+> string. **And a single `ln -sf` between PREPARE and resume puts the dispatcher
+> and the task worktree on TWO DIFFERENT REPOSITORIES, with `rc=0` everywhere and
+> no field in §5.8.2's capture differing.**
+
+##### The accepted production shapes
+
+| Role | `lstat` | Accepted? | Then |
+|---|---|---|---|
+| primary `<root>/.git` | `S_ISDIR` | **YES** — the ordinary shape | `gitdir = <root>/.git` |
+| primary `<root>/.git` | `S_ISREG` | **YES, ONLY IF** the approved allowlist entry records **`gitdir_indirection: true`** — i.e. it was **onboarded** as a `--separate-git-dir` repository by the operator | parse the gitfile; the resolved gitdir **must equal the onboarded value** |
+| primary `<root>/.git` | `S_ISREG` **without** that record | **NO** | `RepositoryAdministrationUnsupported`, row 0 |
+| primary `<root>/.git` | `S_ISLNK` | **NO** | row 0, ZI-81 |
+| primary `<root>/.git` | FIFO / socket / device / anything else | **NO** | row 0 |
+| task worktree `<worktree>/.git` | `S_ISREG` **only** | **YES** | §5.5.2C's seal |
+| task worktree `<worktree>/.git` | `S_ISDIR` or `S_ISLNK` | **NO** | **the dispatcher created this worktree; anything else means it was replaced.** `WorktreeGitfileNotRegular` — PREPARE row 0 / post-worker `indirection_changed`, row 4 |
+
+> **The `S_ISREG` primary row needs its extra clause and it is not this document's
+> invention:** *"an explicitly supported regular gitdir file **if the approved
+> repo was onboarded that way**."* **The onboarding record is what makes it safe**
+> — without it, *"accept a gitfile"* means *"accept whatever the file says
+> today"*, which is F5-5's hole moved one type over. **The allowlist entry, not
+> the file, is the authority.**
+
+##### Why refusal rather than capture-and-compare
+
+1. **Consistency with a ruling already adopted.** §5.8.2A already **refuses** a
+   repository whose `config`/`config.worktree` sets `core.worktree`, on the
+   identical ground: *"the raw parser refuses to let configuration redirect
+   identity at all."* **A symlinked `.git` is the same redirection through a
+   different mechanism.**
+2. **Capture-and-compare needs a comparison point that does not exist yet.** At
+   R3/R4 **there is no baseline — R6 has not run.** Capturing the link target at
+   R3 and comparing it at R6 compares two readings taken microseconds apart, both
+   **after** the attacker's write. **A capture that cannot be compared is not a
+   defence, and it puts a TOCTOU window in the one place §5.8.2 exists to
+   eliminate.**
+3. **It costs nothing measurable, and that is measured.** The refusal is three
+   lines of `lstat` in the raw R3/R4 window and **runs ZERO subprocesses —
+   proven with a control**: the same rig, with a classifier that *does* call git,
+   logged **one** exec; the production classifier logged **none**.
+
+##### Tests
+
+| Test | Could it pass while the property is false? |
+|---|---|
+| **`test_symlinked_dot_git_refuses_before_any_git_process`** | **YES if written as a unit test of the classifier** — a classifier can be correct while the production entrypoint never calls it. **The test MUST dispatch through the registered production entrypoint.** **YES if the spawn audit is not proven live** — it must fire a deliberate `git --version` **before** the dispatch and assert that row is present, then assert the dispatch window is empty; **an audit that records nothing "proves" zero.** **YES if `state.json` is compared field-wise** — it must be **sha256**, because a rewrite with equal content is still a lifecycle mutation. The fixture must also assert the layout is **genuinely valid** first (`rev-parse --absolute-git-dir` at `rc=0`), or the refusal proves nothing |
+| `test_readlink_is_not_an_input_to_the_decision` | **NO.** The fixture uses an **unreadable** target (deleted): a resolve-first implementation raises `FileNotFoundError`/`RepositoryLayoutUnreadable` instead of the typed refusal, while the correct one still produces `target` from `readlink`, which succeeds on a dangling link |
+| `test_no_symlink_following_stat_on_a_dot_git_path` (AST) | **YES** for a path built dynamically at runtime — **paired with the runtime killer, which fires regardless of how the path was built** |
+| `test_dot_git_shape_is_a_four_valued_enum` | **NO** — asserts `shape` accepts `symlink` and `other`, plus a documentation mutant asserting the string `is-file-or-dir` appears nowhere |
+| `test_unonboarded_primary_gitfile_is_refused` | **NO** — a `--separate-git-dir` primary whose allowlist entry lacks `gitdir_indirection`, asserting row 0 + zero git |
+| `test_task_worktree_dot_git_directory_is_refused` | **NO** |
+| FIFO / socket / device cases | **the parameterisation is over the `stat` TYPE CONSTANTS, generated**, so a new type cannot be silently omitted |
+
+##### Error taxonomy additions
+
+| Code | Class | Phase | Landing |
+|---|---|---|---|
+| **`RepositoryAdministrationUnsupported`** | `DispatcherError` | **PREPARE only** | **refusal, row 0**, not retryable by re-dispatch. `details`: `shape`, `target` (symlink only), `root`. **Zero git subprocesses precede it** |
+| **`WorktreeGitfileNotRegular`** | `DispatcherError` | PREPARE / FINALIZE | PREPARE → row 0 · FINALIZE → `indirection_changed`, **row 4** |
+| **`WorktreeGitfileMalformed`** / **`WorktreeGitdirNotDispatcherOwned`** | `DispatcherError` | PREPARE | row 0 |
+| **`WorktreeHeadNotRegular`** | `DispatcherError` | PREPARE / FINALIZE | PREPARE → row 0 · FINALIZE → `base_mismatch`, **row 2** |
+| **`WorktreeSealSchemaUnsupported`** | `DispatcherError` | PREPARE (resume) | row 0 |
+
+**All six join §8 row 0's enumeration, and all six are therefore Wave 0** by
+§12.2A's `creates` predicate.
+
+##### Backward compatibility
+
+- **A primary repository whose `.git` is a symlink stops working.** It was never
+  measured *working* — the resolver "worked" only by accident, capturing through
+  the link. **Whether any repository on this host has one is `NOT ATTEMPTED`: the
+  scan is forbidden by the hard lines, so the availability cost is unmeasured and
+  escalated (T-35).**
+- **A `--separate-git-dir` primary keeps working ONLY after an operator adds
+  `gitdir_indirection: true` to its allowlist entry.** Before that it refuses at
+  row 0 — **the same shape as §5.8.3's baseline re-establishment: a refusal with a
+  named human remediation, not a silent downgrade.**
+- **The raw parser's 8/8 agreement with git is unaffected on seven of eight
+  layouts.** The eighth — `--separate-git-dir` with no `commondir` file — now
+  requires the onboarding record before it is accepted. **The parser still agrees
+  with git; the POLICY declines to use the answer without the operator's record.**
+
+**Fallback, and it is honest.** Where the resolver cannot decide *after* the type
+is known — an unusual layout, a relative `commondir` chain it does not model — the
+capture falls back to `rev-parse --absolute-git-dir` / `--git-common-dir`,
+**measured clean on all four armed surfaces**, and **records
+`resolver="rev-parse-fallback"` in the snapshot**, so the weaker path is legible
+in the evidence rather than silent.
+
+**PROVEN BY** `test_gitdir_resolver_matches_rev_parse_on_every_layout` — measured
+at **8/8 healthy layouts** (main worktree, linked worktree, detached, **relative
+gitfile**, main and linked with `packed-refs`, **`--separate-git-dir` with no
+`commondir` file**, and a worktree of a bare repository) on `toplevel`, `gitdir`,
+`commondir` and `head_oid`. **The positive control fired: a deliberately broken
+parser that ignores `commondir` reported DISAGREE on both fields through the same
+harness. The 8/8 is a result, not an artefact.**
 **COULD IT PASS WHILE FALSE?** Only for a layout the fixture does not contain —
 which is exactly why the fallback exists **and is recorded**, rather than the
-resolver being asserted total. **IF MIS-WIRED** — the resolver disagrees with
-`rev-parse` and the test fails; a resolver that silently returned the wrong
-gitdir would make the capture read the wrong files, which
-`test_unreconciled_admin_state_refuses_before_worktree_add` catches from the other
-end, because its poisoned config would no longer be seen.
+resolver being asserted total.
+
+**The one place the parser deliberately DISAGREES with git, and it is the argument
+for §5.8.2B:**
+
+```
+  git --show-toplevel : /tmp/…/altwt
+  raw   toplevel      : /tmp/…/task
+```
+
+`core.worktree` — in `config`, or in `config.worktree` under
+`extensions.worktreeConfig` — **redirects `rev-parse --show-toplevel`**, and
+`config` is worker-writable. **The raw parser refuses to let configuration
+redirect identity at all**, so a repository that *legitimately* sets
+`core.worktree` **is refused**, and both files are sealed so the setting cannot
+appear later.
 
 > **The fallback is UNAVAILABLE on the authorization path and on the post-worker
 > path.** At R3/R4 an undecidable layout is `RepositoryLayoutUnreadable`, a
@@ -4951,38 +6640,6 @@ end, because its poisoned config would no longer be seen.
 > run the oracle **in throwaway repositories**. Without this sentence, an
 > implementer meeting a red AST test inside `tests/` deletes the oracle, and the
 > raw parser ships with no independent check.
-
-**The raw parser is MEASURED, with a control that could report failure.** Lane Z7
-compared it against git on **8/8 healthy layouts** — main worktree (`.git`
-directory), linked worktree (`.git` file), detached, **relative gitfile**, main
-and linked with `packed-refs`, **`--separate-git-dir` with no `commondir` file**,
-and a worktree of a bare repository — on `toplevel`, `gitdir`, `commondir` and
-`head_oid`. **The positive control fired:** a deliberately broken parser that
-ignores `commondir` reported **DISAGREE** on both fields through the same
-harness. **The 8/8 is a result, not an artefact.**
-
-**The one place the parser deliberately DISAGREES with git, and it is the
-argument for §5.8.2B:**
-
-```
-  git --show-toplevel : /tmp/z7p2c.Y7eZfG/altwt
-  raw   toplevel      : /tmp/z7p2c.Y7eZfG/task
-```
-
-`core.worktree` — in `config`, or in `config.worktree` under
-`extensions.worktreeConfig` — **redirects `rev-parse --show-toplevel`**, and
-`config` is worker-writable. **The raw parser refuses to let configuration
-redirect identity at all.** The consequence must be stated: **a repository that
-*legitimately* sets `core.worktree` cannot be served by a parser that ignores
-it**, so the fail-closed answer is to **refuse** a repository whose
-`config`/`config.worktree` sets `core.worktree`, and to seal both files so the
-setting cannot appear later.
-
-**One `REQUIRES-PROBE` this section owes:** `Path.is_dir()` **follows symlinks**,
-so a `<root>/.git` that is a **symlink to a directory** reads as a directory and
-works, **while the link itself is never captured** — an uncaptured redirection
-pointer of exactly S-ε's family. **Not measured by any lane. `REQUIRES-PROBE`,
-and §5.8.2's gitfile row must be extended to cover it.**
 
 #### 5.8.2B Repository authorization is a filesystem identity, never a git answer (Sol §7)
 
@@ -5096,12 +6753,102 @@ than discovered:** a repository whose `.git` is a **symlink to a directory** —
 accepted today by `rev-parse`, accepted by the raw resolver via `is_dir()`
 symlink-following, **and the link itself uncaptured.** `REQUIRES-PROBE`.
 
-#### 5.8.3 The trusted baseline and the reconciliation gate
+#### 5.8.3 The trusted baseline, the FOUR captures, and the gate
 
-**PREPARE, step 0, before any git process exists:**
+##### `pre_run` named two different captures, and the design asserted both
+
+**F5-4's fork, stated exactly:**
+
+- **§5.4.3B** places `capture(role="pre_run")` at **R6**, *"before the first git
+  process of the dispatch"*, which ZI-53 requires and which is the whole safety
+  argument for the PREPARE checkout. `worktree add` is **after** it.
+- **§5.5.1** listed a step 0 **and** a step 4 `RepositoryAuthoritySnapshot(role=pre_run)`
+  **using the same role name.**
+- **§5.8.3** stated the FINALIZE rule as **`post != pre_run` ⇒ tamper ⇒ row 4.**
+
+**Reading A — `pre_run` is R6's capture.** Then `post != pre_run` **on every
+run**, caused by the dispatcher's own `worktree add`. **Every successful run lands
+`POLICY_VIOLATION`.**
+**Reading B — `pre_run` is captured after `worktree add`.** Then the establishment
+gate no longer precedes the one execution-capable operation, **and ZI-20 is
+false.**
+
+**MEASURED — Reading A's consequence is real, not hypothetical.** Under
+`worktree add --detach`, nine entries appear under `$GIT_COMMON_DIR`:
 
 ```
-current := capture(role="pre_run")
++ worktrees/ , worktrees/<id>/ , worktrees/<id>/logs/        [3 directories]
++ worktrees/<id>/{HEAD, ORIG_HEAD, commondir, gitdir, index, logs/HEAD}
+```
+
+**every one created by the dispatcher, every one a captured row of §5.8.2.**
+*(The `-b` form creates **eleven** — the same nine plus `refs/heads/sol-<id>` and
+`logs/refs/heads/sol-<id>`, which are `sol-`-prefixed **ref** paths, exactly what
+ZI-57 forbids exempting. **§5.5.2C's move to `--detach` removes those two.**)*
+
+##### The invariants
+
+> ### INVARIANT ZI-82 — `pre_run` IS DELETED AS A ROLE NAME. THERE ARE FOUR ADMINISTRATIVE CAPTURES AND EACH HAS EXACTLY ONE PURPOSE
+>
+> | Role | Captured | Purpose | Attribution baseline? |
+> |---|---|---|---|
+> | **`PREPARE_ADMIN_GATE`** | **before the first git command of the dispatch** (R6 / P3) | decide whether executing the exact trusted PREPARE repertoire is **allowed** | **NO** |
+> | **`WORKER_START_AUTHORITY`** | **after every dispatcher-owned PREPARE mutation completes** — G1…G10, `worktree add`, the §5.5.2C seal and the §5.5.2A content seal — and **immediately before the Claude spawn** | the **immutable baseline for worker-attributable tampering** | **YES** |
+> | **`WORKER_EXIT_AUTHORITY`** | after Claude exits, **before validation** | the worker-side terminal | it is the other operand |
+> | **`VALIDATION_EXIT_AUTHORITY`** | after the last validation command is reaped | validation attribution | — |
+>
+> **Worker attribution compares `WORKER_START_AUTHORITY` XOR
+> `WORKER_EXIT_AUTHORITY`. Nothing else is ever compared for worker
+> attribution.**
+>
+> **The string `pre_run` must not appear in `src/**`, in `tests/**`, or in any
+> NORMATIVE table of this document.** *(It appears in this subsection only, in the
+> account of the defect it names, and `test_pre_run_appears_nowhere` scopes its
+> assertion the same way.)* **The ambiguity was the defect; deleting the word is the fix, and
+> renaming one of two identically-named things is not.** A persisted snapshot
+> carrying `role: "pre_run"` is a **schema error, never coerced** — coercing it
+> requires guessing which of the two captures it was, **which is F5-4 itself.**
+
+> ### INVARIANT ZI-83 — THE TWO OBLIGATIONS ARE SATISFIED BY ORDERING, NOT BY EXEMPTION
+>
+> - **ZI-20 / ZI-53** — *no git command that could execute a repository-supplied
+>   program runs before the establishment gate passes* — holds because
+>   **`PREPARE_ADMIN_GATE` is captured at R6, before G1, and is the gate's ONLY
+>   operand.**
+> - **Worker attribution** — *the dispatcher's own PREPARE mutations are never
+>   blamed on Claude* — holds because **`WORKER_START_AUTHORITY` is captured
+>   AFTER those mutations, so they are already inside the baseline and the XOR
+>   cannot see them.**
+>
+> **No path is exempted by name, by prefix or by pattern. ZI-57 is untouched.**
+> The nine entries above are not *excused* from the comparison; **they are on BOTH
+> SIDES of it.**
+
+**Reading A is now structurally impossible**, because the FINALIZE rule no longer
+names `PREPARE_ADMIN_GATE`. **Reading B is structurally impossible**, because
+ZI-20's gate is the R6 capture and not this one.
+
+**MEASURED — what the XOR sees on a full cycle:**
+
+```
+PREPARE_ADMIN_GATE -> WORKER_START_AUTHORITY   (dispatcher-owned; NOT attributable)
+  + worktrees/<id>/{HEAD,ORIG_HEAD,commondir,gitdir,index,logs/HEAD} + 3 dirs
+
+WORKER_START_AUTHORITY -> WORKER_EXIT_AUTHORITY   (the XOR; ATTRIBUTABLE TO CLAUDE)
+  + objects/61/780798…  + objects/ae/18cd95…  + objects/fe/fefb7c…
+  + worktrees/<id>/COMMIT_EDITMSG
+  ~ worktrees/<id>/HEAD        (content changed — B2's comparison 8)
+  ~ worktrees/<id>/logs/HEAD   (reflog: REPORT ONLY)
+  ~ worktrees/<id>/index       (REPORT ONLY)
+```
+
+**The left column is empty of dispatcher noise; every entry in the right column
+is a worker act.**
+
+##### The gate itself
+
+```
+current := capture(role="PREPARE_ADMIN_GATE")
 if no baseline exists:
     -> RepositoryAdministrationUnestablished          (PREPARE refusal)
        remediation: an operator runs `scripts/trust-repo-admin.py <repo>`,
@@ -5121,22 +6868,118 @@ if current != baseline:
 ```
 
 **No git command that could execute a repository-supplied program runs before
-this gate passes** — only the identity resolution of §5.8.2A, whose fallback
-`rev-parse` variants are measured clean on all four armed surfaces. That is
-ZI-20, and it is the
-whole safety argument for the PREPARE checkout: **the checkout can only execute a
-repository-configured program if that program was in the trusted baseline.**
+this gate passes.** That is ZI-20, and it is the whole safety argument for the
+PREPARE checkout: **the checkout can only execute a repository-configured program
+if that program was in the trusted baseline.**
 
-**FINALIZE:** `post != pre_run` is `evidence_authority_tamper` →
-**`POLICY_VIOLATION`** (§8 row 4), with a marker naming each administrative file
-and each exec key that moved. **Because the post-worker pipeline runs no
-presentation command, this comparison is now upstream of every execution risk
-rather than downstream of it** — which repairs the ordering complaint
-structurally rather than by moving a row.
+**FINALIZE:** `WORKER_EXIT_AUTHORITY != WORKER_START_AUTHORITY` is
+`evidence_authority_tamper` → **`POLICY_VIOLATION`** (§8 row 4), with a marker
+naming each administrative file and each exec key that moved. **A dispatch after a
+tamper verdict refuses until reconciled, at R6, before running any git command.**
 
-**A dispatch after a tamper verdict refuses until reconciled**, at step 0,
-**before running any git command** — Sol's *"it must not run a dangerous git
-command first"*, satisfied by ordering rather than by intent.
+> **`gate_snapshot_sha256` is recorded for the operator and is read by NOTHING.**
+> `test_prepare_admin_gate_is_never_an_attribution_operand` (AST **and** runtime)
+> asserts `PREPARE_ADMIN_GATE` appears in **zero** delta computations, and the
+> runtime half **injects a `PREPARE_ADMIN_GATE` that differs from
+> `WORKER_START_AUTHORITY` in one entry and asserts the worker delta is
+> unchanged.** **Without it, a well-meaning implementer "improves" attribution by
+> comparing against the earliest capture available and silently restores Reading
+> A.**
+
+---
+
+##### ⚠ THE UNRESOLVED HALF — AND IT IS ONE PROBLEM, NOT TWO
+
+> **Two lanes reported what looked like two separate blockers. They are the same
+> root cause: the R6 gate treating dispatcher-created state as unreconciled.**
+>
+> - **The SECOND DISPATCH against a repository** lands
+>   `RepositoryAdministrationUnreconciled`, **NOT retryable** — MEASURED: after a
+>   complete dispatch **and** `worktree remove --force` **and** `worktree prune`,
+>   **three loose objects survive** and the capture has drifted from the frozen
+>   human baseline.
+> - **EVERY FABLE REVIEW** lands the same way, if the review path runs the R6
+>   gate — because by review time the repository has necessarily gained the
+>   dispatcher's own `worktree add` state.
+>
+> **A repository serves one task and then refuses until a human re-runs
+> `trust-repo-admin.py`. That is a total availability failure on the first real
+> dispatch, and it is caused by the dispatcher's own correct behaviour.**
+
+**What revision 7 fixes, and what it does not.** The four-capture split
+(ZI-82/ZI-83) resolves Readings A and B completely, and `--detach` removes the two
+`sol-`-prefixed ref entries from the drift — **so the equivalence relation now
+needs to account for ONE class instead of three, and that class (`worktrees/**`)
+is keyed on git's own layout rather than on a prefix the dispatcher chose.**
+**It does not resolve the cross-dispatch drift.**
+
+**ZI-57's trap, and the distinction that is the whole content of any fix.**
+ZI-57 forbids an exemption **keyed on a filename prefix the dispatcher controls**
+— *"not a security property, it is a naming convention."* What R6 needs is an
+**equivalence relation over capture CLASSES**, decided by the same **dependence**
+test §5.8.3 already uses:
+
+| Capture class | Proposed relation | Keyed on |
+|---|---|---|
+| config, `config.worktree`, `include.path` targets, attributes, excludes, hooks, fsmonitor/filter/diff keys | **exact equality** | nothing; total |
+| `alternates`, `http-alternates`, `objects/info/` listing, `refs/replace/**`, `info/grafts`, **cached parentage** | **exact equality** | nothing; total |
+| `packed-refs`, `<common>/refs/**`, `<gitdir>/refs/**` | **exact equality** | nothing; total |
+| `worktrees/*/` registrations | **exact equality of the set of worktree ids the dispatcher's own `state.json` does NOT account for**, plus exact equality of every file under an unaccounted id | **the dispatcher's own durable task records — a PROVENANCE test, not a NAMING test.** An attacker who creates `worktrees/sol-evil/` gets **no** exemption, because there is no task record for it |
+| **loose-object fan-out listings and `objects/pack/`** | **APPEND-ONLY**: a NEW name is not a divergence; a **REMOVED** name or a **CHANGED size IS** | the file-type class, not a name |
+| `<gitdir>/index`, `logs/**` | **REPORT ONLY** (unchanged) | the class |
+
+> ### THE APPEND-ONLY ROW RE-OPENS A PARAGRAPH THIS DOCUMENT DELETED, AND THAT MUST BE SAID OUT LOUD
+>
+> §5.8.3 deleted revision 5's excuse — *"objects are immutable and
+> content-addressed; a new object cannot change an existing one"* — and installed
+> **`Z8-M13`, a documentation mutant forbidding that string near the object-store
+> capture rationale.** **An append-only rule for the object store IS that
+> argument, narrowed.**
+>
+> **The narrowing, stated so it can be accepted or rejected on its merits rather
+> than on its resemblance to the deleted excuse:** the deleted excuse justified
+> **not capturing the object store at all**, and its refutation was *"alternates
+> does not change an object; it changes which store is consulted."* **That
+> refutation is entirely about ROUTING — and routing is a different capture class,
+> pinned at exact equality, total.** With routing byte-identical, `info/grafts`
+> byte-identical, `refs/replace/**` byte-identical and PIN 3 in force, the
+> residual question for the object directory alone is: *does the appearance of a
+> new loose object change what any dispatcher read resolves to?* **For
+> `objects/` alone the honest answer is no — a new oid is a new name.**
+>
+> **This is STILL A JUDGEMENT, it is the SAME SHAPE of judgement that produced the
+> allowlist ZI-57 deleted, and this document DOES NOT ADOPT IT.**
+
+**The three options, costed, none adopted — escalated as T-36:**
+
+| # | Option | Cost |
+|---|---|---|
+| (a) | **report-only object listings** | **loses the deleted-base-blob detection §5.12/ZI-60 depends on** — *"what makes a deleted base blob DETECTABLE rather than INFERRED"*. **This is the argument for (b) over (a):** append-only keeps it, because a **removal** is still a divergence |
+| (b) | **append-only, as above** | re-opens the deleted paragraph's shape; needs Sol's ruling, not a lane's |
+| (c) | **the operator re-baselines after every dispatch** | the measured availability failure, accepted as policy. **Honest, and unusable** |
+
+> **`test_second_dispatch_against_the_same_repository_succeeds` DOES NOT EXIST AND
+> MUST NOT BE WRITTEN GREEN. It is deliberately RED until T-36 is ruled.**
+> Writing it against option (c) would make it pass **while the availability
+> failure stands**, which is the exact shape of a green test that proves nothing.
+>
+> **And whatever relation Sol adopts must leave
+> `test_divergence_persists_across_dispatches` green** — the killer for
+> *automatic re-baselining* — so the relation is **constrained from both sides.**
+
+**One further consequence, and it is the review path's:** **the Fable review
+compares against the SEALED TASK AUTHORITY, not against the operator's global
+baseline** (§5.4.3B ORDER 3, step V6). The sealed task authority is per-task,
+written pre-worker, and is the right baseline for *"is this the repository we
+sealed?"*. **Running the operator gate on the review path lands
+`RepositoryAdministrationUnreconciled` on every review of every task, caused by
+the dispatcher's own prior `worktree add`.** **Both readings are zero-git, so the
+central claim is unaffected either way — this is a LIVENESS conflict, and it is
+escalated rather than quietly decided (T-37).** If Sol wants the operator gate on
+the review path, **T-36 must be ruled first**, because §5.4.3B ORDER 3 cannot be
+implemented on top of a gate that refuses every run.
+
+---
 
 **Deny-list additions**, worth making and **not the mechanism**:
 `Bash(git config:*)`, `Bash(git update-index:*)` and `Bash(git -C:*)` join
@@ -5147,6 +6990,7 @@ the deny list raises the cost and closes the naive path. **The fingerprint is th
 mechanism.**
 
 ##### THE ALLOWLIST IS DELETED IN ITS ENTIRETY (Sol §14)
+
 
 > ### INVARIANT ZI-57 — THE PROTECTED ADMINISTRATIVE SNAPSHOT HAS NO DELIBERATE EXEMPTIONS
 >
@@ -5195,7 +7039,7 @@ Sol §14 requires the determination to come from **actual dispatcher dependence*
 > **`index` and `logs/**` are the two classes this design deliberately treats as
 > report-only, and both are justified by MEASURED NON-DEPENDENCE, not by
 > convenience. That distinction is the whole content of Sol's directive, and it
-> is the line the fifth reviewer should attack — it is the same shape of
+> is the line the next reviewer should attack — it is the same shape of
 > judgement that produced the allowlist this section just deleted.**
 >
 > **The tripwire:** `test_report_only_admin_classes_have_no_reader` (AST) asserts
@@ -5290,16 +7134,82 @@ is invisible to it. It also carries a **second** `resolve_base_commit(repo,
 "HEAD")` — a symbolic resolution of exactly the kind §4.14 removes from the
 dispatch path.
 
-> ### INVARIANT ZI-59 — THE PRIMARY-TREE INVARIANT IS RAW, AND IT IS AN EQUALITY, NOT A CLEANLINESS
+> ### INVARIANT ZI-59 — THE PRIMARY WORKING TREE HAS THREE NAMED STATES AND TWO EQUALITIES (Sol §6)
 >
-> **`PRIMARY_POST == PRIMARY_START`**, where both are built with **no git
-> process**: a raw HEAD read, a dispatcher-owned `FsSnapshot`, and a §5.8
-> `GitAdminSnapshot`.
+> | Role | Captured |
+> |---|---|
+> | **`PRIMARY_PREPARE`** | at **R7** — after the R6 gate, **before the first git process**, and therefore before dispatcher setup |
+> | **`PRIMARY_WORKER_START`** | at **S2** — after every dispatcher-owned PREPARE mutation, **before the Claude spawn** |
+> | **`PRIMARY_WORKER_EXIT`** | at **E3** — after Claude exits |
 >
-> **No `git status` in any form, at any phase.** The dispatcher never runs
-> `clean`, `reset`, `checkout`, `restore`, `stash`, `gc`, `prune` or
+> **THE DISPATCHER-SETUP EQUALITY: `PRIMARY_PREPARE == PRIMARY_WORKER_START`, OR
+> REFUSE BEFORE CLAUDE.** Dispatcher setup must itself preserve the primary
+> working tree. **A violation is a DISPATCHER defect, not a worker act**, and it
+> lands as a **PREPARE refusal at §8 row 0** — `state.json` byte-identical, **no
+> worker ever spawned.**
+>
+> **THE CLAUDE INVARIANT: `PRIMARY_WORKER_START == PRIMARY_WORKER_EXIT`.** A
+> violation is `POLICY_VIOLATION` at **§8 row 5**, `attributed_to="worker"`.
+>
+> **Both are RAW: no `git status` in any form, at any phase.** The dispatcher
+> never runs `clean`, `reset`, `checkout`, `restore`, `stash`, `gc`, `prune` or
 > `update-index`, and **writes no path under the primary work tree, ever, on any
-> path including the failure path and the timeout path.**
+> path including the failure path and the timeout path.** **Both are EQUALITIES,
+> never cleanliness: the existing dirty primary is preserved exactly.**
+
+> ### INVARIANT ZI-84 — `.git/worktrees` CREATION IS NOT A PRIMARY WORKING-TREE EVENT
+>
+> The primary `FsSnapshot` **excludes `<root>/.git/**` BY CONSTRUCTION** — not by
+> an allowlist, not by a prefix filter, but because **`.git` is a different
+> subsystem with its own explicitly typed snapshot** (§5.8's four captures).
+>
+> **Expected `.git/worktrees/<id>/**` creation by `worktree add` MUST NOT be
+> reported as a primary working-tree violation.** It is administrative state, it
+> is on **both sides** of §5.8.3's `WORKER_START_AUTHORITY` XOR, and it is judged
+> there.
+>
+> **This is a SUBSYSTEM BOUNDARY, not an exemption, and ZI-57 is untouched:** the
+> path is not skipped, it is **captured by the other snapshot.** A path captured
+> by **neither** would be an exemption —
+> `test_every_path_is_in_exactly_one_snapshot` proves it is captured by **exactly
+> one**, and it derives its expectation from a **live directory walk of the
+> fixture**, never from a literal list.
+
+**MEASURED — `worktree add` writes NOTHING under the primary working tree, in all
+three forms, and the control fired.** A raw walk recording
+`(type, size, mode, mtime_ns, sha256)` for **every** path, before and after:
+
+| | `--detach` | `-b sol-abc` | `--detach --no-checkout` |
+|---|---|---|---|
+| primary paths before → after | 49 → 58 | 49 → 60 | 49 → 56 |
+| **working tree** added / removed / changed | **0 / 0 / 0** | **0 / 0 / 0** | **0 / 0 / 0** |
+| **working tree** mtime-only touched | **0** | **0** | **0** |
+| `.git/**` paths added | **9** | **11** | 7 |
+| `.git/**` paths with **changed content** | **0** | **0** | **0** |
+
+The primary's own `HEAD`, `index`, `config`, `refs/heads/main` and `logs/HEAD`
+are **byte-identical and mtime-identical** in all three forms. **Positive control:
+a `git checkout main` in the primary, through the same snapshot-and-diff code,
+reported `working-tree changed = ['a.txt']`.**
+
+> **This measurement is what makes the dispatcher-setup equality ACHIEVABLE rather
+> than aspirational — and it is also why ZI-84 is required**: without the `.git`
+> exclusion the same measurement says the equality **fails on every run**, which
+> is F5-4's Reading A re-created inside §5.9.
+>
+> **The equality is ASSERTED, not assumed.** A different `worktree add` argv, a
+> `core.worktree` redirection, a worktree path that resolves **inside** the
+> primary root, or a checkout transform could all break it. **The S3 assertion is
+> what turns the measurement into a guarantee**, and deleting S3 on the ground
+> that *"`worktree add` is known not to touch the primary"* is a named mutant.
+
+**Symmetric fidelity, extended to three captures.** `fidelity` is read from
+**`PRIMARY_PREPARE`'s record** for the two later captures, **never re-read from
+config** — a config change mid-run, by an operator or by a worker with write
+access, would otherwise silently downgrade one side. **`entry_count` is REQUIRED
+and is the anti-vacuity field: all three counts must be equal, non-zero, and
+equal to the fixture's known count**, because a snapshot that silently failed to
+enumerate produces `0` on both sides and compares equal.
 
 #### 5.9.2 Mechanism
 
@@ -5398,6 +7308,47 @@ modified file after START → assert `POLICY_VIOLATION`; restore; re-run → ass
 clean. **Without (i) and (ii) a snapshot that silently failed to enumerate
 passes.** The eleven-path shape fixture is **never run against
 `/home/dev/full-voice-agent`** — the production repository is READ-ONLY.
+
+##### The third walk, and what it costs
+
+| fidelity | per walk | **2 walks (rev 6)** | **3 walks (rev 7)** |
+|---|---|---|---|
+| `stat_identity` (default) | **466 ms** | 932 ms | **1.40 s** |
+| `content_hash_all` | ~18 s cold / ~3.5 s warm | ~36 s / ~7 s | **~54 s / ~10.5 s** |
+
+> **The third walk costs 466 ms per dispatch at the default fidelity, and it buys
+> the only check that dispatcher setup did not touch the primary tree.** At
+> `content_hash_all` it costs **~18 s cold**, which is a genuine argument against
+> turning `content_hash_all` on — a decision §5.9.3 already escalates and which
+> this section does not pre-empt.
+>
+> **`NOT ATTEMPTED`: whether the R7 and S2 walks can share work** (e.g. S2
+> re-walking only entries whose parent directory `mtime_ns` changed). **It would
+> be sound only if directory mtimes were trustworthy under the same-uid threat
+> model, and they are not (`os.utime`). The optimisation is unsound before it is
+> slow, so it was not measured.**
+
+##### Tests
+
+| Test | Could it pass while the property is false? |
+|---|---|
+| **`test_dispatcher_setup_preserves_the_primary_tree`** | **YES — two empty measurements agree.** Requires (i) `entry_count` equal, **non-zero**, and equal to the fixture's known count, **and** (ii) an **inline control**: mutate one byte of one file **between R7 and S2** (injected by the harness, standing in for a dispatcher bug) → assert **`DispatcherSetupTouchedPrimaryTree`, row 0, no spawn**; restore; re-run → assert clean |
+| **`test_worktree_registration_is_not_a_primary_tree_violation`** | **YES if it only asserts "no violation".** It must **also** assert the nine `worktrees/<id>/**` entries **are present in `WORKER_START_AUTHORITY`** — i.e. that they were captured **somewhere**. **Otherwise it passes against a build that captures them nowhere, which is the exemption ZI-57 forbids** |
+| `test_every_path_is_in_exactly_one_snapshot` | **YES for a path class neither snapshot walks** — closed by deriving the expectation from a live walk |
+| `test_primary_fidelity_is_symmetric_across_all_three` | **NO** — the harness flips the config mid-run |
+| `test_no_len_dirty_eleven_assertion_exists` | **NO** for the literal; **YES** for `assert len(x) == 11` on a differently-named variable — so the AST rule is *"no equality comparison against the literal 11 in any primary-tree module"*, **over-broad on purpose** |
+| `test_dispatcher_writes_nothing_under_the_primary_root` (retained) | **YES if the write audit is not proven live** — it carries a deliberate write that must be observed. **§5.9 adds that the audit must EXEMPT `<root>/.git/worktrees/**`, which the dispatcher does legitimately write — and that exemption is itself asserted to be EXACTLY the nine measured paths, not a prefix** |
+
+##### Error taxonomy addition
+
+| Code | Class | Phase | Landing |
+|---|---|---|---|
+| **`DispatcherSetupTouchedPrimaryTree`** | `DispatcherError` | **PREPARE only** | **refusal, §8 row 0.** `state.json` byte-identical, **no worker spawned**, no run consumed. `details` enumerate every diverging path with its identity tuple before and after. **It is surfaced as a refusal rather than an `InternalDispatcherError` because the operator's remediation is real and the failure is not always a code bug — a concurrent process in the operator's own checkout produces it too** |
+
+> **`primary_ignored_divergence_is_violation` applies to the CLAUDE equality only.
+> The dispatcher-setup equality is TOTAL: no ignored-path grading, no switch. The
+> dispatcher has no business writing anything under the primary root, ignored or
+> not.**
 
 #### 5.9.3 Fidelity, and the cost that forces the question
 
@@ -5620,7 +7571,8 @@ if patch_bytes != ev.patch_bytes or sha256_file(ev.patch_path) != ev.patch_sha25
 budget = measured_review_input_budget(argv_block_without_patch)
 
 review_input_complete = (
-    patch_bytes <= budget
+    ev.patch_file_complete                # <-- ADDED IN REVISION 7 (Sol §14)
+    and patch_bytes <= budget
     and att.verdict == "attributable"
     and att.validation_delta is not None
 )
@@ -5647,6 +7599,35 @@ if not review_input_complete:
   `both_authors` carries a **mandatory sentence**; an empty `validation_only`
   section is rendered as an explicit *"none"*, **never omitted** — **an absent
   section reads as "nothing happened", which is this design's own Shape 2.**
+
+> ### THE ONE ADDED CONJUNCT, AND WHY IT IS A DERIVATION RATHER THAN A RENAME
+>
+> **Sol's §14 assigns representation failure to `review_input_complete`. §5.5.9
+> assigns it to `patch_file_complete` and gives `review_input_complete` a
+> budget/attribution meaning. Both produce the same operational outcome — Fable
+> refuses — so nothing is broken; but two documents naming DIFFERENT FIELDS for
+> the SAME FACT is precisely the two-tables-one-question shape that produced F-1
+> and F-2. Merging both sentences unreconciled would re-create the defect this
+> section exists to fix.**
+>
+> **With `patch_file_complete` as a conjunct, Sol's sentence is LITERALLY TRUE as
+> written** — a changed binary makes `review_input_complete` false — **and
+> ZI-44/ZI-45/ZI-48 are untouched.** ZI-48's *"refuse on either flag"* becomes
+> *"refuse on `review_input_complete`"*, a **single predicate**, with
+> `patch_file_complete` retained as the named diagnostic that tells the operator
+> **which of the four causes fired.**
+>
+> **Why not simply rename?** Because `patch_file_complete` is the field the fifth
+> review verified as **structurally unforgeable** — *"not a field; no constructor
+> argument, no serializer entry, one producing module under an AST guard."*
+> **Renaming it re-opens ZI-45's structural guarantee for a wording alignment.
+> Deriving costs one line and preserves everything.**
+>
+> **Required test:** `test_review_input_complete_is_false_whenever_patch_file_complete_is_false`
+> — a property test over the seven-rule table asserting the implication in **both**
+> directions for every row. **COULD IT PASS WHILE FALSE?** Yes, if the fixture
+> omits the binary row — **closed by generating the fixture FROM the seven-rule
+> table so a row cannot be silently absent.**
 
 **Why F-1 cannot recur here.** The guard still reads `patch_file_complete` — but
 under **ZI-37** there is no longer any class for which *"clears the flag"* and
@@ -5862,6 +7843,19 @@ Every path field in every artefact introduced here is a `PathRepr` object
 | **`ValidationTouchedAdministrativeState`** | `DispatcherError` | FINALIZE | row 4, `attributed_to="validation"`, decided from capture #1 vs capture #2 |
 | **`ValidationTouchedPrimaryTree`** | `DispatcherError` | FINALIZE | row 5, `attributed_to="validation"` |
 | **`ProductionBaseRefNotExact`** / **`BaseRefNotACommitObject`** / **`BaseCommitAbsent`** | `DispatcherError` | PREPARE | refusal, row 0 (§4.14) |
+| **`RepositoryAdministrationUnsupported`** | `DispatcherError` | **PREPARE only** | refusal, row 0, **not retryable by re-dispatch**. `details`: `shape`, `target` (symlink only), `root`. **Zero git subprocesses precede it** |
+| **`WorktreeGitfileNotRegular`** | `DispatcherError` | PREPARE / FINALIZE | PREPARE → row 0 · FINALIZE → `indirection_changed`, row 4 |
+| **`WorktreeGitfileMalformed`** / **`WorktreeGitdirNotDispatcherOwned`** | `DispatcherError` | PREPARE | refusal, row 0 |
+| **`WorktreeHeadNotRegular`** | `DispatcherError` | PREPARE / FINALIZE | PREPARE → row 0 · FINALIZE → `base_mismatch`, row 2 |
+| **`WorktreeSealSchemaUnsupported`** | `DispatcherError` | PREPARE (resume) | refusal, row 0 — a revision-6 symbolic seal is **not upgraded, not migrated, not read** |
+| **`RepositoryIdentityUnsealed`** | `DispatcherError` | PREPARE / FINALIZE | row 0 while **no** run has `ownership.json`; **row 4** once one does |
+| **`SealPinSetStale`** | `DispatcherError` | PREPARE | refusal, row 0 — **never a re-measurement** |
+| **`RepositoryRootDrift`** | `DispatcherError` | PREPARE (review) | refusal, row 0 |
+| **`GitIdentityDerivationAttempted`** | `InternalDispatcherError` | any | row 0 — `_run_git` refused a graph-walk argv on a production path |
+| **`GitArgvPinDisplaced`** | `InternalDispatcherError` | any | a call site contributed an element before the subcommand token (ZI-71) |
+| **`DispatcherSetupTouchedPrimaryTree`** | `DispatcherError` | **PREPARE only** | refusal, row 0, **no worker spawned** |
+| **`UndeclaredAuthoritativeGit`** | acceptance-report verdict | Wave-0 acceptance | **build red** — an observed authority row with no declared row |
+| **`HistoryIdentityDerivationDisagreement`** / **`AmbiguousRepositoryHistory`** | `DispatcherError` | **onboarding only** | **not in §8's ladder** — the onboarding script is not a dispatch |
 | `FilesystemSnapshotFailed` | `DispatcherError` | PREPARE / FINALIZE | PREPARE → refusal; FINALIZE → row 3 |
 | `SnapshotBudgetExceeded` | `DispatcherError` | PREPARE **or** FINALIZE | PREPARE → refusal; FINALIZE → `FAILED`, partial snapshot preserved, `changed_paths` **absent** |
 | `CheckoutTransformationBudgetExceeded` | `DispatcherError` | PREPARE | refusal |
@@ -6193,9 +8187,20 @@ states outright that *"the authoritative scope and policy decision uses the
 
   > **No validation command, and no descendant of one, contributes repository
   > identity, the B2 base verification, the trusted administrative baseline,
-  > scope, `patch_file_complete`, `review_input_complete`, the canonical patch,
-  > any `PathIdentitySet`, the primary-tree verdict, or any row of
-  > `git-invocations.jsonl`.**
+  > THE WORKER'S SCOPE VERDICT, `patch_file_complete`, `review_input_complete`,
+  > the canonical patch, any `PathIdentitySet`, the primary-tree verdict, or any
+  > row of `git-invocations.jsonl`.**
+  >
+  > **The word `scope` alone was a DEFECT and this is a required edit, not a
+  > charitable reading.** ZI-40 said validation contributes no *"scope"*, while
+  > §5.17.7's own table lands a validation command that writes a
+  > `forbidden_paths` path at **row 5 `POLICY_VIOLATION`, `attributed_to="validation"`**.
+  > **Those two sentences contradicted each other.** They are reconciled by
+  > distinguishing **output** from **effect**: validation's *output* has zero
+  > authority over **the WORKER's** scope verdict, while validation's *effects* do
+  > reach **the TASK's** scope outcome, **attributed to validation.** Without the
+  > two words, §5.17.7's forbidden-path row is a counterexample to the invariant
+  > it sits under.
 
 - **ZI-41 (NO OS CONTAINMENT IS CLAIMED).** `start_new_session=True` creates a
   new session and process group. **It is not a sandbox.** Same uid, same
@@ -7453,7 +9458,18 @@ signal it receives**.
                                     BaseBlobUnreadable,
                                     BaseObjectVerificationFailed,
                                     SealBudgetExceeded,
-                                    SealIntegrityFailed (no worker ever ran))
+                                    SealIntegrityFailed (no worker ever ran),
+                                    RepositoryAdministrationUnsupported,
+                                    WorktreeGitfileNotRegular,
+                                    WorktreeGitfileMalformed,
+                                    WorktreeGitdirNotDispatcherOwned,
+                                    WorktreeHeadNotRegular,
+                                    WorktreeSealSchemaUnsupported,
+                                    RepositoryIdentityUnsealed (no worker),
+                                    SealPinSetStale, RepositoryRootDrift,
+                                    GitIdentityDerivationAttempted,
+                                    GitArgvPinDisplaced,
+                                    DispatcherSetupTouchedPrimaryTree)
 
  1. LAUNCH failures             -> reservation ABORTED_PRELAUNCH.   [WAVE A]
                                    TASK LIFECYCLE UNCHANGED. NEVER RUNNING.
@@ -7490,6 +9506,12 @@ signal it receives**.
                                    ownership.json, EvidenceFreezeViolated, and
                                    ValidationTouchedAdministrativeState — the
                                    last two carrying attributed_to="validation".
+                                   NEW in revision 7: cached-parentage divergence
+                                   (objects/info/commit-graph, commit-graphs/**),
+                                   WorktreeIndirectionChanged from a gitdir
+                                   replaced in place at the same path, and
+                                   RepositoryIdentityUnsealed once any run has
+                                   ownership.json.
                                    A DELETED BASE BLOB lands HERE, on the
                                    object-presence listing's own evidence, not
                                    at row 3 (§5.12, ZI-60).
@@ -7750,6 +9772,14 @@ observe it.** All are fixed, and the pattern is the reason this gate exists.
 | **revision 5's two tables giving opposite `patch_file_complete` values for `UNTEXTUAL` and `UNREPRESENTABLE_KIND`** | **there was no fact of the matter.** §5.5.9 said *no*, §5.11.5 said *yes*, and **whichever a reader took as authoritative produced a defect** — a dead review, or content omitted under a true flag | §5.5.9 / §5.11.5 — **one table, two columns, one deleted not amended** |
 | **revision 5's `BaseBlobUnreadable`, specified in three places with three different phases and rows** | §5.12's row was **unreachable by construction** and §5.4.3's was a **laundering route above rows 4 and 5**. **A machine check across the error taxonomy and the ladder registry would have caught it as a build failure** | §5.12 ZI-60, and §12.2A's `test_registry_lands_in_matches_the_error_taxonomy` |
 | **`server.py:576`'s `attribution_caveat`** | it is **an accurate description of a defect, shipped in production as documentation**: *"set difference cannot separate authorship of a single path."* **The sentence was true and the code stayed** | §5.5.6 — identity-wise deltas; the caveat string is asserted absent from `src/**` |
+| **revision 6's `test_worker_commit_moves_the_ref_and_is_caught`**, described as *"the one a HEAD-bytes-only implementation fails"* | **it is also PASSED BY THE DEFECT it was written against.** §5.5.2C's resolver consulted `<gitdir>/refs/**` before `<common_dir>/refs/**` — not git's order — and in the **un-attacked** case the gitdir copy does not exist, so the resolver falls through and gets the moved value. **The killer and the defect are green together.** **Fifth instance of this shape, and the first in which a NAMED KILLER passed against the mechanism it named** | §5.5.2C — **the resolver is deleted**, B2 becomes a byte comparison, and the replacement killer plants a symref that **resolves to the base**, which no resolver-based implementation can pass |
+| **revision 6's two incompatible raw HEAD resolvers** | §5.9.2's primary reader was **common-dir only and correct**; §5.5.2C's was **gitdir-first** and called itself *"the same reader §5.9.2 specifies … generalised."* **It was not, and nothing compared them** | §5.5.2C — one of them is deleted rather than reconciled |
+| **revision 6's capture row: *"`commit-graph` and `multi-pack-index` are `NOT TESTABLE` as forgery vectors"*** | **it was testable in nine lines, and three parties then tested it and it fired.** **The mislabel is the MECHANISM by which a wrong protection class survived four reviews:** an implementer applying §5.8.3's dependence rule to a row that says *"cannot be tested"* reasonably classifies it REPORT ONLY | §0's ban on `NOT TESTABLE`; §5.8.2's row is now **`MEASURED — FIRES`** |
+| **revision 6's `A.2B IS GENERATED, NOT MAINTAINED … the report fails if any DECLARED row has no MEASURED row`** | **the implication runs one way only.** With `D = ∅` — the review path's declaration — **`∀d ∈ D. …` is VACUOUSLY TRUE, so no row can fail while six commands run.** **The stronger the declaration is trimmed, the greener the report gets: a test whose reward gradient points away from correctness** | §5.4.3B(i) — the report becomes a **JOIN**, with `OBSERVED_NOT_DECLARED` as a failing tag, plus **rule C** because closure over observations is blind to a path nobody ran |
+| **revision 6's *"the review path runs ZERO git commands before the reviewer starts"*, marked `REQUIRES-VERIFICATION`** | **it was never verified, and it is false: SIX, measured at runtime by two independent methods, or TWO with every optional feature disabled.** **And a faithful implementation of revision 6 would still have run TWO**, because §5.8.2B keeps `config --get` and `rev-list --max-parents=0` as *"genuine questions about repository CONTENT"* | §5.4.3B ORDER 3, with the measured six printed **next to** the declared zero |
+| **revision 6's *"§5.4.3B declares the verification window as `server.py:1328-1500`"*** | **the handler is `server.py:1292-1482`. The window started 36 lines inside the function and ended 18 past it.** Nothing was missed because the prologue is git-free — **but a window chosen by eye rather than by the function's own boundaries is F-7's own habit** | §5.4.3B ORDER 3 carries the corrected citation |
+| **a probe's own first PIN-4 run** | the forger was invoked with a shifted argv, **the forgery never happened**, and the script **printed a full, plausible "PIN 4 works" block from a repository that was never forged.** **The lesson is not "check your argv": a positive control must be a signal that is ABSENT when the setup silently no-ops** — a bare re-read of the value is not that signal, and `git commit-graph verify` printing **nothing** is | §21's vector 1 makes the `verify` leg mandatory; §5.5.2D requires the fixture builder to **self-check and raise** |
+| **two lanes' closure instruments** | one hooked **two layers** and double-counted a single process; **a closure test asserting a COUNT can be inflated into passing by an instrumentation bug** | §5.4.3B(ii) — **every closure assertion is over ROW SETS and MAPPINGS, never over integers** |
 
 ### 10.4 A probe hazard that must not be rediscovered
 
@@ -8197,7 +10227,7 @@ artefacts each wave must deliver:
 
 | Wave | New/moved modules | Invariants closed | Named tests | Named mutants | Ladder rows |
 |---|---|---|---|---|---|
-| **0** | `inventory.py`, `basetree.py`, `fssnap.py`, `reconcile.py`, `ignore.py`, `gitadmin.py`, `content.py`, `git.py` policy, **`phase.py`**, **`seal.py`**, **`headchain.py`**, **`attribution.py`**, **`freeze.py`**, **`git_order.py`**, **the mutation runner and the invariant registry** | **~34** | **~90** | **~85** | **4 created** (0, 3, 4, 5a); **5 landed in** (adds row 5) |
+| **0** | `inventory.py`, `basetree.py`, `fssnap.py`, `reconcile.py`, `ignore.py`, `gitadmin.py`, `content.py`, `git.py` policy, **`phase.py`**, **`seal.py`**, **`worktreeauth.py`**, **`attribution.py`**, **`freeze.py`**, **`git_order.py`**, **`identity.py`**, **`tests/support/spawn_journal.py`**, **the mutation runner and the invariant registry** | **~42** | **~115** | **~105** | **4 created** (0, 3, 4, 5a); **5 landed in** (adds row 5) |
 | A | `lifecycle.py`, compact artifacts, `config_authority` activation | 9 | ~28 | ~15 | **1** (row 1) |
 | B | `evidence.py`, `runs.py` | 8 | ~24 | ~17 | 0 |
 | D | `ownership.py`, `streams.py` | 12 | ~24 | ~28 | 0 |
@@ -8208,6 +10238,15 @@ artefacts each wave must deliver:
 roughly Wave A and Wave B's mutant counts combined. Revision 1 called it *"the
 cheapest wave"*; revision 2 said it was *"no longer small"* **without resizing
 anything**; **revision 3 states the size and accepts it.**
+
+**Revision 7 makes Wave 0 larger again, and the reason is that four more
+mechanisms are preconditions for claims made about windows earlier than
+themselves:** the detached worktree and its raw B2, the `lstat`-first `.git`
+classification, the four administrative captures, the sealed identity record, the
+three primary-tree states, and the **interpreter-level spawn instrument** on which
+**seven** acceptance rows now depend. **Thirteen new PREPARE refusals are all row
+0 and therefore all Wave 0** (§20 item 5). **A refusal specified in Wave 0 and
+implemented in Wave A is B-4 exactly.**
 
 **Revision 6 makes Wave 0 larger again, and the reason is the central
 invariant.** Sealing, the raw HEAD chain, three-state attribution, the evidence
@@ -8526,6 +10565,9 @@ GATE 7 .............................. PASS/FAIL
   G7-7 durable run reservation ...... mkdir allocator; index never reused
   G7-8 restart ownership ............ owner classified before any action
   V-1a evidence authority ........... post-worker AUTHORITATIVE git: NONE (empty set)
+      FABLE REVIEW git commands ...... 0   <-- SEPARATE ROW. Collapsing it into
+                                             the row above is how six live
+                                             commands hid for two revisions.
       FINALIZE journal rows .......... 0
       post-worker spawn events ....... 0   (fd-backed audit hook, fork-safe)
       positive control fired ......... YES (Z-RULE-1)
@@ -8543,9 +10585,26 @@ GATE 7 .............................. PASS/FAIL
   store routing ..................... alternates 0 · http-alternates 0 ·
                                       refs/replace 0 · info/grafts absent · unchanged
   head chain ........................ resolved == base · links N · restructured NO
-  pins in the tree .................. PIN 1 <yes/no> · PIN 2 <yes/no> · PIN 3 <yes/no>
+  pins in the tree .................. PIN 1 <y/n> · PIN 2 <y/n> · PIN 3 <y/n> · PIN 4 <y/n>
+      GIT_TEST_* scrubbed ............ <yes/no>
+      GIT_CONFIG_PARAMETERS scrubbed . <yes/no>
+      PIN_BLOCK is a frozen tuple .... <yes/no>; caller `-c` refused <yes/no>
       -- ANY "no" makes every row above that depends on it UNMEASURABLE,
          and the report must print UNMEASURABLE, never PASS.
+  identity provenance ............... root_commit: approved_onboarding_fact
+      graph-walk rows, all paths ..... 0   (dispatch, resume, review, and the
+                                            onboarding path declared separately)
+  the directional matrix ............ OBSERVED_NOT_DECLARED  0
+      DECLARED_NOT_OBSERVED .......... 0        PATH_NOT_EXERCISED  0
+      OBSERVED_AFTER_SPAWN ........... 0
+      paths journaled ................ {dispatch, resume, review} all >= 1 run
+      _run_git call sites exercised .. <k>/<n>   -- rule C
+      review test ran in BOTH guidance configurations .... <yes/no>
+  spawn instrument .................. event family <n> events; liveness control
+                                      fired <yes/no>; assertions over ROW SETS
+  detached worktree ................. HEAD is 40hex+\n <yes/no>; refs/heads/sol-*
+                                      absent <yes/no>; B2 comparisons 8/8
+  second dispatch ................... <PASS / RED-BY-DESIGN pending T-36>
   attribution ....................... three states captured · closure theorem held
       final_delta \ (worker u validation)  MUST BE EMPTY
   V-2 path identity ................. bytes end-to-end; hostile-name pipeline test
@@ -8601,10 +10660,22 @@ the revision-3 mapping is retained beneath it.
 | **Y-6** | **RESOLVED, all three limbs.** Unchanged. |
 | **Y-7** | **RESOLVED — AND ITS RESIDUE IS NOW CLOSED.** D-24's cut is preserved untouched. N-3's residue — row 5, and *"owns a ladder row"* having no operational definition — is closed by **§12.2A's `creates` / `lands_in` / `modifies`**, with `owns ≡ creates` and `creates(baseline, 5)`. The mutation runner's wave is settled in the same section. |
 | **Y-8** | **RESOLVED AND EXCEEDED — and now LOAD-BEARING for §4.14.** ZI-61's production/dev split is gated by §4.12's activation predicate. **If that predicate is wrong, §4.14 is wrong**, which is ZM-P5. **Recorded as a coupling, not a defect.** |
-| **Y-9** | **NOT RESOLVED. MOOT, SOUND, AND UNRATIFIED FOR THE FOURTH REVISION RUNNING — and it becomes the fifth if revision 6 ships without a ruling.** Named plainly, not force-mapped. The moot-ing argument is sound: under an ignore-blind measurement no worker write suppresses anything. **The soundness of the argument is not the ruling.** An unruled adoption that changes what lands `POLICY_VIOLATION` is precisely the shape of thing that becomes load-bearing and false. **Recommendation: Sol ratifies it in revision 6, in one sentence.** |
-| **Y-10** | **UPGRADED from `CANNOT BE RATIFIED AS WRITTEN` to RATIFIABLE FOR THE SYMLINK HALF; the remainder is named rather than force-mapped.** Revision 5 was unratifiable because §5.5.9 and §5.11.5 gave **opposite** `patch_file_complete` values for `UNTEXTUAL` and `UNREPRESENTABLE_KIND` (F-2) — **Sol was being asked to ratify a decision the document specified two ways.** Sol's §11 rule removes the symlink half entirely: a symlink is **SUPPORTED**, never followed, `lstat` + `readlink` at mode `120000`, **so it is a represented kind, not an unrepresentable one, and the bucket contradiction cannot arise for it** — MEASURED, including a **dangling** symlink and a symlink whose target contains `LF`, both of which round-trip through a hand-composed patch. **And independently**, the production symlink is unchanged and therefore absent from `worker_delta`. **What §11 does NOT resolve, stated rather than mapped away:** (a) `UNREPRESENTABLE_KIND` still covers **FIFO, socket, block device, char device and gitlink**, all now `(clears, blocks)` and all **empty in practice on both hosts**; (b) **binary is untouched** — an exact `GIT binary patch` representation is MEASURED to work and is **not adopted for Wave 0** (T-17), **so any task that changes a binary loses its automated Fable review.** **Y-10 is ratifiable once Sol takes T-17 or accepts that cost explicitly.** |
+| **Y-9** | **RESOLVED. RATIFIED BY SOL IN REVISION 7. The ruling text below is NORMATIVE and no revision after this one may reopen it as a question.** |
+| | > ### RULING Y-9 — WORKER ATTRIBUTION IS STRICTLY `WORKER_START` → `WORKER_EXIT`<br>> <br>> **An unchanged pre-existing ignored or special path is NOT a worker change.** It must **not** enter worker `changed_paths`, must **not** violate scope, must **not** reduce patch completeness, and must **not** block Fable **merely because it exists**.<br>> <br>> **If that path CHANGES during the worker interval, it IS a worker change and must remain visible** — in `worker_delta`, in the worker `PathIdentitySet`, in the scope verdict, in the canonical patch accounting, and in the review prompt's inventory. |
+| | **Y-9 needs NO new machinery** — it is discharged by ZI-29 (identity-wise delta), ZI-31 (the scope verdict's sole input), ZI-44's IFF and ZI-48. **The ruling's job is to make them REQUIRED rather than incidental**, and **the clause that does real work is the SECOND sentence**: the first half is a *removal* of behaviour and is easy to over-apply. **An implementer who reads *"ignored paths are not worker changes"* and filters `worker_delta` by ignore status has satisfied the first half and destroyed the second.** `.gitignore` is a **classification input, never an attribution input.** **Named killer:** `test_changed_ignored_path_IS_a_worker_change` — **which could pass while false if the fixture's change is to a non-ignored path**, so it asserts the matcher returns **true** for the fixture path *before* asserting anything about the delta; paired with `test_changed_ignored_path_survives_a_scope_violation_verdict`, where a filtering build lands `AWAITING_SOL_REVIEW` instead of `POLICY_VIOLATION` — **a different state that cannot be confused.** And `test_unchanged_ignored_path_is_absent_from_worker_delta` **could pass trivially in a fixture where the path does not exist** — closed by asserting the path **exists in BOTH snapshots with identical identity tuples** and that `unchanged_count` incremented, **proving it was walked rather than skipped.** |
+| **Y-10** | **RESOLVED. RATIFIED BY SOL IN REVISION 7, BOTH HALVES. The ruling text below is NORMATIVE.** |
+| | > ### RULING Y-10 — TWO OUTCOMES, NEVER THREE<br>> <br>> **Every worker-changed path has exactly one of two outcomes:**<br>> <br>> **A.** It has an **exact canonical review representation** ⇒ it is **eligible** for `patch_file_complete = true`.<br>> <br>> **B.** It has **no** exact canonical review representation ⇒ **`review_input_complete = false` and Fable REFUSES.**<br>> <br>> **There is no third outcome in which changed content is omitted while the review is called complete.**<br>> <br>> - **Changed symlink: SUPPORTED**, via `lstat(follow_symlinks=False)` + `readlink` **target representation** — mode `120000`, body = raw target **bytes**, `\ No newline at end of file`. **Never followed, never opened, never `realpath`ed.**<br>> - **Unchanged pre-existing symlink: not in `worker_delta`** (Y-9), and therefore **not in Y-10's domain at all**.<br>> - **Changed binary:** inventory/hash evidence may be **complete**, but **unless an exact approved binary review representation is implemented, `review_input_complete = false` and Fable refuses.**<br>> - **Changed unsupported/unrepresentable type or path: `review_input_complete = false`, Fable refuses.** |
+| | **`inventory_complete = true` alongside outcome B is the POINT of the ruling and is not a contradiction.** It is ZI-46's two-axis distinction: *we know exactly what changed; we cannot show it to a reviewer.* **Recording the first while refusing on the second is what makes the refusal auditable instead of opaque, and it is the sentence that keeps the third column deleted.** **A `symlink ↔ regular` kind change is TWO patch sections** — `deleted file mode 120000` **plus** `new file mode 100644` — **and a single section is not a valid representation**; Sol's §14 text omits this and it is carried here because it is measured. **T-17 DISPOSITION: Sol takes the second horn explicitly — T-17 is NOT adopted for Wave 0 and the cost is accepted in writing. Priced plainly so no operator discovers it: any task that changes a binary file loses its automated Fable review and returns to Sol without one.** The `GIT binary patch` representation stays **measured and unadopted**; adopting it later **moves rows from B to A and is a strict widening, requiring no change to this ruling.** |
+| | *(Retained for provenance — the fifth review's assessment, now superseded:)* **UPGRADED from `CANNOT BE RATIFIED AS WRITTEN` to RATIFIABLE FOR THE SYMLINK HALF; the remainder is named rather than force-mapped.** Revision 5 was unratifiable because §5.5.9 and §5.11.5 gave **opposite** `patch_file_complete` values for `UNTEXTUAL` and `UNREPRESENTABLE_KIND` (F-2) — **Sol was being asked to ratify a decision the document specified two ways.** Sol's §11 rule removes the symlink half entirely: a symlink is **SUPPORTED**, never followed, `lstat` + `readlink` at mode `120000`, **so it is a represented kind, not an unrepresentable one, and the bucket contradiction cannot arise for it** — MEASURED, including a **dangling** symlink and a symlink whose target contains `LF`, both of which round-trip through a hand-composed patch. **And independently**, the production symlink is unchanged and therefore absent from `worker_delta`. **What §11 does NOT resolve, stated rather than mapped away:** (a) `UNREPRESENTABLE_KIND` still covers **FIFO, socket, block device, char device and gitlink**, all now `(clears, blocks)` and all **empty in practice on both hosts**; (b) **binary is untouched** — an exact `GIT binary patch` representation is MEASURED to work and is **not adopted for Wave 0** (T-17), **so any task that changes a binary loses its automated Fable review.** **Y-10 is ratifiable once Sol takes T-17 or accepts that cost explicitly.** |
 
-**Summary entering the fifth review.** **Eight of ten resolved.** **Y-1 is
+**Summary entering the SIXTH review. TEN OF TEN RESOLVED.** Y-9 and Y-10 are
+ratified by Sol in revision 7 and their ruling text above is normative. **Y-1's
+headline is not restated at all** — restating it is what failed three times, and
+§16 now contains no sentence of the form *"exactly N git commands"*. **No row is
+force-mapped, and for the first time in five revisions no row is carried as
+`UNRATIFIED`.**
+
+*(Retained for provenance — the summary entering the fifth review:)* **Eight of ten resolved.** **Y-1 is
 resolved in substance; its headline is no longer restated at all, because
 restating it is what failed three times.** **Y-9 is moot, sound, and unratified
 for the fourth revision running: it is NOT resolved, and this table says so
@@ -9010,7 +11081,7 @@ raw-DIRC shape — and nothing is hidden meanwhile. **The cost, stated plainly: 
 task that changes a binary loses its automated Fable review**, and the remedy is
 available and named.)*
 
-**T-18 — commission the two NOT TESTABLE administrative classes.**
+**T-18 — commission the two un-probed administrative classes.**
 `objects/info/commit-graph` / `multi-pack-index` and submodule `modules/**` are
 **inventoried and unmeasured**. **Given that `refs/replace` and `info/grafts`
 both fired, an un-probed cached-parentage file is not a safe assumption — that is
@@ -9056,6 +11127,106 @@ today: 154** (`06bfcd61…` vs `5eca2113…`). Not a conflict — an update, **a
 is §6's own best argument: the number moved by fifteen while the envelope text
 `base_ref: "HEAD"` did not change by one byte.**
 
+### 18.3C Decisions arising from the fifth review and Sol's twenty revision-7 directives
+
+**Supersessions first, recorded rather than left to inference.** **T-1** is
+already superseded (`{}`). **T-2/T-2A/T-2B** are further subordinated: the pin
+block gains **PIN 4**, but pins now defend only the PREPARE window and *"is four
+surfaces enough"* is no longer the question the design's safety rests on —
+**there is a sixth mechanism and it is not an execution surface.** **T-6**'s
+widened repertoire narrows by three more rows. **T-9** is discharged by
+mechanism. **T-20** is **narrowed, not resolved**: G10's identity consumer is
+deleted, so its remaining justification is weaker than revision 6's and Sol may
+wish to delete it outright.
+
+**T-26 — delete `config --get remote.origin.url` from all three paths**, reading
+`remote.origin.url` from the raw config bytes R6/P3 already captured, **or keep
+the row.** Neither Sol §1 nor Sol §17 literally reaches it — it is *configuration*
+identity, not a graph walk — so **this deletion is taken on §5.8.2's own rule and
+is flagged rather than smuggled.** §5.4.3B prints the one-row delta either way.
+*(Recommendation: delete.)*
+
+**T-28 — an above-threshold `gc --auto`.** Whether it moves cached parentage is
+**`NOT TESTED`**; the measured row was **below** threshold and proves nothing
+about it. If it does, §5.4.1C's false-positive price is higher than measured.
+
+**T-29 — may a revision-6 task be migrated forward** by synthesising an
+`identity-record.json` from its `repo-authority.json`? *(Recommendation: **NO** —
+it would synthesise an approved onboarding fact **after a worker existed**, which
+§5.5.2A(i) and §15.4 forbid by name.)*
+
+**T-30 — `multi-pack-index` as an object-LOCATION redirection vector.** **`NOT
+ATTEMPTED`**, deliberately: it is a distinct surface from the cached-parentage
+question, and **it must not inherit the commit-graph result or the earlier
+object-transplant result.** PIN 4b is adopted on **uniformity**, not measurement.
+**A probe is owed before Wave 0 closes, and its control must establish whether git
+re-hashes an object on read.**
+
+**T-31 — `worktree add --detach --no-checkout`.** **MEASURED: it is the ONLY
+`worktree add` invocation whose execution log is empty under PIN 2** — `--detach`
+*with* checkout still runs the worker's smudge filter twice. Since the dispatcher
+already seals the base tree in a CAS, **materialising the worktree files itself
+would remove S-α from PREPARE entirely rather than gating it.** **The
+tree-materialisation cost and the absent `index` are Sol's to price. Recorded as a
+measured option, not a recommendation.**
+
+**T-32 — ratify the STRICTER-THAN-GIT HEAD byte rule.** **MEASURED: git accepts
+CRLF, double-LF and uppercase HEAD at `rc=0` and resolves all three correctly;
+ZI-77 refuses them.** The direction is **fail-closed** and the cost is
+**availability** on a repository whose tooling writes HEAD that way. **"No such
+tool exists" is `NOT TESTED` — the search was three greps and one experiment.**
+
+**T-33 — a gitdir inode change: `POLICY_VIOLATION` or REPORTED?** Turns on whether
+any **legitimate** git operation moves it. `commit`, `add`, `checkout`,
+`pack-refs` and `gc` were run and none did, **but git's full surface was not
+enumerated, so the claim is `NOT TESTED`.** If one is found, the row must move to
+REPORTED **with its own false-positive killer** — §5.9.4's routine-flag failure.
+
+**T-34 — a SEPARATE `identity-record.json`, rather than folding identity into
+`RepositoryAuthoritySnapshot`.** Sol's §11 says resume uses *"the exact
+`RepositoryAuthoritySnapshot`"*. **That type has multiple roles and is captured
+several times per run; identity is once per task. Folding a once-per-task fact
+into a many-times-per-run type is precisely the shape that produced F5-4.** Both
+are under the same manifest, so **"the seal" remains one root of trust.**
+
+**T-35 — the availability cost of refusing a symlinked `.git`.** **`NOT
+ATTEMPTED`: the disk scan is forbidden by the hard lines**, so the refused
+population is unmeasured here and stated as unmeasured.
+
+> ### T-36 — **THE R6 EQUIVALENCE RELATION. THIS IS THE LIVE BLOCKER, AND IT IS ONE PROBLEM, NOT TWO.**
+>
+> **The second dispatch against a repository and every Fable review land the same
+> `RepositoryAdministrationUnreconciled`, NOT retryable, for the same root cause:
+> the R6 gate treats dispatcher-created state as unreconciled.**
+>
+> **MEASURED:** after a complete dispatch **and** `worktree remove --force` **and**
+> `worktree prune`, **three loose objects survive** the cleanup and the capture has
+> drifted from the frozen human baseline. **A repository serves one task and then
+> refuses until a human re-runs `trust-repo-admin.py`.**
+>
+> **Revision 7 shrinks the problem and does not solve it.** The four-capture split
+> resolves F5-4's Readings A and B **completely**; `--detach` removes the two
+> `sol-`-prefixed **ref** entries — **the class ZI-57 makes hardest to exempt** —
+> leaving **one** class, `worktrees/**`, keyed on git's own layout rather than on a
+> prefix the dispatcher chose. **The cross-dispatch loose-object drift is
+> untouched.**
+>
+> **§5.8.3 states the append-only relation, names the collision with the paragraph
+> §5.8.3 itself DELETED, costs the two alternatives, and ADOPTS NONE OF THEM.**
+> **Sol must rule.** Until then **`test_second_dispatch_against_the_same_repository_succeeds`
+> is deliberately RED, and it must not be written green against an unruled
+> relation** — writing it against *"the operator re-baselines every time"* would
+> make it pass while the availability failure stands.
+
+**T-37 — does the FABLE REVIEW path run the R6 operator-baseline gate at all?**
+This design says **no**: the review compares against the **sealed task
+authority**, which is per-task, written pre-worker, and is the right baseline for
+*"is this the repository we sealed?"*. **Running the operator gate there lands
+`Unreconciled` on every review, caused by the dispatcher's own prior `worktree
+add`.** **Both readings are zero-git, so the central claim is unaffected either
+way — this is a LIVENESS conflict, flagged rather than quietly decided.** **If Sol
+wants the operator gate on the review path, T-36 must be ruled first.**
+
 ### 18.4 Two decisions adopted without an explicit ruling
 
 **Y-9 (`.gitignore` / `.gitattributes` tamper) is MOOT under §5.6** and
@@ -9085,19 +11256,39 @@ document that is the specification must not record a false fact about the
 directive that governs its own approval**, which is why this paragraph replaces
 revision 3's rather than being appended to it.
 
+### 18.4A Two escalations that are now CLOSED
+
+**Y-9 and Y-10 are RATIFIED by Sol in revision 7 and their normative ruling text
+is in §17.** They were carried as *"adopted without an explicit ruling"* for four
+revisions and as blocking findings by the fifth review. **They are no longer open,
+and no revision after this one may reopen either as a question.** The paragraphs
+below are retained for provenance only.
+
 ### 18.5 The gate on implementation
 
 **No `src/**` or `tests/**` change may be written for Gate 7 until this revision
-receives a FIFTH independent architecture review returning ZERO blocking findings
+receives a SIXTH independent architecture review returning ZERO blocking findings
 **and `WAVE 0 APPROVED TO IMPLEMENT: YES`.** The reviewer must not be the author,
 must not be a prior reviewer, and must not implement the fixes. **This is
-directive T, and §19 is its mandate — sixteen attack vectors and a twelve-item
+directive T, and §21 is its mandate — twenty attack vectors and a fifteen-item
 return format, written verbatim.**
 
 **What it should attack hardest — the decisions most likely to be wrong:**
 
-1. **THE SURFACE QUESTION HAS BEEN ANSWERED "NO" THREE TIMES, AND REVISION 6
-   STOPS ASKING IT.** Revision 3 asked whether a structural argument plus **two**
+0. **THE SURFACE QUESTION HAS NOW BEEN ANSWERED "NO" FOUR TIMES, AND REVISION 7
+   STOPS ASKING IT — AGAIN.** Revision 6 subordinated the enumeration to the
+   central invariant and then **the fifth review found a SIXTH mechanism, S-ζ,
+   which no pin touched and which no column of the four-surface matrix
+   describes.** **The lesson revision 7 takes is not "add PIN 4". It is that a
+   defence whose shape is *enumerate a mechanism, neutralise it* fails once per
+   revision, because the enumeration is of GIT's behaviour, which nobody in this
+   build controls.** ZI-70 has a different shape — **delete the consumer** — and
+   **that is a property of this codebase, checkable by AST and by an empty journal
+   window, not a property of git 2.43.0 that an upgrade can revoke.** **The
+   question for the sixth review is therefore: where else does the dispatcher
+   still ASK git something it could instead have SEALED?** *(§21 vectors 1, 11, 12
+   and 20 are that question in executable form.)*
+1. **The revision-6 form of this item, retained:** Revision 3 asked whether a structural argument plus **two**
    armed surfaces was enough: **S-γ existed.** Revision 4 asked about **three**
    and offered a structural argument — *"object-store reads and ref resolution
    touch neither the working tree, the index, nor any ref mutation"* — **and that
@@ -9145,130 +11336,172 @@ return format, written verbatim.**
 
 ---
 
-## 19. THE FIFTH INDEPENDENT ARCHITECTURE REVIEW — REQUIRED ATTACK LIST (Sol §21)
+## 20. PRESERVE WITHOUT REOPENING (Sol §19)
 
-> No `src/**` or `tests/**` change may be written for Gate 7 until revision 6
-> receives a **FIFTH** independent architecture review returning **ZERO blocking
-> findings** and **`WAVE 0 APPROVED TO IMPLEMENT: YES`**. The reviewer must not
-> be the author, must not be a prior reviewer, and must not implement the fixes.
+**The fifth review verified the six properties below. They must not be weakened
+while the six blockers are fixed.** For each: what it is, **the specific way THIS
+revision's fixes could weaken it**, and **the named detector that catches the
+weakening. A preservation clause with no detector is a wish.**
+
+| # | Preserved property | How revision 7's fixes could weaken it | Detector |
+|---|---|---|---|
+| **1** | **Route A ∪ Route B base-snapshot exhaustiveness.** `ls-tree -r -z` entries partition into `blob \| symlink \| gitlink`; `content is None` **iff** `kind == "gitlink"`; Route A = START-walk oid match, Route B = one bulk `cat-file --batch` over the complement. **A ∪ B exhaustive by construction** | **§5.5.2D adds a fifth artefact to `SealManifest`.** A careless addition could make `complete: Literal[True]` reachable with **identity present and content partial**, or make the manifest writable in two steps | `test_seal_manifest_is_written_last_and_atomically` (retained) **plus a new row**: `test_identity_seal_does_not_relax_complete_literal_true` — assert a manifest with identity and partial content is **UNCONSTRUCTABLE**. **COULD IT PASS WHILE FALSE?** Yes if it asserts a runtime raise instead of unrepresentability — **closed by asserting the type system rejects it (no constructor path)**, exactly as ZI-45 does for `patch_file_complete` |
+| **2** | **The `worker_delta` closure theorem.** `final_delta ⊆ worker_delta ∪ validation_delta`, from three raw states and transitivity of identity equality | **Y-9's ruling is a REMOVAL clause**, and an over-applied filter on `worker_delta` breaks the theorem's *coverage* even though the algebra still holds — **the theorem would be true over a delta that no longer means what it says** | `test_closure_theorem_holds_under_a_changed_ignored_path` — a fixture where the **only** worker change is to an ignored path; assert the theorem's three sets **and that `worker_delta` is NON-EMPTY.** **A filtered build satisfies the containment with an empty left side, which is why the non-emptiness assertion is the load-bearing half** |
+| **3** | **Post-worker authoritative git repertoire `{}`.** Two mechanisms: the seal and the raw B2 | **§5.4.3B ORDER 3 adds a new post-worker consumer of sealed data on the review path.** The named risk: an implementer adds a *"verification"* git call next to the seal read. **§5.4.3B's direction B is the structural defence** — an authority row after the worker spawn is `OBSERVED_AFTER_SPAWN` and **fails unconditionally, with no declaration able to legitimise it** | `test_review_runs_zero_git_processes` **and** `test_runtime_closure_has_no_undeclared_row`. **These are the same detector at two granularities and BOTH are required** |
+| **4** | **B-2's gating methodology.** A negative is only a negative if its positive control fired; `reference-transaction` named explicitly; A.2's methodological correction retained; *"executes NOTHING"* stays deleted; Z-4 stays **gated**, not structural | **§5.4.3B's new instrument invites a fresh crop of un-controlled negatives.** *"Zero git rows"* is a **negative result**, and the review path's expected answer **is** zero — **the single easiest place in this design to report a green from a dead instrument** | **Every journaled test's mandatory `git --version` liveness control**, with the control row tagged `domain="control"`, **excluded from closure but asserted present.** `test_journal_liveness_control_fires` is a **first-class test, not a fixture detail.** **This is B-2's methodology re-applied to the new instrument, and it is the single most important preservation clause in this table** |
+| **5** | **B-4's Wave-0 self-contained refusal machinery.** The PREPARE-phase mechanism and §8 row 0 live in Wave 0 (D-24), so a Wave-0-only build does not land `FAILED` on first dispatch | **Revision 7's new refusals** — `RepositoryAdministrationUnsupported`, `WorktreeGitfileNotRegular`, `WorktreeGitfileMalformed`, `WorktreeGitdirNotDispatcherOwned`, `WorktreeHeadNotRegular`, `WorktreeSealSchemaUnsupported`, `RepositoryIdentityUnsealed`, `SealPinSetStale`, `RepositoryRootDrift`, `GitBeforeEstablishment`, `GitIdentityDerivationAttempted`, `GitArgvPinDisplaced`, `DispatcherSetupTouchedPrimaryTree` — **are all row-0 PREPARE refusals and must ship IN WAVE 0.** A refusal specified in Wave 0 but implemented in Wave A **is B-4 exactly** | `test_wave0_ships_without_row_1` (retained) **extended with all thirteen classes**, plus `test_registry_lands_in_matches_the_error_taxonomy` from the opposite direction. **Any lane proposing to defer one to Wave A must first show it does not reopen B-4 — recorded because B-4 was reopened once already by a fix to something else** |
+| **6** | **PIN 1 and PIN 2 verified behaviour.** PIN 1 closes S-δ's promisor lazy-fetch column; PIN 2 is the **only** defence against a worker-set `core.hooksPath` — filesystem quarantine measurably is not | **§5.5.2D moves the identity measurements into the seal.** They must be measured **under the same pin set**, and **`pins_applied` must record it. A sealed `root_commit` measured WITHOUT the pins is a WORSE artefact than a live measurement, because it looks authoritative and is frozen** | `test_sealed_identity_records_the_pin_set` — **populated from a constant it would pass while false**, so it runs one seal with a pin deliberately removed, asserts `pins_applied` differs, and asserts a review against it lands `SealPinSetStale` rather than proceeding. **Every acceptance row depending on a pin stays `UNMEASURABLE` — not `PASS` — until the pins exist in `src/**`, where the count is measured at ZERO for all four** |
+
+> **One preservation item is at genuine risk and it is named rather than asserted
+> safe.** **Item 3 is preserved on the review path only because §5.4.3B ORDER 3
+> empties it.** If the sealing of identity is rejected and the review path instead
+> **declares** its two surviving rows, then item 3's post-worker `{}` becomes
+> **`{config --get remote.origin.url, rev-list --max-parents=0 HEAD}` on the review
+> path**, the sixth surface's forgery window opens onto the review, and §2A's
+> headline needs rewording. **The two options are not equivalent and only one of
+> them preserves item 3.** Sol chose sealing; **this note exists so the choice is
+> visible as load-bearing rather than stylistic.**
+
+---
+
+## 21. THE SIXTH INDEPENDENT ARCHITECTURE REVIEW — REQUIRED ATTACK LIST (Sol §20)
+
+> No `src/**` or `tests/**` change may be written for Gate 7 until revision 7
+> receives a **SIXTH** independent architecture review returning **ZERO blocking
+> findings** and **`WAVE 0 APPROVED TO IMPLEMENT: YES`**. The reviewer must not be
+> the author, must not be a prior reviewer, and must not implement the fixes.
 > **This is directive T.**
 >
-> **The reviewer MUST attack each of the following sixteen vectors, and MUST
-> report each one as `MEASURED` · `NOT TESTABLE` · `NOT ATTEMPTED`. A `clean`
-> verdict whose positive control did not fire is reported `NOT TESTABLE`, never
-> `clean`.**
+> **The reviewer MUST attack each of the following twenty vectors, and MUST report
+> each one as `MEASURED` · `NOT TESTED` · `NOT ATTEMPTED`.**
 >
-> 1. **alternates / http-alternates after worker**
-> 2. **worktree HEAD rewrite**
-> 3. **object store replacement / redirection**
-> 4. **partial clone / promisor missing base object**
-> 5. **post-worker `cat-file` reintroduction**
-> 6. **`rev-parse --show-toplevel`**
-> 7. **validation `argv[0] = git`**
-> 8. **validation child invoking git**
-> 9. **validation-created `dist/`**
-> 10. **validation modifying a worker-authored file**
-> 11. **changed ignored binary**
-> 12. **changed symlink**
-> 13. **unchanged ignored symlink**
-> 14. **forbidden write + attempted base-store corruption**
-> 15. **`PRIMARY_START` / `POST` fidelity**
-> 16. **the zero-authoritative-git-after-spawn claim**
+> **A `clean` verdict whose positive control did not fire is reported `NOT
+> ATTEMPTED`, never `clean`. `NOT TESTABLE` is not an available verdict** — the
+> fifth review found it standing in for merely-unattempted work on the very row
+> that produced the sixth surface.
 >
-> ### REQUIRED RETURN FORMAT — all twelve items, in this order
+> 1. **forged `objects/info/commit-graph`, single-file form**
+> 2. **forged `objects/info/commit-graphs/**`, split-chain form, filename preserved**
+> 3. **`GIT_TEST_COMMIT_GRAPH=1` against PIN 4**
+> 4. **a caller-supplied `-c` appended after `PIN_BLOCK`**
+> 5. **symref plant in a detached worktree that RESOLVES TO THE BASE**
+> 6. **a fake branch ref in the common dir, with and without a forged `packed-refs` line**
+> 7. **gitdir directory replaced in place (same path, new inode)**
+> 8. **symlinked primary `.git` → directory, and symlinked worktree `.git` → gitfile**
+> 9. **validation `argv[0] = git`, and a validation child invoking git**
+> 10. **`os.posix_spawn` as an audit-hook bypass**
+> 11. **the Fable review path's six git processes, in BOTH guidance configurations**
+> 12. **an undeclared live git command on a path with an empty declaration**
+> 13. **second dispatch against the same repository**
+> 14. **`PRIMARY_PREPARE` / `PRIMARY_WORKER_START` divergence caused by dispatcher setup**
+> 15. **alternates / `refs/replace` / `info/grafts` / object transplant after the worker**
+> 16. **partial clone with a genuinely absent base object**
+> 17. **changed ignored binary · changed symlink · unchanged ignored symlink**
+> 18. **forbidden write plus attempted base-store corruption**
+> 19. **resume into a different allowlisted repository**
+> 20. **the zero-authoritative-git-after-spawn claim, and the zero-git Fable claim, separately**
 >
-> 1. **REVISION 6 SHA**
+> ### REQUIRED RETURN FORMAT — all fifteen items, in this order
+>
+> 1. **REVISION 7 SHA**
 > 2. **REVIEW VERDICT**
 > 3. **BLOCKING FINDINGS**
 > 4. **CENTRAL CLAIM VERIFIED: YES / NO**
 > 5. **WAVE 0 APPROVED TO IMPLEMENT: YES / NO**
-> 6. **pre-worker exact git commands**
-> 7. **post-worker authoritative git commands (expected `{}`)**
-> 8. **validation execution classification**
-> 9. **repository authority snapshot fields**
-> 10. **base snapshot completeness proof**
-> 11. **`worker_delta` completeness proof**
-> 12. **Y-1 … Y-10 mapping**
+> 6. **pre-worker exact git commands — DISPATCH**
+> 7. **pre-worker exact git commands — RESUME**
+> 8. **Fable review git commands (expected `{}`)**
+> 9. **post-worker authoritative git commands (expected `{}`)**
+> 10. **validation execution classification**
+> 11. **repository identity provenance — sealed / approved / measured**
+> 12. **base snapshot completeness proof**
+> 13. **`worker_delta` completeness proof**
+> 14. **PIN 1 / PIN 2 / PIN 3 / PIN 4 status — implemented or UNMEASURABLE**
+> 15. **Y-1 … Y-10 mapping**
 
-### 19.1 What each vector attacks, and what a mis-armed control looks like
-
-Written so the mandate is auditable rather than decorative.
+### 21.1 What each vector attacks, and what a mis-armed control looks like
 
 | # | Vector | Attacks | The control that makes a negative result meaningful |
 |---|---|---|---|
-| 1 | alternates / http-alternates after worker | S-ε variant C; revision 5's capture table had **no objects row at all** | **Z-RULE-1B:** delete the alternates file and assert the same blob reads `missing` — **proving the alternate was genuinely the source** |
-| 2 | worktree HEAD rewrite | `worktrees/sol-<id>/HEAD` was on §5.8.3's *"NOT protected, deliberately"* allowlist **and** is what B2 reads | write the expected base SHA into it **while the real HEAD has moved**; assert B2 does **not** return `rc=0` with the expected SHA. **Must be run in the `-b` form, where `<gitdir>/HEAD` stays byte-identical** |
-| 3 | object store replacement / redirection | `commondir` / gitfile redirection, and **`refs/replace/**` and `info/grafts`, which no revision before this one named** | **the unpinned command must return the DECOY's answer.** For `refs/replace`, assert step (a) returns the **expected SHA at `rc=0`** — that is the signature, not merely a wrong answer |
-| 4 | partial clone / promisor missing base object | PIN 1; **F-3's laundering of a policy violation into `FAILED` above rows 4 and 5** | arm `core.sshCommand` / `gitProxy` / `ext::`, **delete a loose base blob**, assert the sentinel **fires without PIN 1**. **And assert the clone is genuinely partial before scoring any row** — `uploadpack.allowFilter` on the source, `missing > 0` as a precondition. **Three separate parties have filed a VOID row here** |
-| 5 | post-worker `cat-file` reintroduction | §2A's empty set | add `subprocess.run(["git","cat-file","-e",oid])` to the patch composer and assert **both** halves of §5.4.6 go red. **If only the runtime half fires, the static half is insufficient — report which** |
-| 6 | `rev-parse --show-toplevel` | §5.8.2B — F-7's first missing row, **discharged by deletion, not by measurement** | run the **removed** command in the same fixture and assert it returns the **FAKE** path |
-| 7 | validation `argv[0] = git` | F-4 — caller argv, no pins, no journal row, **and an AST predicate that is green while the path is live** | declare `["git","diff","--exit-code"]`; assert it appears in `validation-invocations.jsonl` with `authority=false`, in `git-invocations.jsonl` **not at all**, and that `V-1b` **increments a printed number** |
-| 8 | validation child invoking git | the same hole one level down: a legal validation binary that *spawns* git | audit hook over the whole process tree, **with a control spawn**. **Note what the design claims here: nothing. §5.17 claims no containment** |
-| 9 | validation-created `dist/` | validation runs **between** evidence A and B and its writes are attributed to the worker | assert the path is in `validation_delta`, **not** in `worker_delta`, **and** assert `validation.json[0].exit_code == 0` and `len(validation_delta) == 200` — **not `>= 0`** |
-| 10 | validation modifying a worker-authored file | the same seam, worse: **it corrupts the old side** | assert *(patch says `worker`, disk says `validation`)* — **the pair is unsatisfiable by any build that composes the patch after validation, and by any build where validation did not run** |
-| 11 | changed ignored binary | F-2 — ZI-25 promises *"the bytes, in full"*, **unachievable for a binary**; directive C's own named attack in binary form | replace an ignored ELF / wheel / `.so`; assert `patch_file_complete` is **not** `true` while the content is omitted, **and** that the classifier assigned `UNTEXTUAL` from the **bytes** |
-| 12 | changed symlink | Sol §11: SUPPORTED, never followed, `lstat` + `readlink`, mode `120000` | the fixture **must** contain a **dangling** symlink — `realpath`/`open` cannot resolve it, **so a follow-the-link build fails on that entry** — and the `index` oids must be asserted **independently**, because `git apply` **does not validate them** |
-| 13 | unchanged ignored symlink | the Y-10 cliff itself — production contains **1**, this repository **4** | assert a Fable review of an untouched tree containing it is **not** refused. **A walk that skips symlinks entirely passes this** — so assert the symlink is **present in both snapshots with a `content_hash` and a `link_target`** |
-| 14 | forbidden write + attempted base-store corruption | F-3's laundering | **the deleted blob needs its own SINGLE-CAUSE test.** In a mixed conflict set this passes because some *other* conflict already lands `POLICY_VIOLATION` — **it would pass even against a build that laundered the deletion into `FAILED`** |
-| 15 | `PRIMARY_START` / `POST` fidelity | asymmetric fidelity reads as *unchanged* for any same-size change | mutate one byte between START and POST and assert `POLICY_VIOLATION`; **then restore and assert clean.** And assert the **entry count** — **two empty measurements agree** |
-| 16 | the zero-authoritative-git-after-spawn claim | **the claim Y-1 overstated for three revisions** | enumerate every post-spawn git child under an **fd-backed** audit hook **with a live control**, and compare against the declared FINALIZE set **and** against `validation.py:228`. **An in-memory hook loses a `fork`+`exec` child — MEASURED** |
+| 1 | forged single-file commit-graph | **S-ζ / ZI-70.** The row revision 6 called `NOT TESTABLE` | **the unpinned leg must return the DECOY**, and `git commit-graph verify` must print the parent mismatch. **A bare re-read of the value is NOT a sufficient control — a probe in this gate printed a plausible "PIN 4 works" block from a repository that was never forged, and only `commit-graph verify` printing NOTHING caught it** |
+| 2 | forged split-chain layer, **filename preserved** | the per-file-hash requirement | **assert the forged file's NAME is unchanged**, then assert a listing-only capture sees nothing and a per-file-hash capture sees it |
+| 3 | `GIT_TEST_COMMIT_GRAPH=1` | **Sol's §16 requirement as literally worded** | run it **before** the `GIT_TEST_*` scrub and assert the pin is **LOST**, then after and assert it holds. **A one-sided run proves nothing** |
+| 4 | a `-c` appended after `PIN_BLOCK` | ZI-71 | **against raw git, demonstrate `[-c k=false, -c k=true]` yields the decoy** — the hazard is real, not hypothetical — **then** assert `_run_git` raises `GitArgvPinDisplaced` |
+| 5 | **symref plant that RESOLVES TO THE BASE** | **the whole of §5.5.2C.** A correct-order resolver, and `rev-parse` itself, both return `base_held` here | **assert `git rev-parse HEAD == BASE` INSIDE the test, at the plant.** **If the plant pointed anywhere else, every implementation would fire and the test would prove nothing** |
+| 6 | fake branch ref in the common dir (± forged `packed-refs`) | the detached reader's chain length of one | **rows that DID fire in the same harness** — a `base_held` here is only meaningful next to a `MISS` the harness proved it can produce |
+| 7 | gitdir replaced in place | path equality is insufficient | assert **every byte comparison passes** and only `(st_dev, st_ino)` moves |
+| 8 | symlinked `.git`, both forms | **F5-5, widened** | assert the layout is **genuinely valid first** (`rev-parse --absolute-git-dir` at `rc=0`), then assert the refusal, **zero git subprocesses under a live audit**, and `state.json` **by sha256** |
+| 9 | validation `argv[0] = git`, and one level down | **F-4.** `argv[0]` is worker-controllable | assert the row lands in `validation-invocations.jsonl` with `authority=false`, in `git-invocations.jsonl` **not at all**, and **increments a printed number** in the gate report |
+| 10 | `os.posix_spawn` | **ZI-74.** A `Popen`-only hook is **MEASURED blind to it** | one process, three spawn styles, **each with a distinguishing marker argv** |
+| 11 | the review path's six | **F5-3** | **BOTH guidance configurations.** A single-configuration run exercises the path, satisfies a naive coverage rule, **and misses four of the six live rows** |
+| 12 | an undeclared row against an empty declaration | **the vacuous truth** | apply the "reintroduce `rev-list` into `_review`" mutant **with** the converse assertion deleted and assert the review test goes **GREEN** — **proving the converse assertion is what catches F5-3** |
+| 13 | second dispatch | **the R6 convergence** | **MEASURED: three loose objects survive a complete dispatch AND full worktree cleanup.** The reviewer should expect `test_second_dispatch_against_the_same_repository_succeeds` to be **RED and should NOT accept a green one** until T-36 is ruled |
+| 14 | dispatcher-setup divergence | the S3 assertion | **mutate one byte between R7 and S2**, assert row 0 and **no spawn**; restore; assert clean. **Two empty measurements agree, so `entry_count` must be asserted equal, non-zero and equal to the fixture's known count** |
+| 15 | S-ε after the worker | ZI-52 | **Z-RULE-1B:** the un-hardened invocation must return the **DECOY's** answer |
+| 16 | promisor with an absent base object | PIN 1 | **assert the clone is genuinely partial before scoring any row** — `uploadpack.allowFilter` on the source and `missing > 0` as a precondition. **Four parties have filed a VOID row here** |
+| 17 | binary / symlink / unchanged symlink | **Y-9 × Y-10** | the symlink fixture **must contain a DANGLING link**, which a follow-the-link build cannot satisfy, and the `index` oids must be asserted **independently**, because **`git apply` does not validate them** |
+| 18 | forbidden write + base-store corruption | **F-3's laundering** | **the deleted blob needs its own SINGLE-CAUSE test** — in a mixed conflict set it passes because some *other* conflict already lands `POLICY_VIOLATION` |
+| 19 | resume into a different allowlisted repository | the sealed-root clause | **the fixture must use TWO allowlisted roots**, or the clause is genuinely redundant and the test cannot go red |
+| 20 | the two zero claims | **§2A, both halves** | enumerate every spawn under the **interpreter-level** instrument with a live control, **and report the two claims SEPARATELY** — the post-worker one and the Fable one have different mechanisms and different failure modes |
 
-### 19.2 The mandate is auditable, and how
+### 21.2 The mandate is auditable, and how
 
-- The acceptance report carries a **sixteen-row table**, one row per vector, each
-  `MEASURED` / `NOT TESTABLE` / `NOT ATTEMPTED`, **with the control's outcome
+- The acceptance report carries a **twenty-row table**, one row per vector, each
+  `MEASURED` / `NOT TESTED` / `NOT ATTEMPTED`, **with the control's outcome
   recorded next to it.**
-- **Return item 6 must be GENERATED from `git_order.py`** (§5.4.3B), not typed —
-  **otherwise the fifth review re-does F-7 by hand.**
-- **Return item 7 is expected to be `{}` and the reviewer should not accept the
-  word "authoritative" as doing the work.** §2A's table names the two mechanisms
-  that emptied the set; **if either mechanism is absent, the answer is not `{}`
-  and the reviewer should say so.** *(Revision 5's `{cat-file, rev-parse}` is
-  reconcilable with `{}` only under a definitional reading, and this design does
-  not take that route: it deletes the commands.)*
-- **Return item 12 must name anything unresolved plainly rather than
-  force-mapping it** — the discipline §17 has held for four revisions, and the
-  only reason **Y-9 and Y-10 are visible at all.**
+- **Return items 6, 7 and 8 are transcribed from §5.4.3B's `NORMATIVE — INTENDED`
+  tables and MUST NOT be claimed as generated**, because `git_order.py` does not
+  exist. **A reviewer MUST report any measured command absent from the normative
+  order** — that report is the design-phase stand-in for direction B, **and it is
+  exactly what the fifth reviewer did when they found F5-3.**
+- **Return items 8 and 9 are separate rows on purpose.** Collapsing them is how
+  the review path's six commands hid behind a post-worker claim for two
+  revisions.
+- **Return item 14 must print `UNMEASURABLE` for every pin not yet in `src/**`.**
+  All four are measured **absent** today. **A gate report that prints `PASS` for a
+  row whose mechanism is not implemented is the defect this gate exists to
+  catch.**
+- **Return item 15 must name anything unresolved plainly rather than
+  force-mapping it** — the discipline §17 has held for five revisions, and the
+  only reason Y-9 and Y-10 were visible at all.
 
-### 19.3 What the fifth review inherits, and the one instruction that matters
+### 21.3 What the sixth review inherits, and the one instruction that matters
 
-**Four prior reviews** (R-1…R-14, M-1…M-10 · S-1…S-7, N-a…N-e, Y-1…Y-10 ·
-B-1…B-4, N-1…N-7 · **F-1…F-7**), **four probes** (U, X, Z5, **Z7**), **six
-drafting lanes** (Z1/Z2/Z3, **Z8/Z9/Z10**), and this document.
+**Five prior reviews** (R-1…R-14, M-1…M-10 · S-1…S-7, N-a…N-e, Y-1…Y-10 ·
+B-1…B-4, N-1…N-7 · F-1…F-7 · **F5-1…F5-6, REJECTED**), **five probes** (U, X, Z5,
+Z7, **Z12**), **nine drafting lanes**, and this document.
 
-**Each of the four reviews found at least one claim whose named proof could not
-observe the property.** §10.3 is the catalogue and it now has **fifteen rows.**
-Three of them are defects this document introduced **in the same revision that
-fixed the identical shape elsewhere.**
+**Each of the five reviews found at least one claim whose named proof could not
+observe the property.** §10.3 is the catalogue and it now has **twenty rows.**
+Several are defects this document introduced **in the same revision that fixed the
+identical shape elsewhere.**
 
-> ### **Assume revision 6 contains at least one more, and go find it.**
+> ### **Assume revision 7 contains at least one more, and go find it.**
 >
-> **The two places this revision is most likely to be wrong, named by the author
+> **The three places this revision is most likely to be wrong, named by the author
 > rather than left to be discovered:**
 >
-> **(1) Route A's coverage (§5.5.2A).** The claim that where the START walk's
-> `git-blob-sha1` equals the `ls-tree` oid the bytes on disk **are** the base
-> blob is **REASONED from DECISION Z-5's identity, not measured end-to-end.** The
-> step that could be wrong is a path where the hashes coincide for a reason other
-> than the bytes being the blob — which for sha1 means a collision. **The
-> negative was not constructed.** Route B exists so that Route A's failure is a
-> **cost, not a correctness bug**, and **the design is correct without Route A at
-> the price of one 193 ms pass.**
+> **(1) Route A's coverage.** That where the START walk's `git-blob-sha1` equals
+> the `ls-tree` oid the bytes on disk **are** the base blob is **REASONED from
+> DECISION Z-5's identity, not measured end-to-end.** **The negative was not
+> constructed.** Route B exists so Route A's failure is a **cost, not a
+> correctness bug**, and the design is correct without Route A.
 >
-> **(2) The `head_chain_restructured` non-violation (§5.5.2C).** *Report* was
-> chosen over *refuse* for a value-preserving ref restructure, on the strength of
-> one measurement. The step that could be wrong is whether a restructure can be
-> made to **hide** a movement. **The argument is that the resolver recomputes
-> `resolved` from the post-state chain and compares it to the sealed `resolved`,
-> so a changed value is caught regardless of route — and that is an argument.**
-> Falsified by any chain rewrite that yields the sealed `resolved` while the
-> worktree's actual HEAD differs.
+> **(2) The append-only object-store relation.** §5.8.3 states it, costs it
+> against two alternatives, and **does not adopt it.** **It is the same SHAPE of
+> judgement that produced the allowlist ZI-57 deleted**, and if it is adopted
+> without a ruling, that is the finding.
+>
+> **(3) The stricter-than-git HEAD byte rule.** Three shapes git accepts at
+> `rc=0` — CRLF, double-LF and uppercase — are refusals under ZI-77. **The
+> direction is fail-closed and the cost is availability**, but *"no tool writes
+> HEAD that way"* is **`NOT TESTED`**, not *"none exists"*.
 
-**And three claims in this document rest on measurements no lane could complete:**
-the **NOT TESTABLE** rows for `objects/info/commit-graph`, `multi-pack-index` and
-submodule `modules/**` (T-18); the **UNMEASURED** object-presence listing cost at
-production scale; and the **UNMEASURED** `packed-refs` read on a repository with
-very many refs. **None of them is recorded as clean.**
+**And four claims rest on measurements no lane could complete:** the `NOT TESTED`
+rows for `multi-pack-index` as a substitution vector, for an above-threshold
+`gc --auto`, for reftable as a live B2 vector, and for submodule `modules/**`;
+plus the `NOT ATTEMPTED` rows for the ctypes spawn bypass and for a disk scan for
+symlinked `.git` entries. **None of them is recorded as clean.**
 
 ---
 
@@ -9674,6 +11907,246 @@ annotated tag oid ^{commit}            returns a DIFFERENT oid   a6d2ba69 -> 519
 **Every command above was read-only, under `--no-optional-locks`, with no index
 write. Nothing was written to that repository by any lane.**
 
+### A.2L S-ζ — cached parentage, and PIN 4 (Lane Z12, independently reproduced by Lane Z13)
+
+```
+repo: c1 -> c2 -> c3 on main, plus an orphan root `decoy-root` on a second branch
+TRUE root C1 = 0a5def31…   C2 = 8eefec14…   HEAD C3 = 648e1710…   DECOY = de3c90c8…
+
+BEFORE any commit-graph exists
+  rev-list --max-parents=0 HEAD : 0a5def31…            (true)
+
+git commit-graph write --reachable
+  stat .git/objects/info/commit-graph : 444, 1352 bytes
+  -- 0444, and the DIRECTORY is worker-owned, so unlink+rewrite needs no write bit
+
+graph before forgery (chunks OIDF/OIDL/CDAT/GDA2):
+  idx0 0a5def31  p1=1879048192 (none)      idx1 648e1710  p1=2
+  idx2 8eefec14  p1=0                      idx3 de3c90c8  p1=1879048192 (none)
+
+FORGE: CDAT parent1 of C2 := DECOY, trailing sha1 recomputed
+AFTER
+  G6 rev-list --max-parents=0 HEAD : de3c90c8…         <-- THE DECOY, rc=0
+  G1 rev-parse --verify HEAD^{commit} : 648e1710…      (unchanged)
+
+POSITIVE CONTROL, two ways:
+  A  -c core.commitGraph=false rev-list --max-parents=0 HEAD -> 0a5def31…  TRUE
+  B  git commit-graph verify
+       commit-graph parent for 8eefec14… is de3c90c8… != 0a5def31…
+
+PINS 1+2+3 TOGETHER                                    -> de3c90c8…  STILL DECOY
+PIN 4 ALONE / PINS 1+2+3+4                             -> 0a5def31…  TRUE, rc=0
+SPLIT CHAIN (objects/info/commit-graphs/graph-<hash>.graph, filename preserved)
+  no pin -> DECOY ;  -c core.commitGraph=false -> TRUE ;  verify names the parent
+LINKED WORKTREE: decoy returned from cwd=primary AND cwd=task_worktree
+```
+
+**Override matrix — every genuine config source loses to a later argv pin; ONE
+environment variable does not:**
+
+```
+source claiming core.commitGraph=true      no pin | with a later -c ...=false
+  (baseline)                                DECOY | TRUE   pin held
+  $GIT_COMMON_DIR/config                    DECOY | TRUE   pin held
+  include.path -> included file             DECOY | TRUE   pin held
+  includeIf.gitdir:<path>.path                  — | TRUE   pin held
+  extensions.worktreeConfig + config.worktree DECOY| TRUE   pin held
+  GIT_CONFIG_COUNT / KEY_0 / VALUE_0        DECOY | TRUE   pin held
+  GIT_CONFIG_PARAMETERS                     DECOY | TRUE   pin held
+  GIT_CONFIG_GLOBAL                         DECOY | TRUE   pin held
+  all of the above at once, pin last            — | TRUE   pin held
+  GIT_TEST_COMMIT_GRAPH=1                   DECOY | DECOY  *** PIN LOST ***
+  GIT_TEST_COMMIT_GRAPH=true                    — | DECOY  *** PIN LOST ***
+  GIT_TEST_COMMIT_GRAPH=0                       — | TRUE   pin held
+  commitGraph.generationVersion=2               — | TRUE   commitGraph.readChangedPaths — TRUE
+  core.multiPackIndex=true                      — | TRUE   pin held
+
+argv ordering:   -c ...=true  -c ...=false  -> TRUE   (last wins)
+                 -c ...=false -c ...=true   -> DECOY  (last wins)
+                 -c z.s=A -c z.s=B -c z.s=C  ->  C
+post-subcommand: git rev-list -c k=v --max-parents=0 HEAD
+                   -> rc=128 fatal: ambiguous argument
+malformed value: -c core.commitGraph=notabool
+                   -> rc=128 fatal: bad boolean config value
+
+git config --show-origin --get-all, every source armed at once:
+  file:<global.cfg> / file:<repo>/.git/config / file:…/config.worktree /
+  command line: (GIT_CONFIG_COUNT) / command line: (GIT_CONFIG_PARAMETERS) /
+  command line: (argv -c #1) / command line: (argv -c #2)   <-- WINS
+```
+
+**`multi-pack-index` carries NO parentage:**
+
+```
+git repack -a -d -q && git multi-pack-index write
+  sig MIDX  version 1  nchunks 4  chunks ['PNAM','OIDF','OIDL','OOFF']
+  midx present, no pin, G6                       -> TRUE
+  midx present, -c core.multiPackIndex=false, G6 -> TRUE
+```
+
+**PINs 1–4 on one argv, against every permitted PREPARE row, in the forged
+repository: `rc=0` on all ten, with no output change other than the corrected
+parentage.**
+
+### A.2M The detached worktree — B2 without a resolver
+
+```
+git worktree add --detach <path> <BASE>
+  <worktree>/.git   regular file 54 B  b'gitdir: …/worktrees/wt\n'
+  <gitdir>/HEAD     regular file 41 B  b'ff87d7f6…b9735e0f\n'
+                    is 40hex + exactly one \n : True     strip()==BASE : True
+  <gitdir>/ORIG_HEAD 41 B   commondir 6 B b'../..\n'   gitdir 28 B   refs ABSENT
+
+-b form, same repo, same BASE:
+  <gitdir>/HEAD                b'ref: refs/heads/sol-abc\n'   (24 B)
+  <common>/refs/heads/sol-abc  ff87d7f6…
+  <gitdir>/refs/heads/sol-abc  ABSENT     <-- the whole of F5-1 lives here
+
+THE FOUR-CELL CONTROL
+  shape      resolver order                       result
+  -b         gitdir-first (rev 6 as written)      *** MISS *** (F5-1 reproduced)
+  -b         git-actual                           DETECTED
+  --detach   gitdir-first                         DETECTED
+  --detach   git-actual                           DETECTED
+
+45 WORKER ACTIONS AGAINST A DETACHED WORKTREE                        MISSES: 0
+  detected: commit · checkout <sha> · checkout -b (conservative refusal) ·
+            checkout -b + commit · reset --hard · reset --soft · commit+gc+pack-refs ·
+            update-ref --no-deref HEAD · symbolic-ref HEAD · cherry-pick ·
+            rebase (mid-conflict) · commit --amend · am ·
+            HEAD replaced by a symlink (git rc=128) · symlink -> file (git rc=128) ·
+            gitfile repointed (WorktreeIndirectionChanged) ·
+            HEAD uppercase / trailing spaces / no newline / CRLF   (git accepts all four)
+  base_held: stash · stash+pop · pack-refs --all · gc · gc --aggressive --prune=now ·
+            F5-1 shadow-ref plant · fake common-dir branch ref ·
+            same + forged packed-refs line · commit then reset --hard BASE ·
+            bisect · worktree move · worktree repair · files-only worker ·
+            checkout <TIP> -- a.txt · replace · second worktree add ·
+            reflog expire · extensions.refStorage appended ·
+            sparse-checkout set · read-tree TIP · config.worktree core.worktree ·
+            commit then rewind the HEAD file to BASE · checkout --detach to the
+            SAME sha · switch --detach TIP then back
+
+THE SYMREF PLANT — one write, and every resolver-based B2 returns base_held
+  SEAL   <gitdir>/HEAD = b'8e4aa907…\n'   (== BASE)
+  plant  printf 'ref: refs/heads/main\n' > <gitdir>/HEAD
+         git -C <wt> rev-parse HEAD = 8e4aa907…  == BASE   <-- GROUND TRUTH AGREES
+  then   git commit --allow-empty
+         git -C <wt> rev-parse HEAD = f3fa6003…            HEAD HAS MOVED
+         raw <gitdir>/HEAD = b'ref: refs/heads/main\n'     BYTE-IDENTICAL
+
+GITDIR REPLACED IN PLACE
+  SEAL  dev=64769 ino=333072   AFTER cp -a / rm -rf / mv : dev=64769 ino=333073
+  every byte comparison passes; only the inode moves
+
+EXECUTION SURFACE, --detach vs -b (27 hooks + smudge + alternateRefsCommand armed)
+  --detach              reference-transaction x3, SMUDGE x2, post-index-change,
+                        post-checkout                        forked children: none
+  -b                    the same, plus a ref transaction on refs/heads/sol-abc
+                                                             forked children: ONE
+                                                             (trace: run_command: git branch)
+  --detach --no-checkout                    reference-transaction (prepared+committed)
+  --detach --no-checkout  UNDER PIN 2       *** EXECUTION LOG EMPTY ***
+     control: the same argv WITHOUT PIN 2 -> 2 executed-program lines
+  --detach WITH checkout  UNDER PIN 2       FILTER smudge RAN x2
+```
+
+### A.2N `.git` classification, and the zero-subprocess refusal
+
+```
+<root>/.git -> symlink to a DIRECTORY
+  Path.is_dir()=True  Path.is_file()=False  Path.is_symlink()=True
+  lstat S_ISLNK=True  S_ISDIR=False  S_ISREG=False
+  resolve_gitdir() step 2 takes: DIRECTORY branch  -> captures THROUGH the link
+  git rev-parse --absolute-git-dir : rc=0 <the TARGET>   git status : rc=0
+  after repointing the symlink: NO FIELD DIFFERS
+
+<worktree>/.git -> symlink to a GITFILE
+  Path.is_dir()=False Path.is_file()=True   -> the GITFILE branch IS ENTERED
+  git rev-parse --absolute-git-dir : rc=0               LIVE
+
+<worktree>/.git -> symlink to a DIRECTORY
+  git rev-parse --absolute-git-dir : rc=128 fatal: not a git repository   INERT
+
+SYMLINKED PRIMARY .git + worktree add --detach
+  <wt>/.git bytes           : gitdir: $R/realgit/worktrees/wt   <-- the TARGET path
+  worktree list --porcelain : worktree $R/realgit               <-- NOT the real tree
+  after ln -sf to a copy:
+    git -C wt rev-parse --absolute-git-dir : $R/realgit/worktrees/wt   (OLD repo)
+    git -C p  rev-parse --absolute-git-dir : $R/realgit2               (NEW repo)
+
+ZERO-SUBPROCESS PROOF (PATH shimmed with logging `git`/`sh`/`bash`, exit 127)
+  mode=control      RESULT: control classifier ran git, rc=127
+                    exec log: EXEC git argv=[rev-parse --absolute-git-dir]
+                    subprocesses: 1
+  mode=production   RESULT: REFUSED -- <root>/.git is a symlink -> '…'
+                    exec log: (EMPTY)          subprocesses: 0
+```
+
+### A.2O The primary tree around dispatcher setup
+
+```
+raw walk of <primary>, (type,size,mode,mtime_ns,sha256) per path, before/after
+                      --detach     -b sol-abc   --detach --no-checkout
+  paths before->after  49 -> 58     49 -> 60     49 -> 56
+  working tree +/-/~   0 / 0 / 0    0 / 0 / 0    0 / 0 / 0
+  working tree mtime-only touched  0        0         0
+  .git/** paths added      9           11           7
+  .git/** content changed  0            0           0
+
+  .git/HEAD .git/index .git/config .git/refs/heads/main .git/logs/HEAD
+      byte-identical AND mtime-identical in all three forms
+
+  --detach adds: worktrees/ , worktrees/wt/ , worktrees/wt/logs/  [3 dirs]
+                 worktrees/wt/{HEAD,ORIG_HEAD,commondir,gitdir,index,logs/HEAD}
+  -b adds the same nine PLUS refs/heads/sol-abc and logs/refs/heads/sol-abc
+
+POSITIVE CONTROL: `git checkout main` in the primary, same snapshot-and-diff code
+  working-tree changed = ['a.txt']      >>> control FIRED
+
+CROSS-DISPATCH DRIFT — after a COMPLETE dispatch AND worktree remove --force
+AND worktree prune, diff(baseline, capture):
+  + objects/61/780798228d17af2d34fce4cfbdf35556832472
+  + objects/ae/18cd955ca26c71e080957205a44f10cc90b5e9
+  + objects/fe/fefb7cb118032909dba80f413ad337472a8f7e70
+  -> dispatch 2 lands RepositoryAdministrationUnreconciled, NOT retryable
+```
+
+### A.2P The spawn instrument, and the Fable path at runtime
+
+```
+sys.addaudithook, one process, three spawn styles:
+  spawn style                                    subprocess.Popen | os.posix_spawn
+  subprocess.run(["git","--version"])                  FIRES      |     —
+  asyncio.create_subprocess_exec("git","--version")    FIRES      |     —
+  os.posix_spawn("/usr/bin/git", […], env)         DOES NOT FIRE  |   FIRES
+
+RUNTIME JOURNAL OF THE LIVE FABLE REVIEW PATH (throwaway repo, fake claude binary)
+  guidance ON  ([project_guidance] enabled = true — what config/dispatcher.toml ships)
+    1 GIT git rev-parse --show-toplevel        cwd=primary   security.py:217
+    2 GIT git rev-parse --show-toplevel        cwd=primary   locks.py:72
+    3 GIT git rev-parse --show-toplevel        cwd=primary   git.py:350
+    4 GIT git rev-parse --absolute-git-dir     cwd=primary   git.py:353
+    5 GIT git config --get remote.origin.url   cwd=primary   git.py:359
+    6 GIT git rev-list --max-parents=0 HEAD    cwd=primary   git.py:362
+    --- reviewer spawns here ---
+    (zero further processes of any kind before the review returns)
+  guidance OFF (config/dispatcher.example.toml ships false)     rows 1-2 only: TWO
+
+  LIVENESS EVIDENCE: the same harness recorded the DISPATCH phase of the same run
+  at 23 git rows (guidance ON) / 19 (OFF).  An instrument reporting zero on the
+  review path while reporting 23 on the dispatch phase is demonstrably live.
+
+  AND, in that dispatch journal: `git diff <base_commit>` appears TWICE — once
+  from collect_diff_evidence through _run_git, and once from write_full_diff at
+  git.py:776, a subprocess.run that does NOT pass through _run_git.
+  A journal written at the declared chokepoint records 22 rows; the interpreter
+  records 23.
+
+  TWO-LAYER DOUBLE COUNT: the reviewer spawn appeared twice — once as
+  loop.subprocess_exec, once as subprocess.Popen — for ONE process.
+```
+
 ### A.3 Checkout transform on an ordinary repository
 
 Committed `.gitattributes`: `* text eol=crlf` and `*.dat filter=lfsish`
@@ -9808,7 +12281,40 @@ byte-identical, sha256 `e41ef3bd…d498e`, 1286 B.
 
 ---
 
-## Appendix C — Revision 6 change log
+## Appendix C — Revision 7 change log
+
+| Section | Change | Driver |
+|---|---|---|
+| header | revision 7; **Sol's structural ruling stated before anything else**; the twenty-directive map; **the sixth mechanism named and the reason a seventh pin is not the answer** | Sol §1 |
+| §0 | **`NOT TESTABLE` is BANNED**, with the two labels that replace it and the account of how the mislabel produced a wrong protection class. **Every revision-6 occurrence re-labelled** — the `GIT_CONFIG_KEY0` row and the `commit-graph` / `multi-pack-index` / `modules/**` rows to `NOT ATTEMPTED` or `NOT TESTED`; a fourth **`VOID`**-shaped control failure recorded | Sol's labelling rule |
+| **§1A** *(new)* | **ZI-70 — identity is not re-derived by a graph walk on ANY of the three production paths.** `root_commit`'s original justification is shown **dead** (it defended a weakness in `toplevel` that ZI-58 already deleted); the onboarding script is the **one** surviving walk and is **cross-checked pinned-against-unpinned**; **REQ-1** states what the R6 relation must retain or §1A.3 is void | Sol §1 |
+| §2A | the central claim **scoped**: post-worker **and** the whole Fable path, **both halves literal**; the review's six deleted rows join the mechanism table; **revision 6's *"computes the same 40-hex answer"* corrected to *"compares raw bytes against a value it wrote"*** | Sol §18 |
+| §5.4.1C *(new)* | **S-ζ — cached parentage**, the second mechanism that is not an execution surface; the split-chain filename binding; the **false-positive price measured** (only a deliberate `git gc` moves the file under a worker) | Sol §15 |
+| §5.4.3 | the dispatch repertoire drops to **seven** rows: **G5, G6 and G7 deleted**; `worktree add` becomes `--detach`; the `--no-checkout` zero-execution row recorded as a **measured option** | Sol §1, §3, §7 |
+| §5.4.3A | **`PIN_BLOCK` is a closed, ordered, TERMINAL prefix** (ZI-71); **PIN 4** added; **`GIT_TEST_*` and `GIT_CONFIG_PARAMETERS` scrubbed**; the five ordering rules with two-way controls; **Sol's §16 requirement shown FALSIFIED as literally worded and made true again by one scrub line** | Sol §2, §16 |
+| §5.4.3B | **the three normative orders printed exactly**, plus a fourth `onboarding` path; **the matrix runs BOTH ways**, plus **rule C**; **`NORMATIVE — INTENDED` staging** and the **`EMPTY_BY_DECLARATION` sentinel**; the instrument is **interpreter-level** and a `Popen`-only hook is **MEASURED incomplete**; **assertions over row SETS, never counts**; §5.4.3B checked against itself in five ways | Sol §7, §8, §9, §17 |
+| §5.5.1 | the pipeline gains R6/R7/R8, S1/S2/S3, and the crash point between S1 and the spawn | Sol §5, §6 |
+| §5.5.2C | **REWRITTEN.** `resolve_head_raw`, `HeadChain`, `head_chain_restructured`, the refname regex, the 5-hop loop and **four tests are DELETED**; B2 becomes **eight raw comparisons** including `(st_dev, st_ino)`; the symref-that-resolves-to-the-base killer; the **stricter-than-git** one-LF rule, priced | Sol §3 |
+| §5.5.2D *(new)* | the **sealed identity record** — a fifth artefact under the same manifest, with `root_commit_provenance` and `pins_applied` as **fields, not comments** | Sol §10, §11, §12 |
+| §5.8.2 | the `.git` indirection row becomes a **four-valued enum with `readlink` bytes**; **`is-file-or-dir` deleted as a field AND as a concept**; cached parentage becomes **`MEASURED — FIRES`** with a **hash per file** | Sol §4, §15 |
+| §5.8.2A | **`lstat` FIRST** (ZI-80); a symlinked `.git` is a **PREPARE refusal with zero git subprocesses** (ZI-81), **proven with a control that ran one**; **F5-5 WIDENED** — the gitfile branch runs too, and `worktree list --porcelain` names the gitdir target | Sol §4 |
+| §5.8.3 | **`pre_run` DELETED as a role name**; **four captures, one purpose each** (ZI-82); the two obligations satisfied **by ordering, not exemption** (ZI-83); **the R6 convergence presented as ONE problem with two costed alternatives, NEITHER ADOPTED**, and the test kept **RED** | Sol §5 |
+| §5.9.2 | **three primary states, two equalities** (ZI-59 rewritten); **ZI-84** — `.git/worktrees` is a subsystem boundary, not an exemption; the third walk costed at 466 ms | Sol §6 |
+| §5.11 | **`patch_file_complete` becomes a CONJUNCT of `review_input_complete`** — Sol's §14 sentence made literally true **by derivation rather than by renaming** | Sol §14 |
+| §5.17.2 | **ZI-40's bare `scope` → `the WORKER's scope verdict`** — a required edit, not a charitable reading | Sol §18 |
+| §8 / §5.12 | thirteen new row-0 classes and one acceptance verdict | Sol §3–§6, §10 |
+| §10.3 | **eight new rows**, including **a named killer that passed against the defect it named**, a **vacuously true** acceptance derivation, a `REQUIRES-VERIFICATION` that was never verified and was false, **a probe's own forger no-op**, and **a double-counting instrument** | F5-1 … F5-6 |
+| §12 | Wave 0 grows again; **thirteen new refusals are all Wave 0 or B-4 reopens** | Sol §19 |
+| §16 | the Fable count gets **its own row**; **four pin rows** that print `UNMEASURABLE`; the matrix tags; the second-dispatch row printed as **RED-BY-DESIGN pending T-36** | Sol §8 |
+| §17 | **Y-9 and Y-10 RESOLVED, with Sol's ruling text NORMATIVE.** Ten of ten resolved; **for the first time in five revisions no row is carried as `UNRATIFIED`** | Sol §13, §14 |
+| §18.3C *(new)* | **T-26 … T-37**, including **T-36, the live blocker**, and **T-37, the review-path liveness conflict** | Sol |
+| **§20** *(new)* | **preserve without reopening** — six properties, each with the way revision 7 could weaken it and **the named detector**; one item flagged as **at genuine risk** | **Sol §19** |
+| **§21** *(new)* | **the sixth-review mandate — twenty vectors and the fifteen-item return format, verbatim** — plus what a mis-armed control looks like for each, and **the three places the author judges this revision most likely to be wrong** | **Sol §20** |
+| Appendix A | **A.2L–A.2P** — the forgery and the override matrix, the detached worktree and its 45-action matrix, the `.git` classification and its zero-subprocess proof, the primary-tree walk and the cross-dispatch drift, and the runtime Fable journal | Z12, Z13, Z14, Z15 |
+
+---
+
+## Appendix C0 — Revision 6 change log (retained)
 
 | Section | Change | Driver |
 |---|---|---|
@@ -9858,7 +12364,7 @@ byte-identical, sha256 `e41ef3bd…d498e`, 1286 B.
 | §0 | **`NOT TESTED` / `NOT OBSERVED`** adopted as marked vocabulary, distinct from `REQUIRES-PROBE` | Z5 item 6 |
 | §5.4.1 | **S-δ — a fourth execution surface.** Revision 4's *"structural property of object-store reads"* paragraph is **quoted and deleted**; the count is corrected from three to four | Z5 item 2 |
 | §5.4.3 | repertoire matrix re-measured on **four** columns; `ls-tree --long` **struck**; `cat-file` rows permitted **only under PIN 1**; Lane X's TIER-0 table **corrected** — `core.sshCommand` / `core.gitProxy` are executed, not inert | Z5 item 2 |
-| §5.4.3A *(new)* | the **global git invocation policy** in one block: **PIN 1** `GIT_NO_LAZY_FETCH=1` on every invocation, **PIN 2** `-c core.hooksPath=<empty dir>` on every mutating one, with the measured caveats and the `GIT_CONFIG_KEY0` **NOT TESTABLE** note | Z5 items 1–2 |
+| §5.4.3A *(new)* | the **global git invocation policy** in one block: **PIN 1** `GIT_NO_LAZY_FETCH=1` on every invocation, **PIN 2** `-c core.hooksPath=<empty dir>` on every mutating one, with the measured caveats and the `GIT_CONFIG_KEY0` **`NOT TESTABLE`** note *(re-labelled `NOT ATTEMPTED` in revision 7)* | Z5 items 1–2 |
 | §5.4.5 | the invocation journal is **blind** to `git.py:776` — a live `subprocess.run(["git","diff",…])` outside `_run_git` | Z5 item 3 |
 | §5.4.6 | **`test_no_direct_git_subprocess_in_src`** specified (AST over the whole tree), and stated to **fail against `HEAD`**, with `git.py:776` as the **day-one killer** | Z5 item 3 |
 | §5.5.2 | **`--long` removed** from `BaseTreeSnapshot`'s argv; `blob_size: int \| None`; the `ls-tree` parser no longer assumes a size field; **ZM-D7…ZM-D10** added | Z5 item 2 |
