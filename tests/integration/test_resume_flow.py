@@ -12,6 +12,7 @@ import inspect
 import json
 from pathlib import Path
 
+from sol_claude_dispatcher.evidence.gitadmin import repository_identity_key
 from sol_claude_dispatcher.models import TaskState, is_transition_allowed
 from sol_claude_dispatcher.server import Dispatcher
 
@@ -186,16 +187,10 @@ async def test_resume_after_nonzero_worker_exit_recovers_the_task(
     assert dispatcher.store.load(task_id).resume_count == 1
 
 
-async def test_resume_from_failed_without_a_stored_worktree_is_refused(
-    dispatcher, request_payload, fake_env, monkeypatch, tmp_path
+async def test_preworker_worktree_failure_creates_no_resumable_task(
+    dispatcher, request_payload, fake_env, tmp_path
 ):
-    """Legality is not feasibility: ``resume_plan`` still refuses damaged state.
-
-    The transition table permits FAILED -> RESUME_REQUESTED; it says nothing
-    about whether the state a resume must reuse actually exists. A worker that
-    never produced a worktree leaves nothing to resume into, and the refusal is
-    a structured error, not a traceback and certainly not a silent success.
-    """
+    """A PREPARE refusal is audited without manufacturing a failed task."""
     # A file where the dispatcher expects its worktree directory: no worktree
     # can be created, so the dispatch fails before a worker starts (B2 — the
     # dispatcher owns creation now, so this is where creation is broken).
@@ -205,26 +200,12 @@ async def test_resume_from_failed_without_a_stored_worktree_is_refused(
 
     failed = await dispatcher.dispatch_claude_task(request_payload)
     assert failed["error"] == "WorktreeCreationFailed"
-    task_id = failed["details"]["task_id"]
-    record = dispatcher.store.load(task_id)
-    assert record.state is TaskState.FAILED
-    assert not record.worktree_path
-
-    monkeypatch.setenv("FAKE_CLAUDE_MODE", "resume")
-    refused = await dispatcher.resume_claude_task(task_id, "Try that again.")
-
-    # The refusal comes from resume_plan's feasibility check, not from the
-    # transition table — the table itself permits this edge.
-    assert is_transition_allowed(TaskState.FAILED, TaskState.RESUME_REQUESTED)
-    assert refused["error"] == "StateCorruption"
-    assert refused["details"]["missing"] == ["worktree_path"]
-    assert "traceback" not in json.dumps(refused).lower()
-
-    # Nothing ran and nothing moved.
-    after = dispatcher.store.load(task_id)
-    assert after.state is TaskState.FAILED
-    assert after.resume_count == 0
-    assert after.run_count == record.run_count
+    assert dispatcher.store.list_tasks() == []
+    key = repository_identity_key(request_payload["repository"]["root"])
+    refusals = dispatcher.store.load_refusals(repository_key=key)
+    assert refusals[-1]["phase"] == "PREPARE"
+    assert refusals[-1]["code"] == "WorktreeCreationFailed"
+    assert "traceback" not in json.dumps(failed).lower()
 
 
 async def test_resume_cap_still_holds_from_failed(

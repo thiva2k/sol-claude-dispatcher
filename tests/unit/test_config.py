@@ -336,6 +336,61 @@ class TestLoadFromMapping:
         assert config.source_path is None
         assert config.project_root == str(tmp_path.resolve())
 
+    @pytest.mark.parametrize(
+        "reviewer_tools",
+        [
+            pytest.param(["default"], id="default-bundle"),
+            pytest.param(["*"], id="wildcard"),
+            pytest.param(
+                ["Read", "Glob", "Grep", "WebSearch"], id="superset"
+            ),
+            pytest.param(["Read", "Agent"], id="subagent"),
+            pytest.param(["Read", "Edit"], id="mutator"),
+            pytest.param(["Read", "Read"], id="duplicate"),
+            pytest.param([], id="empty-restores-cli-defaults"),
+        ],
+    )
+    def test_reviewer_tools_are_a_closed_nonempty_allowlist(
+        self, tmp_path, reviewer_tools
+    ):
+        with pytest.raises(ConfigurationError) as exc:
+            load_config_from_mapping(
+                {
+                    "dispatcher": {},
+                    "models": {},
+                    "routing": {},
+                    "security": {
+                        "allowed_repository_roots": [str(tmp_path)]
+                    },
+                    "claude": {"reviewer_tools": reviewer_tools},
+                },
+                project_root=tmp_path,
+            )
+        assert "reviewer_tools" in str(exc.value.details)
+
+    @pytest.mark.parametrize(
+        "reviewer_tools",
+        [
+            pytest.param(["Read"], id="one-tool"),
+            pytest.param(["Glob", "Grep"], id="two-tools"),
+            pytest.param(["Read", "Glob", "Grep"], id="complete-allowlist"),
+        ],
+    )
+    def test_reviewer_tools_may_select_a_nonempty_exact_subset(
+        self, tmp_path, reviewer_tools
+    ):
+        config = load_config_from_mapping(
+            {
+                "dispatcher": {},
+                "models": {},
+                "routing": {},
+                "security": {"allowed_repository_roots": [str(tmp_path)]},
+                "claude": {"reviewer_tools": reviewer_tools},
+            },
+            project_root=tmp_path,
+        )
+        assert config.claude.reviewer_tools == reviewer_tools
+
     def test_rejects_a_non_mapping(self):
         with pytest.raises(ConfigurationError):
             load_config_from_mapping(["not", "a", "table"])  # type: ignore[arg-type]

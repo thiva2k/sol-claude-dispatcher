@@ -53,6 +53,8 @@ policy file — exactly the pre-Gate-4.5 behaviour.
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -61,6 +63,7 @@ from typing import Literal, Sequence
 from .config import Config
 from .errors import (
     ApprovedSkillChanged,
+    InternalDispatcherError,
     ProjectGuidanceResumeDrift,
     WorktreeBaseMismatch,
 )
@@ -77,6 +80,12 @@ from .project_guidance import (
     ProjectGuidanceEngine,
     ProjectGuidanceProjection,
     RepositoryIdentity,
+    load_manifest_from_mapping,
+)
+from .evidence.identity import RepositoryAuthoritySnapshot
+from .evidence.identity_record import (
+    ApprovedIdentityFacts,
+    RepositoryIdentityRecord,
 )
 from .skills import SkillProjection, SkillProjectionEngine
 
@@ -568,17 +577,85 @@ class WorkerContextComposer:
 
     # -- repository identity (Lane D R2) ---------------------------------
 
-    def repository_identity(self, canonical_root: Path) -> RepositoryIdentity | None:
-        """Measure identity against the CANONICAL repository, never a worktree.
+    def repository_identity(
+        self,
+        canonical_root: Path,
+        *,
+        authority: RepositoryAuthoritySnapshot | None = None,
+    ) -> RepositoryIdentity | None:
+        """Build guidance identity from sealed raw and approved facts.
 
-        ``None`` when guidance is off, so a disabled dispatcher runs no extra
-        git commands at all.
+        Gate 7 deletes dynamic identity derivation from every production path.
+        The raw authority supplies the canonical root and administration path;
+        the reviewed guidance manifest supplies origin and root-commit
+        provenance.  There is no Git fallback: an absent seal is an internal
+        ordering error, never permission to rediscover identity.
         """
         if not self.guidance_enabled:
             return None
-        from .git import collect_repository_identity
+        if authority is None:
+            raise InternalDispatcherError(
+                "Project guidance requires the sealed repository authority."
+            )
+        engine = self.guidance_engine
+        if engine is None:  # pragma: no cover - guarded by guidance_enabled
+            raise InternalDispatcherError("Project guidance engine is unavailable.")
+        pin = engine.manifest.primary_repository
+        return RepositoryIdentity(
+            toplevel=os.fsdecode(authority.canonical_root),
+            git_dir=os.fsdecode(authority.git_dir),
+            origin_url=pin.origin_url,
+            root_commit=pin.root_commit,
+        )
 
-        return collect_repository_identity(canonical_root)
+    def approved_identity_facts(self) -> ApprovedIdentityFacts:
+        """Capture the approved identity authority once for initial PREPARE."""
+
+        if not self.guidance_enabled:
+            return ApprovedIdentityFacts.no_guidance()
+        manifest_path = Path(self.config.approved_guidance_file).resolve()
+        try:
+            manifest_bytes = manifest_path.read_bytes()
+            manifest_value = json.loads(manifest_bytes)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InternalDispatcherError(
+                "Approved guidance identity manifest could not be sealed.",
+                details={"path": str(manifest_path)},
+            ) from exc
+        manifest = load_manifest_from_mapping(
+            manifest_value, source_path=str(manifest_path)
+        )
+        # The engine and the sealed manifest hash now derive from the same raw
+        # read.  A file replacement cannot leave cached pins paired with the
+        # digest of different bytes.
+        engine = ProjectGuidanceEngine(
+            manifest,
+            project_root=self.config.project_root,
+            max_projected_bytes=self.config.project_guidance.max_projected_bytes,
+            enabled=True,
+        )
+        self._guidance = engine
+        pin = engine.manifest.primary_repository
+        return ApprovedIdentityFacts(
+            authority="approved_guidance",
+            manifest_path=str(manifest_path),
+            manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+            approval_state=engine.manifest.approval.state,
+            approval_version=engine.manifest.approval.version,
+            repository_id=pin.repository_id,
+            pin_toplevel=pin.toplevel,
+            pin_git_dir=pin.git_dir,
+            pin_origin_url=pin.origin_url,
+            pin_root_commit=pin.root_commit,
+        )
+
+    def sealed_repository_identity(
+        self, record: RepositoryIdentityRecord
+    ) -> RepositoryIdentity | None:
+        """Return only identity authenticated by the task's PREPARE seal."""
+
+        record.require_current_pins()
+        return record.to_repository_identity()
 
     def assert_repository_reviewed(self) -> None:
         """DEFAULT-DENY scan (§9.6 / Lane D R7). Verification only, never selection."""

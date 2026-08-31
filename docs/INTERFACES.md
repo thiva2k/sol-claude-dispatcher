@@ -422,6 +422,14 @@ max_timeout_seconds, default_max_turns, default_max_resume_count}`;
 worker_tools, reviewer_tools, disallowed_tools, *_path}`;
 `logging.{level, log_file}`.
 
+`claude.reviewer_tools` is not an extensible tool list. Its code-level closed
+allowlist is exactly `Read`, `Glob`, and `Grep`; configuration may select a
+non-empty subset only. Unknown names, wildcard/default bundles, duplicates and
+an empty list are refused at config load. Empty is not a safe narrowing because
+it would omit `--tools` and restore the Claude CLI's default tool bundle. The
+runner repeats the same check before argv construction so assignment or direct
+`WorkerInvocation` construction cannot bypass it.
+
 Config already fails closed on: missing file, bad TOML, non-UTF-8, missing
 section, unknown key, wrong type, `/` as a root, relative root, nonexistent
 root, non-directory root, the `/CONFIGURE/ME` placeholder, `max_dispatch_depth
@@ -1231,7 +1239,8 @@ same evidence pipeline → increment `resume_count`. On the cap, return
 `{"status": "requires_orchestrator_decision", "reason": "resume_limit_reached"}`.
 
 **`review_task_with_fable`** — input `{task_id, focus: [...]}` (§7.3). Fresh
-session id, `config.models.fable`, `reviewer_tools` only (Read/Glob/Grep), no
+session id, `config.models.fable`, a non-empty subset of the closed
+`reviewer_tools` allowlist (exactly Read/Glob/Grep), no
 `--worktree`, no `--resume`, cwd = the task's worktree, prompt assembled from
 objective + acceptance criteria + base commit + changed paths + the stored
 diff + worker report + dispatcher validation + focus. Read the diff from

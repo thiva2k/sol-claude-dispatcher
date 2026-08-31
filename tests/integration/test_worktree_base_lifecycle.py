@@ -20,6 +20,11 @@ from pathlib import Path
 import pytest
 
 from sol_claude_dispatcher import server as server_mod
+from sol_claude_dispatcher.evidence.gitadmin import (
+    capture_repository_administration,
+    write_baseline,
+)
+from sol_claude_dispatcher.git import Gate7GitExecutor
 from sol_claude_dispatcher.models import TaskState
 
 GIT_ENV = {
@@ -44,7 +49,7 @@ def _git(repo: Path, *args: str) -> str:
 
 
 @pytest.fixture
-def diverged_repo(seeded_repo: Path) -> dict[str, str]:
+def diverged_repo(seeded_repo: Path, dispatcher) -> dict[str, str]:
     """``seeded_repo`` at commit ``A``, then advanced to ``B`` — the divergence.
 
     ``B`` adds twenty files under ``vendor/`` that the task never allows. This
@@ -61,6 +66,14 @@ def diverged_repo(seeded_repo: Path) -> dict[str, str]:
     _git(seeded_repo, "commit", "-q", "-m", "vendor drop (the divergence)")
     drifted = _git(seeded_repo, "rev-parse", "HEAD")
     assert base != drifted
+    # This fixture intentionally finishes repository construction after the
+    # shared integration config is built. Onboarding must therefore seal the
+    # completed throwaway repository, not its earlier intermediate state.
+    write_baseline(
+        dispatcher.config.state_path,
+        capture_repository_administration(seeded_repo),
+        replace=True,
+    )
     return {"repo": str(seeded_repo), "base": base, "drifted": drifted}
 
 
@@ -116,7 +129,7 @@ async def test_worktree_is_created_at_the_recorded_base_not_at_repo_head(
     assert verdict["actual_head_commit"] == diverged_repo["base"]
 
 
-async def test_base_ref_HEAD_lands_on_local_head_and_nowhere_else(
+async def test_symbolic_HEAD_is_refused_before_repository_execution(
     dispatcher, request_payload, fake_env, diverged_repo, monkeypatch
 ):
     """``base_ref: "HEAD"`` was not a safe default: task ``49231f6e`` used it.
@@ -135,9 +148,9 @@ async def test_base_ref_HEAD_lands_on_local_head_and_nowhere_else(
     request_payload["repository"]["base_ref"] = "HEAD"
     result = await dispatcher.dispatch_claude_task(request_payload)
 
-    assert "error" not in result, result
-    assert _git(Path(result["worktree"]), "rev-parse", "HEAD") == head
-    assert result["dispatcher_observations"]["worktree_head_commit"] == head
+    assert result["error"] == "InvalidTaskEnvelope"
+    assert result["details"]["issues"][0]["location"] == "repository.base_ref"
+    assert dispatcher.store.list_tasks() == []
 
 
 async def test_dispatch_never_asks_claude_to_create_a_worktree(
@@ -196,17 +209,12 @@ async def test_worktree_base_mismatch_refuses_before_any_worker_starts(
     production dispatches.
     """
     request_payload["repository"]["base_ref"] = diverged_repo["base"]
-    real_create = server_mod.create_worktree
+    real_create = Gate7GitExecutor.create_detached_worktree
 
-    def sabotage(repo, *, worktree_name, path, start_commit):
-        return real_create(
-            repo,
-            worktree_name=worktree_name,
-            path=path,
-            start_commit=diverged_repo["drifted"],
-        )
+    def sabotage(self, path, base_commit):
+        return real_create(self, path, diverged_repo["drifted"])
 
-    monkeypatch.setattr(server_mod, "create_worktree", sabotage)
+    monkeypatch.setattr(Gate7GitExecutor, "create_detached_worktree", sabotage)
     result = await dispatcher.dispatch_claude_task(request_payload)
 
     assert result["error"] == "WorktreeBaseMismatch"
@@ -215,25 +223,9 @@ async def test_worktree_base_mismatch_refuses_before_any_worker_starts(
     assert result["retryable"] is False
     assert diverged_repo["drifted"] in result["remediation"]
 
-    task_id = result["details"]["task_id"]
-    record = dispatcher.store.load(task_id)
-    assert record.state is TaskState.FAILED
-    assert record.state is not TaskState.POLICY_VIOLATION
-    assert record.policy_violations == []
-    assert record.state_history[-1]["reason"] == "worktree_base_mismatch"
-
-    # No worker ran: the check is pre-launch on a fresh dispatch.
+    # No task or worker exists: the mismatch is a PREPARE refusal.
     assert worker_invocations() == []
-    assert record.run_count == 0
-
-    # No evidence that would describe a tree that never existed.
-    evidence = _evidence(dispatcher, task_id)
-    assert not (evidence / "diff.patch").exists()
-    assert not (evidence / "changed-paths.json").exists()
-    verdict = json.loads((evidence / "worktree-base.json").read_text())
-    assert verdict["held"] is False
-    assert verdict["expected_base_commit"] == diverged_repo["base"]
-    assert verdict["actual_head_commit"] == diverged_repo["drifted"]
+    assert dispatcher.store.list_tasks() == []
 
 
 async def test_the_recorded_base_is_never_rewritten_to_match_reality(
@@ -241,24 +233,18 @@ async def test_the_recorded_base_is_never_rewritten_to_match_reality(
 ):
     """Sol named a base. A refusal is honest; adopting the observed head is not."""
     request_payload["repository"]["base_ref"] = diverged_repo["base"]
-    real_create = server_mod.create_worktree
+    real_create = Gate7GitExecutor.create_detached_worktree
     monkeypatch.setattr(
-        server_mod,
-        "create_worktree",
-        lambda repo, *, worktree_name, path, start_commit: real_create(
-            repo, worktree_name=worktree_name, path=path,
-            start_commit=diverged_repo["drifted"],
+        Gate7GitExecutor,
+        "create_detached_worktree",
+        lambda self, path, base_commit: real_create(
+            self, path, diverged_repo["drifted"]
         ),
     )
 
     result = await dispatcher.dispatch_claude_task(request_payload)
-    task_id = result["details"]["task_id"]
-
-    envelope = json.loads(
-        (Path(dispatcher.store.task_dir(task_id)) / "envelope.json").read_text()
-    )
-    assert envelope["repository"]["base_commit"] == diverged_repo["base"]
-    assert envelope["repository"]["base_commit"] != diverged_repo["drifted"]
+    assert result["details"]["expected_base_commit"] == diverged_repo["base"]
+    assert request_payload["repository"]["base_ref"] == diverged_repo["base"]
 
 
 async def test_head_moved_during_the_run_is_refused_before_evidence(
@@ -327,6 +313,11 @@ async def test_false_negative_is_refused_before_it_can_hide_a_change(
     _git(seeded_repo, "add", "-A")
     _git(seeded_repo, "commit", "-q", "-m", "forbidden file drifted")
     drifted = _git(seeded_repo, "rev-parse", "HEAD")
+    write_baseline(
+        dispatcher.config.state_path,
+        capture_repository_administration(seeded_repo),
+        replace=True,
+    )
 
     request_payload["repository"]["base_ref"] = base
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "scope-violation")
@@ -344,23 +335,7 @@ async def test_false_negative_is_refused_before_it_can_hide_a_change(
     assert refused["error"] == "WorktreeBaseMismatch"
     refused_id = refused["details"]["task_id"]
     assert dispatcher.store.load(refused_id).policy_violations == []
-
-    # Now disable the invariant and watch the forbidden change vanish. This is
-    # what the refusal above is protecting against, stated as an executable
-    # fact rather than a warning in a document.
-    monkeypatch.setattr(
-        server_mod, "assert_worktree_base", lambda path, **kwargs: kwargs["expected_base_commit"]
-    )
-    blind = await dispatcher.dispatch_claude_task(request_payload)
-
-    assert "error" not in blind, blind
-    observations = blind["dispatcher_observations"]
-    assert observations["scope_valid"] is True
-    assert observations["forbidden_paths_touched"] == []
-    assert ".github/deploy.yml" not in observations["changed_paths"]
-    assert blind["status"] != TaskState.POLICY_VIOLATION.value
-    # The file on disk really was rewritten to the forbidden content.
-    assert (Path(blind["worktree"]) / ".github" / "deploy.yml").read_text() == base_content
+    assert refused["details"]["actual_head_commit"] == drifted
 
 
 async def test_out_of_scope_change_is_still_a_policy_violation(
@@ -526,9 +501,12 @@ async def test_resume_into_a_drifted_worktree_is_refused_before_launch(
     assert after.resume_count == before.resume_count
     # Refused before any transition: a resume that never happened must not
     # rewrite the state the previous run legitimately landed in. The refusal is
-    # recorded as the task's last error instead.
+    # recorded in the append-only PREPARE refusal journal instead.
     assert after.state is before.state
-    assert after.last_error["error"] == "WorktreeBaseMismatch"
+    assert after.last_error == before.last_error
+    refusal = dispatcher.store.load_refusals(task_id=task_id)[-1]
+    assert refusal["code"] == "WorktreeBaseMismatch"
+    assert refusal["phase"] == "PREPARE"
 
 
 async def test_resume_does_not_adopt_or_normalise_the_worktree_base(

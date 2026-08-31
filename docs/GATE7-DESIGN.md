@@ -2,8 +2,9 @@
 
 **Lifecycle, evidence and recovery integrity.**
 
-Status: **DESIGN — REVISION 9. NOT APPROVED FOR IMPLEMENTATION.**
-**REVISION 9 IS NOT SELF-APPROVED AND REQUIRES AN INDEPENDENT GATE 7 REVIEW.**
+Status: **REVISION 10 IMPLEMENTATION IN PROGRESS — OWNER-AUTHORIZED SEQUENCING
+OVERRIDE. NOT REVIEWED, MERGED, OR DEPLOYABLE.**
+**THE EXACT IMPLEMENTATION TIP REQUIRES A NINTH INDEPENDENT GATE 7 REVIEW.**
 
 Revision 1 (`d098d4b`) was independently reviewed (Lane W) → *APPROVED WITH
 REQUIRED CHANGES*, six blocking findings. Revision 2 (`619b63e`) applied Sol's
@@ -36,12 +37,25 @@ execution surface.** Revision 5 integrates it.
 > from reasoning. Nothing in this document should be read as asserting that the
 > enumeration is complete.
 
-> **NO SOURCE CODE MAY BE WRITTEN until an EIGHTH independent review returns
-> ZERO blocking findings and WAVE 0 APPROVED TO IMPLEMENT: YES.** That is
-> directive T, its mandate is **§21**, and it is not discretionary. **Wave 0 has
-> NOT begun, is NOT approved, and this revision does not claim its approval.**
-> **Revision 9 repairs three blockers; repairing blockers is not approval, and a
-> revision may not approve itself.** The production freeze remains absolute.
+> ### OWNER SEQUENCING OVERRIDE — 2026-08-29
+>
+> The repository owner explicitly authorizes Wave 0 implementation before the
+> ninth independent review, to end the architecture-only revision loop. This
+> changes **sequence only**: implementation may now be written on the dedicated
+> `gate7-wave0` review branch. It does not approve the design or implementation,
+> does not permit self-review, and does not authorize merge or deployment.
+> After implementation and validation, a fresh independent reviewer must attack
+> the **exact implementation tip** under §21. Every blocking finding must be
+> repaired and re-reviewed before merge or deployment. The production freeze
+> remains absolute.
+
+> ### OWNER RULING — DELETE G10 — 2026-08-29
+>
+> The owner adopts T-20's cleaner alternative. The raw layout resolver is the
+> only production resolver; an undecidable layout refuses before establishment.
+> The diagnostic `rev-parse --absolute-git-dir` / `--git-common-dir` fallback is
+> deleted from the declared order and has no production call site. Historical
+> probe rows below remain measurements, not permission to restore G10.
 
 Revision 5 (`d197bf08`, pushed and verified as `origin/main`) received a
 **fourth** independent review: **F-1 … F-7**. Sol accepted it and issued
@@ -168,6 +182,27 @@ not use; and a claim resting on a probe whose own printed control said it proved
 nothing. **Each repair is backed by a probe committed in the same commit, with
 its output preserved and its positive control printed.**
 
+Revision 9 (`36f0f00`, pushed and verified as `origin/main`) received an
+**eighth** independent review: **REJECTED**, four blocking findings
+**F8-1 … F8-4**. The regular-file digest and the `objects/pack/**` correction
+were sound, and the repaired PATH probe fired independently on git 2.51.1, but
+the adopted loose-object relation still could not be implemented safely:
+
+1. a baseline symlink compared `None == None` and hid a same-length target
+   change;
+2. a regular file with an object-shaped pathname was admitted without proving
+   that its canonical Git-object digest matched that pathname, and such a file
+   changed G9 from `?oid` to present under the full pin block;
+3. an ordinary commit created new two-hex fan-out directories that clause 4
+   classified as divergences; and
+4. T-41 still asked an implementer to choose the repository object-format
+   policy.
+
+**Revision 10 repairs those four findings only.** Its source-controlled probe is
+`commissioning/gate7-v10-probes/exp_object_admission.py` with the complete output
+beside it. All four controls fire. No `src/**` or `tests/**` file changes in this
+revision, and Wave 0 remains unstarted and unapproved.
+
 > ### WHAT THE SIXTH REVIEW VERIFIED, AND WHAT REVISION 8 THEREFORE DOES NOT TOUCH
 >
 > Post-worker **`{}`** on the dispatch path — **VERIFIED, by two mechanisms that
@@ -197,6 +232,29 @@ its output preserved and its positive control printed.**
 > in this revision, and superseded prose is removed rather than preserved beside
 > its replacement.**
 
+### What revision 10 changes — FOUR BLOCKERS, AND NOTHING ELSE
+
+Revision 10 changes the object-store admission predicate and its evidence. It
+does not change the post-worker command set, the Fable order, validation
+classification, sealed identity, base snapshot, `worker_delta`, PIN block or
+worker policy.
+
+| Blocker | Repair | Closing evidence / test |
+|---|---|---|
+| **F8-1 — a non-regular `ObjectEntry` could compare `None == None`** | `ObjectEntry` is now a **regular-file record**, not a four-way tagged union. The loose-object walker uses `lstat` on every fan-out and child but emits entries only for regular files. A symlink or `other` entry at onboarding or capture is `RepositoryObjectStoreEntryUnsupported`; it is never eligible for equality. Loose fan-out directories are structural containers and are not equality operands | `test_same_length_loose_symlink_target_change_refuses` arms the old tuple with a length-changing target first, then changes `aa → bb` and requires refusal. Probe §C prints the old tuple remaining `('symlink', 2, None)` while the target changes |
+| **F8-2 — pathname shape did not prove content addressability** | A new loose file is allowed only after `validate_loose_object_sha1` streams the zlib member, parses `<type> <size>\0`, enforces the declared size and aggregate budget, hashes the canonical bytes with SHA-1, and requires the resulting oid to equal the two-hex/38-hex pathname. Inflate failure, malformed header, trailing compressed data, budget exhaustion, size mismatch or oid mismatch is `RepositoryObjectStoreMalformed`, before G1 and therefore before G9 | `test_corrupt_bytes_at_valid_loose_path_refuse_before_g9`; its control removes a real blob and observes pinned G9 print `?oid`, then plants corrupt bytes at the exact path and observes the old design make G9 print `oid path`. The repaired gate must refuse without spawning G9. Probe §A reproduces the change under all six child variables and the full pin block |
+| **F8-3 — fan-out directories were swept into exact equality** | Loose fan-out directories are **structural, lstat-validated containers**, excluded from `ObjectEntry` equality. A real directory named exactly two lowercase hex may appear or disappear; every child is still independently classified. Symlinked fan-outs, nested directories, non-regular children and malformed filenames refuse. Pack/info directory structure remains exact equality | `test_new_fanout_directory_with_valid_object_is_permitted` and `test_empty_or_malformed_fanout_has_no_authority_effect`. The second-dispatch killer asserts both new directories and new validated objects are non-empty. Probe §B measures one ordinary commit creating three new directories and three corresponding loose files |
+| **F8-4 — T-41 left SHA-256 policy unresolved** | **SOL RULING: option (ii). Wave 0 supports SHA-1 repositories only.** `trust-repo-admin.py` parses the already-open raw common config before writing any baseline. `extensions.objectFormat = sha256` or any non-`sha1` value refuses as `UnsupportedObjectFormat`; absent or explicit `sha1` proceeds. No new Git command is added to any order. SHA-256 support is deferred beyond Wave 0 | `test_sha256_repository_refuses_at_onboarding_before_baseline_or_git`; `test_sha1_absent_or_explicit_object_format_proceeds`. Probe §D builds a real SHA-256 repository, records the 62-hex tail and proves the raw config contains `objectformat = sha256` |
+
+**Two report controls are corrected in the same revision.** The Revision 9
+boundary was two commits and nineteen files, not the four files in its final
+commit; revision reports now use `git diff --name-only <reviewed-base>..HEAD`.
+Validation of committed content uses
+`git diff --check <reviewed-base>..HEAD`, never bare `git diff --check` on a
+clean worktree. The two trailing spaces that made the Revision 9 boundary fail
+that command are removed. Neither correction is credited as an architecture
+repair.
+
 ### What revision 9 changes — THREE BLOCKERS, AND NOTHING ELSE
 
 **Revision 9 is a surgical repair of the seventh review's three blocking
@@ -218,8 +276,10 @@ rested on a probe whose own printed control said it proved nothing.
 | **F7-2** — append-only covered all of `objects/pack/`, which holds `multi-pack-index`, `*.promisor`, `*.keep`, `*.bitmap`, `*.rev`, `*.mtimes`; and the spec put the multi-pack-index under `objects/info/` | **append-only is narrowed to regular files matching exactly `^objects/[0-9a-f]{2}/[0-9a-f]{38}$`.** **ALL of `objects/pack/**` becomes exact bidirectional equality.** Clause 4 refuses every other new path, **including a symlink whose name matches the shape perfectly**. **`multi-pack-index` is reclassified at its real location** | **ZI-86** (rewritten), §5.8.2, the class table, the comparison algorithm, §16, A.2S | **MEASURED, control fired, BOTH creation routes:** `git multi-pack-index write` → **`objects/pack/multi-pack-index`**; `git repack -a -d --write-midx` → the same; **`objects/info/` receives nothing.** A capture watching `objects/info/` would never have seen the file. **`.keep`, `.promisor` and `.mtimes` were created by PLAIN FILE WRITES with no git process** |
 | **F7-3** — `exp8_path.py`'s positive control is dead (`PATH=<shimdir>` alone, and the shim calls external `touch`/`cat`), yet revision 8 claimed a corrected run that was never committed | **the revision-8 claim is DELETED, and Lane Z18's repaired experiment REPLACES it with a measurement in which BOTH LEGS FIRE.** **Its two boundary legs NARROW the claim rather than confirming it** — see the box below. **The four propositions that never depended on the broken probe are preserved and each is now measured:** the allowlist closes **inherited environment variables**; it does **not** close **displaced argv `git -c`**; **ZI-71 remains required**; **T-40 requires absolute git executable resolution** | §5.4.3A, A.2T, **A.2V**, §16, §18.3D, §2 | **Lane V reproduced the DEAD control verbatim** (`commissioning/gate7-v9-probes/exp8_path_rerun.out`), then **Lane Z18 repaired it** (`2d35172`): leg A `filter_EXECUTED=True`, leg C `False`, **and legs D and E both `True`** |
 
-> **Revision 9 adds three escalations that did not exist before its measurements
-> were run.** **T-41 — A CHOICE FOR SOL, NOT A NOTE:** Lane Z18 built a real
+> **Historical revision-9 state, retained so the eighth review remains
+> auditable; revision 10 supersedes only its T-41 question with the ruling in
+> §5.8.3.** Revision 9 added three escalations that did not exist before its
+> measurements were run. **T-41 — THEN A CHOICE FOR SOL, NOT A NOTE:** Lane Z18 built a real
 > `--object-format=sha256` repository and measured a **62-character** loose tail,
 > so **the specified regex refuses EVERY loose object in such a repository, on
 > the first dispatch.** Sol must choose between admitting both digest lengths and
@@ -240,7 +300,7 @@ rested on a probe whose own printed control said it proved nothing.
 > config naming the smudge program by an ABSOLUTE PATH still executed it.**
 > **Dropping `PATH` closes BARE-NAME RESOLUTION; it does NOT close the filter
 > surface.** T-40's justification is written in exactly those terms throughout
-> this revision. ***"The allowlist closes filter drivers" is measured FALSE.***
+> revisions 9 and 10. ***"The allowlist closes filter drivers" is measured FALSE.***
 >
 > **Leg E — with the allowlist in force, no `PATH`, and a CLEAN repository
 > config, one displaced `-c` before the pin block executed an attacker-named
@@ -1119,8 +1179,8 @@ undeclared exception is how the review path came to run six.
               └───────────────────────┬───────────────────────────────────┘
                                       │ establishment marker written
   PREPARE     ┌───────────────────────▼───────────────────────────────────┐
-              │ G1…G10  the SEVEN enumerated git commands (§5.4.3;        │
-              │         G5, G6 and G7 are deleted in revision 7)          │
+              │ G1 G2 G3 G4 G8 G9 — SIX enumerated git commands (§5.4.3;  │
+              │         G5, G6, G7 and G10 are deleted)                   │
               │ then    SEAL: base identity + EXACT CONTENT BYTES + the   │
               │         HEAD chain + the manifest, written LAST (§5.5.2A) │
               └───────────────────────┬───────────────────────────────────┘
@@ -1298,7 +1358,7 @@ discovered later**).
 ZI-51 is **a closure for a class of question, and it is exact about which class**.
 It says nothing about anything else. In particular it does **not** close:
 
-- **the PREPARE window.** **SEVEN** enumerated git commands run there on the
+- **the PREPARE window.** **SIX** enumerated git commands run there on the
   dispatch path and **ONE** on resume (§5.4.3 — G5, G6 and G7 are deleted), gated
   by §5.8's raw establishment, pinned by **FOUR** argv/env pins, and run in an
   **allowlist-constructed child environment** (ZI-85). That window is
@@ -1554,6 +1614,8 @@ what the class never could:
 | `ApprovedSkillChanged`, `SkillPolicyViolation`, `ProjectGuidance*` | skills/guidance | PREPARE only |
 | `RepositoryBusy` (retryable), `RepositoryRecoveryRequired`, `RepositoryRecoveryInProgress` | locks | PREPARE only |
 | `RepositoryAdministrationUnestablished` / `Unreconciled` | gitadmin | PREPARE only |
+| `RepositoryObjectStoreMalformed` / `RepositoryObjectStoreEntryUnsupported` | gitadmin | onboarding, PREPARE or FINALIZE; FINALIZE is an authority-tamper marker, never a clean capture |
+| `UnsupportedObjectFormat` | trust-repo-admin | onboarding only; no task or baseline written |
 | `EvidenceIncompleteForReview`, `EvidenceExceedsReviewBudget` | review path | PREPARE only |
 | `ResumeNotPermittedFromState` **NEW** | resume path | PREPARE only |
 | **`ContextTooLarge`** | `runner.py:811` **and** `runner.py:1465` | **PREPARE and LAUNCH** |
@@ -2875,7 +2937,7 @@ this verdict is correct."*
 | any attribute-selected transform | textconv, external diff, clean/smudge/process, `ident`, `working-tree-encoding` | — |
 | any command that refreshes or writes **the worktree's** index | — | the refresh **is** the trigger. `read-tree` into an external `GIT_INDEX_FILE` is **not** this — see §5.4.3 (N-2). |
 
-#### 5.4.3 The repertoire — SEVEN PREPARE rows on dispatch, ONE on resume, and `{}` on the Fable path
+#### 5.4.3 The repertoire — SIX PREPARE rows on dispatch, ONE on resume, and `{}` on the Fable path
 
 > **The post-worker set is EMPTY, and so is the whole Fable path** (§2A). The
 > table below is therefore the **dispatch PREPARE** repertoire and nothing else.
@@ -2899,7 +2961,7 @@ and the deletions are the substance of Sol §1, §3 and §7:**
 | ~~G7~~ | ~~`config --get remote.origin.url`~~ | — | **DELETED pending T-26** — read from the raw config bytes R6 already captured | — |
 | G8 | `cat-file --batch` fed **object ids** | primary | **Route B sealing** (§5.5.2A) | `cas/` |
 | G9 | `rev-list --objects --missing=print HEAD` | primary | **the promisor verifier** (§5.5.2B) | `repo-authority.json` |
-| G10 | `rev-parse --absolute-git-dir` / `--git-common-dir` | primary | §5.8.2A **fallback only**, and **never on the authorization path** (§5.8.2B) | `repo_authority.resolver` |
+| ~~G10~~ | ~~`rev-parse --absolute-git-dir` / `--git-common-dir`~~ | — | **DELETED by the Revision 10 owner ruling.** Raw layout is the only resolver; undecidable layout refuses before Git establishment. | — |
 
 **THREE ROWS ARE DELETED FROM THE PERMITTED SET, and deletion is the disposition
 rather than measurement:**
@@ -2927,7 +2989,7 @@ object):
 |---|---|---|---|---|---|---|
 | `rev-parse --verify <ref>^{commit}` | **PREPARE ONLY** (G1, G5) | clean | clean | clean | **clean** | clean on all four |
 | ~~`rev-parse --show-toplevel`~~ | — | clean | clean | clean | **NOT IN A.2B** | **DELETED (Sol §7).** Its S-δ column in revision 5 **came from nowhere** — F-7 |
-| `rev-parse --absolute-git-dir` / `--git-common-dir` | PREPARE (G10, fallback) | clean | clean | clean | **clean** | **retires `REQUIRES-PROBE`** |
+| ~~`rev-parse --absolute-git-dir` / `--git-common-dir`~~ | — | clean | clean | clean | **clean** | **HISTORICAL MEASUREMENT; G10 DELETED** |
 | ~~`rev-list --max-parents=0 HEAD`~~ | — | clean | clean | clean | clean | **DELETED — and its four-surface row was never the question.** **MEASURED to return an attacker-chosen decoy at `rc=0` on S-ζ**, the sixth mechanism, which is not an execution surface and which no column of this table describes |
 | ~~`config --get remote.origin.url`~~ | — | clean | clean | clean | **clean** | **DELETED pending T-26** |
 | `worktree list --porcelain` | PREPARE | clean | clean | clean | **clean** | **retires `REQUIRES-PROBE`** |
@@ -3785,7 +3847,7 @@ child.**
 | ~~**G7**~~ | ~~identity: origin~~ | **DELETED — pending T-26** | — | — | — | — | `remote.origin.url` is read from the **raw `$GIT_COMMON_DIR/config` bytes R6 already captured**, with §5.8.2's own minimal INI reader. **Asking git what the config says, of a repository whose config the capture decided to trust moments earlier, is the exact shape §5.8.2's rule forbids** |
 | **G8** | **Route B sealing** (§5.5.2A) | `git PIN_BLOCK cat-file --batch` fed object ids on stdin, **writer on its own thread** | 1,2,3,4 | PREPARE | primary | `test_absent_base_object_executes_nothing`, whose **step (b)** runs it **without PIN 1** and asserts the program **FIRED at `rc=0`** | as G1. **Permitted ONLY under PIN 1** — it is S-δ's silent `rc=0` vector. MEASURED byte-identical under a forged commit-graph |
 | **G9** | **the promisor verifier** (§5.5.2B) | `git PIN_BLOCK rev-list --objects --missing=print HEAD` | 1,2,3,**4 — LOAD-BEARING** | PREPARE | primary | `test_g9_output_changes_under_a_forged_graph_without_pin4` — the unpinned and pinned runs over the forged fixture **must differ**, asserted as a non-empty symmetric difference **before** anything is asserted about production | as G1 — **and additionally PIN 4, which for this row is a DEFENCE rather than defence-in-depth.** It is the only command that **reports** absence instead of dying of it |
-| **G10** | §5.8.2A **fallback only**, never on the authorization path | `git PIN_BLOCK rev-parse --absolute-git-dir` / `--git-common-dir` | 1,2,3,4 | PREPARE | primary | `test_gitdir_resolver_matches_rev_parse_on_every_layout`, whose control is a **deliberately broken parser that must report DISAGREE** | as G1. **Its identity consumer is deleted** (§5.5.2D types `layout_resolver: Literal["raw"]`), so it survives only as the administrative capture's diagnostic fallback. **Its remaining justification is weaker than revision 6's — T-20 is narrowed, not resolved** |
+| ~~**G10**~~ | ~~diagnostic layout fallback~~ | **DELETED** | — | — | — | the historical resolver comparison remains test-only | **T-20 resolved by deletion. No production consumer and no declared row remain.** |
 
 ```
 ── SEAL the §5.5.2C worktree authority (raw) ───────────────────────────────────
@@ -4081,6 +4143,15 @@ child.**
 ---
 
 #### ORDER 4 — ONBOARDING (declared so that it is not an undeclared exception)
+
+**RAW PRECONDITION — not a Git row.** Before `trust-repo-admin.py` can write the
+administrative baseline, its existing raw common-config parser reads
+`extensions.objectFormat`. Absent or explicit `sha1` proceeds; `sha256` or an
+unknown value raises `UnsupportedObjectFormat`. It then canonically validates
+every loose object. This happens before O1 and creates no journal row because no
+process is spawned. `test_sha256_repository_refuses_at_onboarding_before_baseline_or_git`
+asserts both the absent baseline and an empty Git-spawn window under a live
+control.
 
 **N6-7: revision 7 printed this order with six of the eight columns the
 preamble requires. The two missing ones are supplied here rather than left in
@@ -5793,10 +5864,9 @@ its own answer.**
 
 **`layout_resolver: Literal["raw"]` makes the §5.8.2A fallback unrepresentable on
 this record.** A layout the raw resolver cannot decide is
-`RepositoryLayoutUnreadable` — a **PREPARE refusal at row 0.** **Consequence: row
-G10 loses its identity consumer** and survives only as the administrative
-capture's diagnostic fallback, so **T-20 is narrowed, not resolved**, and Sol may
-wish to delete G10 outright.
+`RepositoryLayoutUnreadable` — a **PREPARE refusal at row 0.** **Consequence:
+G10 is deleted outright**; no diagnostic production fallback survives and
+**T-20 is resolved**.
 
 **`pins_applied` is load-bearing and is not decoration.** S-ζ shows `root_commit`
 is forgeable through cached parentage. **Sealing it does not make it true; it
@@ -7235,8 +7305,8 @@ under a `subprocess.Popen` audit hook.
 | **`info/grafts`** | `$GIT_COMMON_DIR/info/grafts` | raw bytes + sha256. **NEW — MEASURED live on 2.43.0, forges the root commit** |
 | **`packed-refs`** | `$GIT_COMMON_DIR/packed-refs` | full bytes + hash. **NEW** — a worker `pack-refs --all` moves the chain without moving a value |
 | **`refs/` listing** | `$GIT_COMMON_DIR/refs/**` and `<gitdir>/refs/**` | names + per-file sha256. **NEW** |
-| **object entries — loose** | every entry under `$GIT_COMMON_DIR/objects/` that is **not** under `objects/pack/` or `objects/info/` | **an `ObjectEntry` PER ENTRY: `relative_path` · `entry_type` · `size` · `sha256_digest`** (§5.8.2C). **REVISION 9: revision 8 recorded sorted names + sizes, and ZI-86 requires byte-identity by DIGEST. MEASURED, control fired: a one-bit flip in a loose object leaves `size` 117 → 117 and the name set identical while the sha256 changes — a name+size capture is PROVABLY BLIND to it** (F7-1, Appendix A.2U). Still **what makes a deleted base blob DETECTABLE rather than INFERRED** (§5.12) |
-| **object entries — pack and its sidecars** | every entry under `$GIT_COMMON_DIR/objects/pack/`, whatever its extension | **the same `ObjectEntry` per entry.** `.pack`, `.idx`, `.rev`, `.bitmap`, `.keep`, `.promisor`, `.mtimes`, **`multi-pack-index`**, and anything unrecognised. **MEASURED: `.keep`, `.promisor` and `.mtimes` are created by PLAIN FILE WRITES with no git process at all** (F7-2, Appendix A.2U) |
+| **object entries — loose** | every child under a real, non-symlink two-lowercase-hex fan-out directory in `$GIT_COMMON_DIR/objects/`, excluding `pack/` and `info/` | **one regular-file `ObjectEntry`: `relative_path` · `entry_type=Literal["regular"]` · `size` · `sha256_digest`.** `lstat` classifies the fan-out and child first. Fan-out directories are structural containers, not equality operands; symlinked fan-outs, nested directories, symlink children and `other` children refuse as `RepositoryObjectStoreEntryUnsupported`. Existing files remain byte-identical by SHA-256; every new file must additionally pass the canonical SHA-1 object validator (§5.8.2C). This is what makes a deleted base blob DETECTABLE rather than INFERRED without treating directory metadata as object authority |
+| **object entries — pack and its sidecars** | every entry under `$GIT_COMMON_DIR/objects/pack/`, whatever its extension | **the same regular-file `ObjectEntry` per file, plus an exact structural listing.** `.pack`, `.idx`, `.rev`, `.bitmap`, `.keep`, `.promisor`, `.mtimes`, **`multi-pack-index`**, and anything unrecognised. A new path, nested directory, symlink or `other` entry refuses. **MEASURED: `.keep`, `.promisor` and `.mtimes` are created by PLAIN FILE WRITES with no git process at all** (F7-2, Appendix A.2U) |
 | `shallow` | `$GIT_COMMON_DIR/shallow`, `<gitdir>/shallow` | raw bytes + sha256 |
 | **cached parentage, single-file** | `$GIT_COMMON_DIR/objects/info/commit-graph` **and each gitdir's** | **raw-bytes sha256** + `st_size` + `st_mode`. **`MEASURED — FIRES`** |
 | **cached parentage, split chain** | `objects/info/commit-graphs/commit-graph-chain` **and EVERY `objects/info/commit-graphs/graph-*.graph`** | **the sorted listing AND a sha256 PER FILE.** **`MEASURED — FIRES`** |
@@ -7498,10 +7568,9 @@ appear later.
 > path.** At R3/R4 an undecidable layout is `RepositoryLayoutUnreadable`, a
 > refusal **before any git process** — otherwise §5.8.2B is defeated by its own
 > escape hatch on exactly the inputs an attacker would construct. Post-worker it
-> is deleted outright (§5.5.2C). **It survives only for the capture of an
-> already-authorized, already-established repository, at row G10.** *(This is a
-> conflict with §5.8.2A as revision 5 wrote it, resolved in §5.8.2B's favour for
-> the authorization step; escalated as **T-20**.)*
+> is deleted outright (§5.5.2C). **The Revision 10 owner ruling deletes the
+> fallback from PREPARE too.** The old conflict is therefore resolved in
+> §5.8.2B's favour everywhere, and **T-20 is closed**.
 >
 > **The test-oracle carve-out, stated so an implementer does not "fix" it
 > wrongly:** `test_gitdir_resolver_matches_rev_parse_on_every_layout` compares the
@@ -7706,57 +7775,85 @@ git cat-file -p <oid>       : rc=128  error: inflate: data stream error
 > before and after that mutation.** The gate's `!=` returns `False`. **The
 > repository is corrupt and the gate says reconciled.**
 
-##### The record
+##### The record — regular files only
 
-Every protected object path — loose, packed, and every pack sidecar — is
-captured as **one `ObjectEntry`**, and **no comparison anywhere in this design
-may read fewer than all four fields**:
+**Revision 10 removes non-regular entries from the value domain rather than
+giving them a digest of `None`.** Every protected regular object path — loose,
+packed, and every pack sidecar — is captured as one `ObjectEntry`, and no
+comparison may read fewer than all four fields. Construction fails before an
+`ObjectEntry` exists if `lstat` does not report a regular file:
 
 | Field | Type | How it is obtained | Why it is load-bearing |
 |---|---|---|---|
 | `relative_path` | `str`, POSIX separators, relative to `$GIT_COMMON_DIR/objects/` | directory walk | identity of the entry; **removal and addition are both differences of the path SET** |
-| `entry_type` | `Literal["regular", "directory", "symlink", "other"]` | **`lstat`, never `stat`** | **a symlink that resolves to the right bytes is NOT the same entry as a regular file with those bytes.** This is ZI-80's `lstat`-first rule applied to the object store |
+| `entry_type` | `Literal["regular"]` | **`lstat`, never `stat`**, checked before construction | makes a non-regular record unconstructable rather than comparable through `None == None` |
 | `size` | `int` (`st_size`) | `lstat` | **kept, and it is NOT the mechanism.** It is a cheap first-difference and an operator-legible number. **Clause 2 does not pass on size** |
-| `sha256_digest` | `str`, 64 lowercase hex, or `None` **only** when `entry_type != "regular"` | `hashlib.sha256` over `open(path,"rb").read()` | **THE MECHANISM.** It is the only field that detects a size-preserving alteration |
+| `sha256_digest` | `str`, exactly 64 lowercase hex; **never `None`** | streaming `hashlib.sha256` over `open(path,"rb")` | **THE BASELINE-EQUALITY MECHANISM.** It detects a size-preserving alteration; canonical object validation is a separate admission predicate for new loose files |
 
-**Digest of the FILE BYTES, not of the object.** The dispatcher does **not**
-inflate the zlib stream, does not parse a loose-object header, and does not ask
-git for the oid. **It hashes the file exactly as it lies on disk.** *(That is why
-a corrupt object is still capturable: the probe's mutated object is unreadable by
-`git cat-file` at `rc=128` and its `ObjectEntry` is produced without difficulty.
-A capture that had to inflate would fail on precisely the file it most needs to
-record.)*
+**The equality digest is of the FILE BYTES, not of the object.** Its producer
+does not inflate or parse; it hashes the file exactly as it lies on disk. The
+separate admission validator below does bounded canonical decoding for every
+onboarding loose file and every later append. A corrupt file can therefore be
+captured for diagnosis and compared to an existing baseline entry, but it can
+never enter a new baseline or qualify as an allowed append.
 
-##### Directories and non-regular entries — FAIL-CLOSED, stated explicitly
+##### Structural directories and non-regular entries — fail closed without `None == None`
 
-**F7-1 requires directory and symlink handling to be stated rather than left to
-an implementer.** It is:
+1. The loose-object walker performs `lstat` on each direct child of
+   `objects/`. `info` and `pack` route to their exact-equality captures. Any
+   other name must be exactly two lowercase hex and its entry must be a real
+   directory. A symlinked fan-out, file in place of a fan-out, or `other` entry
+   refuses as `RepositoryObjectStoreEntryUnsupported`.
+2. A valid fan-out directory is a **structural container**, not an
+   `ObjectEntry`. Its `st_size`, inode, mtime, appearance and disappearance are
+   not authority predicates. This is required for append-only growth: an
+   ordinary commit may create a new two-hex directory, and adding a child may
+   change directory metadata. Every child remains independently classified.
+3. A direct fan-out child must be a regular file with a 38-lowercase-hex name.
+   A nested directory, symlink, FIFO, socket, device or malformed name refuses
+   at onboarding and at every capture. **No non-regular object-store entry can
+   enter a baseline**, so there is no state in which two `None` digests compare
+   equal. The same rule applies to entries under `objects/pack/**`, whose
+   structural listing remains exact bidirectional equality.
+4. A read error is never a missing entry. `PermissionError`, `OSError`, a file
+   that disappears mid-walk, or a digest that cannot be computed sets
+   `capture_incomplete = True`; that is a divergence, never absence.
+5. The operator report may record an unsupported entry's `lstat` class and
+   `readlink` bytes for diagnosis, but those diagnostic fields are never an
+   equality operand and never make the entry admissible.
 
-1. **Directory entries are RECORDED, never followed as content.** A directory
-   gets `entry_type="directory"`, `sha256_digest=None`, and `size` as reported by
-   `lstat`. The walk **descends** into it, so its children are recorded as their
-   own entries.
-2. **`entry_type` is obtained by `lstat`, so a symlink is classified as a
-   symlink** and **never resolved**. `sha256_digest` is `None`;
-   **`readlink` raw bytes are recorded in a separate `link_target_bytes`
-   field for the operator.** **The digest is NOT taken through the link** —
-   hashing the target would let a redirected symlink present the right bytes.
-3. **Any entry that is neither regular, directory, nor symlink is
-   `entry_type="other"`** — FIFOs, sockets, device nodes — with
-   `sha256_digest=None`, and it is a **divergence on sight** at any path where
-   the baseline had a regular file, and a **divergence on sight anywhere it is
-   new**, because no legitimate git operation creates one.
-4. **A read error is never a missing entry.** `PermissionError`, `OSError`, a
-   file that disappears mid-walk, or a digest that cannot be computed sets
-   **`capture_incomplete = True`**, which is treated as a **divergence
-   (fail-closed)** by the same rule §5.8.2 already applies to
-   `parse_incomplete`. **"We could not read it" must never compare equal to "it
-   was not there."**
-5. **`entry_type` change at an existing path is a divergence in ITSELF**, before
-   any digest is consulted — a baseline regular file that is now a symlink
-   **refuses even if the link resolves to identical bytes.**
+##### New loose files require canonical-object validation — pathname shape is not enough
 
-> **What this record does NOT establish.** It proves the *file* did not change.
+**Revision 9 called the path shape content-addressed. Revision 10 measures that
+claim false.** With a real blob removed, pinned G9 prints `?oid`; after arbitrary
+corrupt bytes are written at the corresponding two-hex/38-hex path, the same G9
+prints `oid path`. Therefore a shape-only clause changes an authoritative read.
+
+At onboarding it validates **every** regular loose file before a baseline may be
+written. On later R6 captures it validates each current regular loose file
+absent from the baseline. `validate_loose_object_sha1` runs before any git
+process:
+
+```text
+1. lstat file and every parent; require real directory / regular file, no links.
+2. stream exactly one zlib member; require EOF and no unused/trailing data.
+3. parse at most 128 header bytes as <type> SP <canonical-decimal-size> NUL.
+4. type must be blob | tree | commit | tag; no sign, and no leading-zero size
+   form except the canonical literal `0`.
+5. stream exactly declared-size content bytes while hashing header+NUL+content
+   with SHA-1; any short/long expansion, second member or trailing byte refuses.
+6. count expanded bytes against evidence.snapshot_max_regular_bytes; exceeding
+   the existing aggregate bound is SnapshotBudgetExceeded, never partial truth.
+7. require sha1(canonical bytes).hexdigest() == fanout + filename.
+```
+
+Failure of steps 2–5 or 7 is `RepositoryObjectStoreMalformed`: an onboarding
+refusal before any baseline exists, or a non-retryable PREPARE refusal on a
+later capture. This validator does not ask git, execute a filter, materialise
+the full object in memory, or trust the compressed filename. The separate
+`sha256_digest` still hashes the compressed file bytes for future equality.
+
+> **What this record alone does NOT establish.** It proves the *file* did not change.
 > **It does not prove the OBJECT the file encodes is the object git will serve** —
 > `refs/replace/**`, `info/grafts`, alternates and the commit-graph all change
 > what a name resolves to without touching a byte in `objects/`. **That class is
@@ -7804,7 +7901,7 @@ ZI-57 forbids exempting. **§5.5.2C's move to `--detach` removes those two.**)*
 > | Role | Captured | Purpose | Attribution baseline? |
 > |---|---|---|---|
 > | **`PREPARE_ADMIN_GATE`** | **before the first git command of the dispatch** (R6 / P3) | decide whether executing the exact trusted PREPARE repertoire is **allowed** | **NO** |
-> | **`WORKER_START_AUTHORITY`** | **after every dispatcher-owned PREPARE mutation completes** — G1…G10, `worktree add`, the §5.5.2C seal and the §5.5.2A content seal — and **immediately before the Claude spawn** | the **immutable baseline for worker-attributable tampering** | **YES** |
+> | **`WORKER_START_AUTHORITY`** | **after every dispatcher-owned PREPARE mutation completes** — G1, G2, G3, G4, G8, G9, `worktree add`, the §5.5.2C seal and the §5.5.2A content seal — and **immediately before the Claude spawn** | the **immutable baseline for worker-attributable tampering** | **YES** |
 > | **`WORKER_EXIT_AUTHORITY`** | after Claude exits, **before validation** | the worker-side terminal | it is the other operand |
 > | **`VALIDATION_EXIT_AUTHORITY`** | after the last validation command is reaped | validation attribution | — |
 >
@@ -7863,10 +7960,12 @@ current := capture(role="PREPARE_ADMIN_GATE")
 if no baseline exists:
     -> RepositoryAdministrationUnestablished          (PREPARE refusal)
        remediation: an operator runs `scripts/trust-repo-admin.py <repo>`,
-       which records the baseline and PRINTS VERBATIM every exec key it is
-       about to trust. Establishing a baseline is a HUMAN act, once per
-       repository, and it is where a legitimate git-lfs or fsmonitor setup is
-       acknowledged.
+       which first parses `extensions.objectFormat` from the already-open raw
+       common config and refuses anything except absent/`sha1`, then validates
+       every loose object canonically, then records the baseline and PRINTS
+       VERBATIM every exec key it is about to trust. Establishing a baseline is
+       a HUMAN act, once per repository, and it is where a legitimate git-lfs
+       or fsmonitor setup is acknowledged.
 
        The printed set is NOT only the diff/filter keys. It includes
        `remote.*.url`, `url.*.insteadOf`, `extensions.partialClone`,
@@ -7876,6 +7975,11 @@ if no baseline exists:
        human actually reads; §5.8.2 hashes the whole config file.
 if current != baseline:
     -> RepositoryAdministrationUnreconciled           (PREPARE refusal, NOT retryable)
+
+Before this comparison, every current loose file absent from the baseline must
+pass `validate_loose_object_sha1`. A malformed object-shaped path is
+`RepositoryObjectStoreMalformed`, not an allowed append and not a misleading
+reconciliation mismatch.
 ```
 
 **No git command that could execute a repository-supplied program runs before
@@ -7916,7 +8020,7 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 > `worktree remove --force` **and** `worktree prune`, **three loose objects
 > survive**.
 
-> ### INVARIANT ZI-86 — APPEND-ONLY IS SCOPED TO VALID LOOSE OBJECT PATHS AND NOTHING ELSE. EVERY OTHER CLASS, INCLUDING ALL OF `objects/pack/**`, IS EXACT BIDIRECTIONAL EQUALITY.
+> ### INVARIANT ZI-86 — APPEND-ONLY IS SCOPED TO CANONICALLY VALIDATED SHA-1 LOOSE OBJECT FILES AND NOTHING ELSE. EVERY OTHER AUTHORITY CLASS, INCLUDING ALL OF `objects/pack/**`, IS EXACT BIDIRECTIONAL EQUALITY.
 >
 > **REVISION 9 NARROWS THIS INVARIANT. Revision 8 gave append-only treatment to
 > all of `objects/pack/`, and `objects/pack/` is NOT content-addressed storage.**
@@ -7927,8 +8031,8 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 > content-addressed objects get append-only; routing and administrative classes
 > require exact equality — in the same invariant that states it.**
 >
-> `current != baseline` means exactly this, class by class, and **nothing in the
-> gate is decided by a filename prefix or an extension guess**:
+> `current != baseline` means exactly this, class by class. A filename shape is
+> a routing step into the validator, never sufficient evidence of an object:
 >
 > | Capture class | Relation | Keyed on |
 > |---|---|---|
@@ -7938,29 +8042,34 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 > | **ALL of `objects/pack/**`** — **all NINE classes MEASURED — OBSERVED by Lane Z18** (`2d35172`), each with the command that produced it: `*.pack` · `*.idx` · `*.rev` *(**default** on 2.43.0, not opt-in)* · `*.bitmap` · `*.mtimes` *(cruft repack)* · `*.keep` · `*.promisor` · **`multi-pack-index`** · `multi-pack-index-*.bitmap`; **and every unrecognised sidecar** | **EXACT BIDIRECTIONAL EQUALITY of the `ObjectEntry` SET** | nothing; total. **NEW, REVISION 9** |
 > | `packed-refs`, `<common>/refs/**`, `<gitdir>/refs/**`, `shallow` | **EXACT EQUALITY** | nothing; total |
 > | `worktrees/*/` registrations | **EXACT EQUALITY of the set of worktree ids the dispatcher's own `state.json` does NOT account for**, plus exact equality of every file under an unaccounted id | **the dispatcher's own durable task records — PROVENANCE, not naming** |
-> | **loose object paths matching `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` and REGULAR** | **APPEND-ONLY, under the four clauses below** | **the LITERAL PATH SHAPE plus `entry_type == "regular"` — the ONLY append-only class in this design** |
+> | **canonically valid SHA-1 loose object files** | **APPEND-ONLY, under the four clauses below** | exact two-hex/38-hex path + regular file + bounded canonical-object validation whose SHA-1 equals the pathname |
+> | **loose two-hex fan-out directories** | **STRUCTURAL, not equality operands** | `lstat`-validated real directories; every child independently classified. Symlinked, malformed or nested structure refuses |
 > | `<gitdir>/index`, `logs/**` | **REPORT ONLY** (unchanged) | the class |
 >
 > ### APPEND-ONLY, DEFINED SO AN IMPLEMENTER CANNOT GUESS WRONG
 >
-> Write **`L`** for the set of paths matching **exactly**
-> `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` whose `entry_type` is `"regular"`.
-> **`L` is the entire domain of append-only.** `current` reconciles with
+> Write **`L`** for regular files matching exactly
+> `^objects/[0-9a-f]{2}/[0-9a-f]{38}$` that also pass
+> `validate_loose_object_sha1`, including canonical type, declared size,
+> bounded single-member zlib decoding, and digest-to-path equality.
+> **`L` is the entire domain of append-only.** Two-hex directories are
+> containers used to discover `L`; they are not members of either snapshot's
+> `ObjectEntry` set. `current` reconciles with
 > `baseline` **if and only if all four clauses hold**:
 >
-> 1. **Every baseline entry is PRESENT at its path, whatever its class.** A
+> 1. **Every baseline regular-file `ObjectEntry` is PRESENT at its path.** A
 >    baseline `relative_path` absent from `current` is
 >    **`RepositoryAdministrationUnreconciled`, NOT retryable** — for a loose
 >    object, for a pack, for a sidecar, for a routing file. *(This preserves
 >    ZI-60's deleted-base-blob detection.)*
-> 2. **Every entry present in both retains its `entry_type`, its `size` AND its
->    `sha256_digest`.** All three, conjunctively. **A type change refuses before
->    the digest is consulted; a size-preserving byte alteration refuses on the
->    digest.** **No comparison in this design may rely on `relative_path` and
->    `size` alone** — that combination is MEASURED blind (§5.8.2C).
+> 2. **Every regular-file entry present in both retains its literal-regular
+>    `entry_type`, its `size` AND its `sha256_digest`.** All three,
+>    conjunctively. A type change cannot construct the current entry and
+>    refuses before comparison; a size-preserving byte alteration refuses on
+>    the digest. **There is no nullable digest in this relation.**
 > 3. **A path in `current` and absent from `baseline` is ALLOWED AND REPORTED IF
->    AND ONLY IF it is in `L`** — regular file, exactly two lowercase hex, `/`,
->    exactly thirty-eight lowercase hex. It is enumerated in the run's
+>    AND ONLY IF it is in `L`** — regular file, exact SHA-1 path shape, and
+>    canonical-object digest equal to that path. It is enumerated in the run's
 >    administrative record and in the gate report's `new objects` row.
 >    **Allowed is not silent.**
 > 4. **EVERY OTHER NEW PATH IS A DIVERGENCE.** A new file under
@@ -7969,14 +8078,17 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 >    `refs/replace/**` entry, a new `commit-graph` layer, a new `packed-refs`
 >    line — **all refuse.** And **inside `objects/` itself**: a new path whose
 >    fan-out name is not exactly two hex, whose tail is not exactly thirty-eight
->    hex, **or whose `entry_type` is `directory`, `symlink` or `other`, refuses**
->    — including a **symlink whose name matches the shape perfectly.**
+>    hex, whose canonical object is malformed, whose canonical digest disagrees
+>    with its path, **or whose child is a directory, symlink or `other`, refuses**.
+>    A real two-hex fan-out directory itself is structural and is neither an
+>    append nor a divergence; a symlink whose name matches that fan-out shape
+>    refuses before descent.
 >
-> **The append-only relation is scoped to content-addressed loose object storage
+> **The append-only relation is scoped to validated content-addressed loose object storage
 > and nothing else. NO routing or administrative class receives append-only
 > treatment, in either direction.**
 >
-> ### THE REGEX HAS A MEASURED GAP, AND IT IS ESCALATED RATHER THAN PATCHED
+> ### T-41 RULED — WAVE 0 IS SHA-1 ONLY; SHA-256 REFUSES AT ONBOARDING
 >
 > **`[0-9a-f]{38}` is the SHA-1 tail, and Lane Z18 MEASURED what it does to a
 > SHA-256 repository** (`2d35172`, `exp10_loose_object.stdout.txt`) — **it did
@@ -7990,34 +8102,19 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 >   matches objects/[0-9a-f]{2}/[0-9a-f]{38} : False
 > ```
 >
-> **EVERY loose object in a SHA-256 repository falls under clause 4 and the gate
-> REFUSES the repository entirely.** Not one object; all of them; on the first
-> dispatch.
+> **SOL CHOOSES OPTION (ii).** Wave 0 supports SHA-1 object repositories only.
+> `scripts/trust-repo-admin.py` already reads the raw common config before it can
+> write the administrative baseline. Its minimal INI parser now treats absent
+> `extensions.objectFormat` and explicit `sha1` as SHA-1; `sha256` or any other
+> value raises `UnsupportedObjectFormat` before a baseline, task record or git
+> process exists. No dispatch discovers this at R6 and no new command is added to
+> ORDER 1–4.
 >
-> > ### **T-41 — SOL MUST CHOOSE. THIS DOCUMENT DOES NOT SHIP THE REGEX AS WRITTEN WITHOUT SAYING WHICH.**
-> >
-> > **Option (i) — admit both digest lengths:** the shape becomes
-> > `^objects/[0-9a-f]{2}/([0-9a-f]{38}|[0-9a-f]{62})$`, **and the length is then
-> > checked against the repository's own measured object format** rather than
-> > accepted as an alternation, so a 62-hex name in a SHA-1 repository still
-> > refuses. **Cost: the object format becomes a captured, sealed fact that the
-> > comparison depends on** — one more thing to get right, in the gate that must
-> > not run git.
-> > **Option (ii) — declare SHA-256 repositories OUT OF SCOPE for Wave 0 and
-> > REFUSE THEM AT ONBOARDING**, with a named refusal
-> > (`UnsupportedObjectFormat`), **so the operator is told once, at trust-
-> > establishment time, instead of every dispatch failing at R6 with a
-> > reconciliation error that names the wrong problem.**
-> >
-> > **RECOMMENDED: (ii) for Wave 0.** The failure mode of shipping as-written is
-> > **not** a safe refusal — it is a **misleading** one: a SHA-256 repository
-> > would land `RepositoryAdministrationUnreconciled`, which tells the operator
-> > their repository is untrusted when the truth is that this gate does not
-> > support their object format. **A refusal that names the wrong cause is worse
-> > than a refusal, and that is the whole reason this is an escalation and not a
-> > footnote.**
-> >
-> > **Until Sol rules, the regex stands as written and this box stands with it.**
+> The refusal is deliberate scope, not a claim that SHA-256 is unsafe. Supporting
+> it later requires a format-sealed canonical validator and the 62-hex path
+> domain. Until then the operator receives the actual cause once, during
+> onboarding, instead of a false `RepositoryAdministrationUnreconciled` on every
+> dispatch.
 >
 > ### AUTOMATIC RE-BASELINING IS FORBIDDEN
 >
@@ -8125,8 +8222,11 @@ tamper verdict refuses until reconciled, at R6, before running any git command.*
 | **`test_removed_baseline_object_refuses`** — **clause 1's killer** | delete one loose object present in the baseline; the gate must land `RepositoryAdministrationUnreconciled`, **NOT retryable**, row 0 | **NO.** And it is the test that distinguishes append-only from report-only: **under option (a) it is green while the object is gone** |
 | **`test_size_preserving_altered_baseline_object_refuses`** — clause 2's killer, **RENAMED AND RE-SPECIFIED IN REVISION 9** | flip **one bit** in a baseline loose object so that **`st_size` is provably unchanged**, then run the gate; it must land `RepositoryAdministrationUnreconciled`. **The test asserts the size equality FIRST** — `assert before.size == after.size` — **so that it fails loudly if the fixture ever stops being size-preserving** | **NO** for a digest comparison. **YES for a size-only comparison, which is exactly the defect F7-1 found** — and the mandatory size-equality assertion is what makes the digest comparison **provably load-bearing** rather than merely present. **A paired control completes it: with the digest field removed from the comparison the SAME fixture must RECONCILE**, proving the digest is the field that changed the verdict. *(The old name `test_altered_baseline_object_refuses` is RETAINED as a separate row for a length-changing alteration, so the pair covers both shapes.)* |
 | **`test_new_pack_file_is_divergence`**, **`test_new_multi_pack_index_is_divergence`**, **`test_new_promisor_sidecar_is_divergence`** — clause 4's killers for `objects/pack/**` | a new `*.pack`/`*.idx`, a new `objects/pack/multi-pack-index`, a new `*.promisor` beside an untouched pack: **each must refuse** | **NO under revision 9. YES UNDER REVISION 8, where all three were appends** — which is why they are named separately rather than folded into one parameterised row. **`test_new_multi_pack_index_is_divergence` MUST create the file at `objects/pack/multi-pack-index`**; a fixture that writes it under `objects/info/` tests a path git never uses and would pass against a build that ignores the real one |
-| **`test_loose_object_symlink_is_divergence`** · **`test_invalid_loose_object_name_is_divergence`** — clause 4's killers **inside** `objects/` | a **symlink** whose name matches `^[0-9a-f]{2}/[0-9a-f]{38}$` **perfectly and resolves to valid object bytes**; and a regular file at `ab/NOTHEX…`, at a three-character fan-out, and at a 39-hex tail | **NO.** The symlink row is the load-bearing one: **a name-only check passes it**, and it is the shape that turns append-only into arbitrary file placement. **`entry_type` from `lstat` is what refuses it**, and the test asserts the link's target bytes ARE valid so that "it refused because the bytes were wrong" cannot be the reason |
-| **`test_new_valid_loose_object_is_permitted`** — clause 3's only positive | a new regular file at a valid `^[0-9a-f]{2}/[0-9a-f]{38}$` path reconciles **and is REPORTED in the `new objects` row** | **YES if it asserted only "the gate passed"** — closed by asserting the reported set **equals** the planted path exactly. **Without this row the whole invariant could be satisfied by a gate that refuses everything**, which is the trivial way to pass clauses 1, 2 and 4 |
+| **`test_loose_object_symlink_is_divergence`** · **`test_same_length_loose_symlink_target_change_refuses`** · **`test_invalid_loose_object_name_is_divergence`** | a symlinked fan-out; a child symlink whose name has the exact 38-hex shape and resolves to valid bytes; the old nullable tuple armed with a length-changing target and then changed `aa → bb`; malformed fan-out/tail shapes | The same-length row kills F8-1 directly: no accepted record may reach `None == None`. Every symlink refuses before comparison, even if its target is valid |
+| **`test_new_valid_loose_object_is_permitted`** — clause 3's positive | write a real canonical Git object, independently derive its SHA-1, place its compressed bytes at the corresponding path, then reconcile and require the report set to equal that path | **YES if "valid" meant only path-shaped.** Closed by independently parsing the canonical header and comparing the canonical SHA-1 to the path before invoking the production validator |
+| **`test_corrupt_bytes_at_valid_loose_path_refuse_before_g9`** | remove a real referenced blob and arm pinned G9 at `?oid`; plant arbitrary bytes at that exact regular 2/38 path; assert the R6 gate raises `RepositoryObjectStoreMalformed` and the spawn journal contains no G9 | The paired control also runs the old shape-only relation and observes G9 change to `oid path`; without that output change the fixture proves only malformedness, not authority impact |
+| **`test_new_fanout_directory_with_valid_object_is_permitted`** | a normal commit creates at least one new two-hex directory and canonical child; both sets must be non-empty and the second dispatch proceeds | Prevents clause 4 from silently treating the structural directory as authority. The fixture retries bounded commit content until a new prefix appears, and fails if it never arms |
+| **`test_empty_or_malformed_fanout_has_no_authority_effect`** | real empty two-hex directories may appear/disappear report-only; a symlinked fan-out, three-hex fan-out, nested directory or non-regular child refuses | Separates harmless container metadata from traversal redirection; the symlink leg is the live control |
 | **`test_new_routing_file_is_a_divergence_not_an_append`** | a **new** file under `objects/info/`, a **new** `refs/replace/**` entry, a **new** `commit-graph-chain` layer: each must **refuse** | **NO** — and this is the test that stops append-only leaking out of the one class it belongs to. **Parameterised over every non-append-only row, GENERATED from the capture table**, so a new routing class cannot be silently omitted — **and the generator must assert its own row count is non-zero**, or an empty parameterisation is a green test that ran nothing |
 | **`test_divergence_persists_across_dispatches`** *(retained, unchanged)* | no automatic re-baselining | **NO.** **This ruling is constrained from both sides: the relation must make the second dispatch green AND leave this test green**, and clause 3 does so because it stores nothing |
 | **`test_unaccounted_worktree_registration_is_unreconciled`** | the `worktrees/*` provenance rule | **NO.** Plant `worktrees/sol-evil/` with **no task record**; a prefix match would exempt it, **a provenance match does not** |
@@ -9132,6 +9232,8 @@ Every path field in every artefact introduced here is a `PathRepr` object
 | `SnapshotBudgetExceeded` | `DispatcherError` | PREPARE **or** FINALIZE | PREPARE → refusal; FINALIZE → `FAILED`, partial snapshot preserved, `changed_paths` **absent** |
 | `CheckoutTransformationBudgetExceeded` | `DispatcherError` | PREPARE | refusal |
 | `RepositoryAdministrationUnestablished` / `Unreconciled` | `DispatcherError` | PREPARE | refusal; the second **not retryable** |
+| `RepositoryObjectStoreMalformed` / `RepositoryObjectStoreEntryUnsupported` | `DispatcherError` | onboarding / PREPARE / FINALIZE | onboarding or PREPARE → refusal; FINALIZE → row 4 authority tamper attributed to the active execution domain. The offending path and reason are preserved; no Git process is used to classify it |
+| `UnsupportedObjectFormat` | `DispatcherError` | onboarding only | `trust-repo-admin.py` refuses before writing a baseline or running O1; details carry the raw value and supported set `{sha1}` |
 | `GitAdministrativeCaptureFailed` | `DispatcherError` | PREPARE / FINALIZE | PREPARE → refusal; **FINALIZE → the tamper verdict is `unknown`, treated as TAMPER, never as clean** |
 | `RefResolutionFailed` | `DispatcherError` | PREPARE / FINALIZE | FINALIZE → `primary_tree_unchanged = None`, **not clean** |
 | `UnsupportedRefStorage` | `DispatcherError` | PREPARE | refusal, with the measured value |
@@ -11364,6 +11466,7 @@ enumerates three refusals those exact sections produce:
 | Wave-0 refusal | Defined in | Phase | §8 row |
 |---|---|---|---|
 | `RepositoryAdministrationUnestablished` / `Unreconciled` | §5.8.3 (Wave 0) | **PREPARE only** | **row 0** |
+| `RepositoryObjectStoreMalformed` / `RepositoryObjectStoreEntryUnsupported` | §5.8.2C / §5.8.3 (Wave 0) | PREPARE | **row 0** |
 | `SnapshotBudgetExceeded` (PREPARE) | §5.5.3 (Wave 0) | PREPARE | **row 0** |
 | `CheckoutTransformationBudgetExceeded` | §5.5.4 (Wave 0) | PREPARE | **row 0** |
 
@@ -11958,11 +12061,12 @@ GATE 7 .............................. PASS/FAIL
                                       fired <yes/no>; assertions over ROW SETS
   detached worktree ................. HEAD is 40hex+\n <yes/no>; refs/heads/sol-*
                                       absent <yes/no>; B2 comparisons 8/8
-  R6 relation ....................... APPEND-ONLY for VALID LOOSE OBJECT PATHS
-                                      ONLY; EXACT BIDIRECTIONAL for everything
+  R6 relation ....................... APPEND-ONLY for CANONICALLY VALIDATED SHA-1
+                                      LOOSE OBJECT FILES ONLY; EXACT BIDIRECTIONAL for everything
                                       else, INCLUDING ALL objects/pack/**  (ZI-86)
       capture carries 4 fields ....... relative_path, entry_type, size,
-                                       sha256_digest ... must be ALL FOUR.
+                                       sha256_digest; entry_type is Literal[regular]
+                                       and sha256_digest is NEVER None.
                                        ANY comparison reading only name+size is
                                        a FAILED row -- MEASURED blind (F7-1)
       baseline entries present ....... must be ALL      (clause 1)
@@ -11971,13 +12075,16 @@ GATE 7 .............................. PASS/FAIL
       size-preserving alteration ..... must REFUSE, and the test must assert
                                        size equality FIRST, or it proves nothing
       new paths in L (loose, regular,
-        ^[0-9a-f]{2}/[0-9a-f]{38}$) .. <n> ENUMERATED, allowed, REPORTED (clause 3)
+        ^[0-9a-f]{2}/[0-9a-f]{38}$,
+        canonical SHA-1 == pathname) . <n> ENUMERATED, allowed, REPORTED (clause 3)
+      loose fan-out directories ...... STRUCTURAL, lstat-real-directory only;
+                                       excluded from equality; children classified
       new paths NOT in L ............. must be ZERO ALLOWED  (clause 4) --
                                        objects/pack/**, multi-pack-index,
                                        *.promisor/.keep/.bitmap/.rev/.mtimes,
                                        objects/info/**, symlinks, bad fan-out
-      object format of the repository  <sha1 / sha256>. sha256 => the gate
-                                       REFUSES by design; NOT a pass  (T-41)
+      object format at onboarding .... absent/sha1 => proceed; sha256/unknown =>
+                                       UnsupportedObjectFormat before baseline/Git
       baseline re-written this run ... must be NO       (no automatic re-baselining)
   second dispatch ................... PASS   (no longer red-by-design; T-36 RULED)
       reported new paths ............. ALL must match ^objects/[0-9a-f]{2}/[0-9a-f]{38}$
@@ -12478,12 +12585,10 @@ judgement that produced the allowlist §5.8.3 just deleted.** The tripwire is
 `test_report_only_admin_classes_have_no_reader`. **Sol should rule explicitly
 rather than let it pass as integrated.**
 
-**T-20 — the `rev-parse` fallback's scope.** Unavailable at R3/R4 and
-post-worker; retained at G10 for the capture of an already-authorized,
-already-established repository. **This is a conflict with §5.8.2A as revision 5
-wrote it, resolved in §5.8.2B's favour for the authorization step only. Sol must
-confirm.** *(The alternative — delete the fallback entirely — is cleaner and
-costs the unusual-layout case.)*
+**T-20 — the `rev-parse` fallback's scope. RESOLVED by the Revision 10 owner
+ruling.** The fallback is deleted entirely. Raw resolution is the sole
+production mechanism, and an unusual layout it cannot decide is refused before
+Git establishment.
 
 **T-21 — §15's "eleven dirty entries" metric.** It is a **`git status` count of a
 tree the raw model describes as 46,565 entries, and two of the eleven are
@@ -12520,9 +12625,8 @@ block gains **PIN 4**, but pins now defend only the PREPARE window and *"is four
 surfaces enough"* is no longer the question the design's safety rests on —
 **there is a sixth mechanism and it is not an execution surface.** **T-6**'s
 widened repertoire narrows by three more rows. **T-9** is discharged by
-mechanism. **T-20** is **narrowed, not resolved**: G10's identity consumer is
-deleted, so its remaining justification is weaker than revision 6's and Sol may
-wish to delete it outright.
+mechanism. **T-20 is resolved by deletion**: G10's identity consumer and its
+declared production row are both gone.
 
 **T-26 — delete `config --get remote.origin.url` from all three paths**, reading
 `remote.origin.url` from the raw config bytes R6/P3 already captured, **or keep
@@ -12677,20 +12781,14 @@ one, which is the strongest form of the answer, not the absence of one.** *(§5.
 carries the full Z17 integration, including the four results that changed what
 this document says.)*
 
-**T-41 — NEW, AND IT IS A CHOICE FOR SOL RATHER THAN A NOTE: the loose-object
-regex REFUSES EVERY SHA-256 REPOSITORY.** **MEASURED by Lane Z18 against a real
-`--object-format=sha256` repository** (`2d35172`): the loose tail is **62
-characters** and does not match `[0-9a-f]{38}`. **Every loose object in such a
-repository is a clause-4 divergence, so the gate refuses the repository outright
-on its first dispatch.** **Sol must choose (i) admit both digest lengths, with
-the length checked against the repository's own measured object format, or (ii)
-declare SHA-256 out of scope for Wave 0 and REFUSE AT ONBOARDING with a named
-`UnsupportedObjectFormat`.** **RECOMMENDED: (ii).** Shipping as written is not a
-safe refusal but a **misleading** one — the operator is told their repository is
-*unreconciled* when the truth is that this gate does not support their object
-format, **and a refusal that names the wrong cause is worse than a refusal.**
-**This document does not ship the regex as written without saying which; the
-choice is escalated, and until it is ruled the regex stands as written.**
+**T-41 — CLOSED IN REVISION 10: Wave 0 is SHA-1 only.** Lane Z18 and the
+revision-10 probe both built real SHA-256 repositories: their loose tails are 62
+characters and the raw common config declares `extensions.objectFormat =
+sha256`. Sol chooses the narrow option: `trust-repo-admin.py` parses that raw
+field before writing a baseline and raises `UnsupportedObjectFormat` for
+`sha256` or any unknown value. Absent or explicit `sha1` proceeds. No git row is
+added. SHA-256 support is deferred beyond Wave 0 and no dispatch misreports it
+as an administrative divergence.
 
 **T-43 — NEW: `extensions.partialClone` IS THE WRONG KEY TO WATCH, AND IT IS
 MEASURED WRONG.** Lane Z18 verified twice that a `--filter` clone over `file://`
@@ -12762,9 +12860,9 @@ mutation is MEASURED to defeat name+size), **F7-2** (append-only narrowed to
 exact bidirectional; `multi-pack-index` MEASURED at its real location
 `objects/pack/multi-pack-index`), and **F7-3** (the unsupported filter-driver
 claim WITHDRAWN, Lane Z18 cited as the owner of the re-run).
-**NEWLY OPEN FROM REVISION 9: T-41** (**a CHOICE Sol must make** — SHA-256
-repositories are refused entirely by the specified regex, and the refusal names
-the wrong cause), **T-42** (ordinary maintenance requires an operator
+**T-41 is CLOSED by revision 10:** Wave 0 is SHA-1 only and SHA-256 refuses at
+onboarding with `UnsupportedObjectFormat`. **Still open from revision 9:**
+**T-42** (ordinary maintenance requires an operator
 re-baseline) and **T-43** (`extensions.partialClone` is not written by a
 `--filter` clone on 2.43.0). **None of the three existed before the measurements
 in Appendices A.2U and A.2V were run** — which is the argument for commissioning
@@ -12796,8 +12894,8 @@ rows (`multi-pack-index` substitution, above-threshold `gc --auto`, reftable as 
 live B2 vector, submodule `modules/**`) plus the `NOT ATTEMPTED` rows (the ctypes
 spawn bypass, the symlinked-`.git` disk scan, and now **whether a git child can
 acquire a `GIT_*` variable by a route other than `env=`**, which is `NOT TESTED`).
-**NEWLY OPEN: T-40** (absolute git path), **T-41** (SHA-256 loose-object shape),
-**T-42** (maintenance re-baseline), **the Lane Z18 dependency for the `PATH`
+**NEWLY OPEN: T-40** (absolute git path), **T-42** (maintenance re-baseline),
+**the Lane Z18 dependency for the `PATH`
 filter-driver leg**, and **two OWED measurements Z17 names
 and this document adopts rather than absorbs** — a **genuine partial clone**
 (`NOT ATTEMPTED`; the sixth VOID filed on that vector by the sixth party) and **a
@@ -12822,13 +12920,14 @@ below are retained for provenance only.
 
 ### 18.5 The gate on implementation
 
-**No `src/**` or `tests/**` change may be written for Gate 7 until this revision
-receives an EIGHTH independent architecture review returning ZERO blocking
-findings **and `WAVE 0 APPROVED TO IMPLEMENT: YES`.** The reviewer must not be
-the author, must not be a prior reviewer, and must not implement the fixes.
-**This is directive T, and §21 is its mandate — twenty attack vectors and a
-fifteen-item return format, written verbatim, plus the five revision-8 repairs
-§21.0 names.**
+**The 2026-08-29 owner sequencing override permits `src/**` and `tests/**`
+implementation before review on `gate7-wave0`.** It does not waive the gate's
+substance: the exact implementation tip must receive a NINTH independent review
+returning ZERO blocking findings before merge or deployment. The reviewer must
+not be an implementation author, and must not silently repair the reviewed tip.
+Every blocker is returned to an implementation lane, validated, committed, and
+then re-reviewed. **§21 remains the mandate — twenty attack vectors and the
+fifteen-item return format, plus the revision-8/9/10 repairs named there.**
 
 **What it should attack hardest — the decisions most likely to be wrong:**
 
@@ -12906,7 +13005,7 @@ weakening. A preservation clause with no detector is a wish.**
 | **2** | **The `worker_delta` closure theorem.** `final_delta ⊆ worker_delta ∪ validation_delta`, from three raw states and transitivity of identity equality | **Y-9's ruling is a REMOVAL clause**, and an over-applied filter on `worker_delta` breaks the theorem's *coverage* even though the algebra still holds — **the theorem would be true over a delta that no longer means what it says** | `test_closure_theorem_holds_under_a_changed_ignored_path` — a fixture where the **only** worker change is to an ignored path; assert the theorem's three sets **and that `worker_delta` is NON-EMPTY.** **A filtered build satisfies the containment with an empty left side, which is why the non-emptiness assertion is the load-bearing half** |
 | **3** | **Post-worker authoritative git repertoire `{}`.** Two mechanisms: the seal and the raw B2 | **§5.4.3B ORDER 3 adds a new post-worker consumer of sealed data on the review path.** The named risk: an implementer adds a *"verification"* git call next to the seal read. **§5.4.3B's direction B is the structural defence** — an authority row after the worker spawn is `OBSERVED_AFTER_SPAWN` and **fails unconditionally, with no declaration able to legitimise it** | `test_review_runs_zero_git_processes` **and** `test_runtime_closure_has_no_undeclared_row`. **These are the same detector at two granularities and BOTH are required** |
 | **4** | **B-2's gating methodology.** A negative is only a negative if its positive control fired; `reference-transaction` named explicitly; A.2's methodological correction retained; *"executes NOTHING"* stays deleted; Z-4 stays **gated**, not structural | **§5.4.3B's new instrument invites a fresh crop of un-controlled negatives.** *"Zero git rows"* is a **negative result**, and the review path's expected answer **is** zero — **the single easiest place in this design to report a green from a dead instrument** | **Every journaled test's mandatory `git --version` liveness control**, with the control row tagged `domain="control"`, **excluded from closure but asserted present.** `test_journal_liveness_control_fires` is a **first-class test, not a fixture detail.** **This is B-2's methodology re-applied to the new instrument, and it is the single most important preservation clause in this table** |
-| **5** | **B-4's Wave-0 self-contained refusal machinery.** The PREPARE-phase mechanism and §8 row 0 live in Wave 0 (D-24), so a Wave-0-only build does not land `FAILED` on first dispatch | **Revision 7's new refusals** — `RepositoryAdministrationUnsupported`, `WorktreeGitfileNotRegular`, `WorktreeGitfileMalformed`, `WorktreeGitdirNotDispatcherOwned`, `WorktreeHeadNotRegular`, `WorktreeSealSchemaUnsupported`, `RepositoryIdentityUnsealed`, `SealPinSetStale`, `RepositoryRootDrift`, `GitBeforeEstablishment`, `GitIdentityDerivationAttempted`, `GitArgvPinDisplaced`, `DispatcherSetupTouchedPrimaryTree` — **are all row-0 PREPARE refusals and must ship IN WAVE 0.** A refusal specified in Wave 0 but implemented in Wave A **is B-4 exactly** | `test_wave0_ships_without_row_1` (retained) **extended with all thirteen classes**, plus `test_registry_lands_in_matches_the_error_taxonomy` from the opposite direction. **Any lane proposing to defer one to Wave A must first show it does not reopen B-4 — recorded because B-4 was reopened once already by a fix to something else** |
+| **5** | **B-4's Wave-0 self-contained refusal machinery.** The PREPARE-phase mechanism and §8 row 0 live in Wave 0 (D-24), so a Wave-0-only build does not land `FAILED` on first dispatch | **Revision 7's thirteen refusals** — `RepositoryAdministrationUnsupported`, `WorktreeGitfileNotRegular`, `WorktreeGitfileMalformed`, `WorktreeGitdirNotDispatcherOwned`, `WorktreeHeadNotRegular`, `WorktreeSealSchemaUnsupported`, `RepositoryIdentityUnsealed`, `SealPinSetStale`, `RepositoryRootDrift`, `GitBeforeEstablishment`, `GitIdentityDerivationAttempted`, `GitArgvPinDisplaced`, `DispatcherSetupTouchedPrimaryTree` — plus revision 10's `RepositoryObjectStoreMalformed` and `RepositoryObjectStoreEntryUnsupported` **are all row-0 PREPARE refusals and must ship IN WAVE 0.** A refusal specified in Wave 0 but implemented in Wave A **is B-4 exactly** | `test_wave0_ships_without_row_1` (retained) **extended with all fifteen PREPARE classes**, plus `test_registry_lands_in_matches_the_error_taxonomy` from the opposite direction. `UnsupportedObjectFormat` is separately onboarding-only and must be present in the same Wave-0 package without being misregistered as row 0. **Any lane proposing to defer one to Wave A must first show it does not reopen B-4 — recorded because B-4 was reopened once already by a fix to something else** |
 | **6** | **PIN 1 and PIN 2 verified behaviour.** PIN 1 closes S-δ's promisor lazy-fetch column; PIN 2 is the **only** defence against a worker-set `core.hooksPath` — filesystem quarantine measurably is not | **§5.5.2D moves the identity measurements into the seal.** They must be measured **under the same pin set**, and **`pins_applied` must record it. A sealed `root_commit` measured WITHOUT the pins is a WORSE artefact than a live measurement, because it looks authoritative and is frozen** | `test_sealed_identity_records_the_pin_set` — **populated from a constant it would pass while false**, so it runs one seal with a pin deliberately removed, asserts `pins_applied` differs, and asserts a review against it lands `SealPinSetStale` rather than proceeding. **Every acceptance row depending on a pin stays `UNMEASURABLE` — not `PASS` — until the pins exist in `src/**`, where the count is measured at ZERO for all four** |
 
 > **One preservation item is at genuine risk and it is named rather than asserted
@@ -12921,7 +13020,20 @@ weakening. A preservation clause with no detector is a wish.**
 
 ---
 
-## 21. THE EIGHTH INDEPENDENT ARCHITECTURE REVIEW — REQUIRED ATTACK LIST
+## 21. THE NINTH INDEPENDENT ARCHITECTURE REVIEW — REQUIRED ATTACK LIST
+
+### 21.0B What revision 10 changed, and what the NINTH review must attack first
+
+| Blocker | Attack this |
+|---|---|
+| **F8-2** | **Canonical admission versus G9.** Plant corrupt compressed bytes, a valid object with the wrong pathname, a valid pathname with trailing compressed data, a header size mismatch and a bounded expansion. Every one must refuse at R6 before a G9 spawn. Arm the fixture first with a real missing object whose pinned G9 row is `?oid`, then prove the old shape-only relation changes it to present |
+| **F8-3** | **Structural fan-outs.** A normal commit must create at least one new two-hex directory and a valid child, and the second dispatch must proceed. A real empty two-hex directory may appear/disappear without authority effect. A symlinked fan-out, nested directory, malformed name or non-regular child must refuse. Check that no directory `st_size`, digest `None`, inode or mtime remains in the equality predicate |
+| **F8-1** | **The value domain.** Search every constructor and comparison: `ObjectEntry.entry_type` must be `Literal["regular"]`, its digest must be non-null, and no unsupported entry may enter an operator baseline. Re-run the same-length symlink-target mutation and require the refusal to occur before equality |
+| **F8-4** | **SHA-1-only onboarding.** Build real SHA-1 and SHA-256 repositories. Absent/explicit `sha1` must proceed; `sha256` and an unknown value must raise `UnsupportedObjectFormat` before any baseline, task state or Git row. Confirm ORDER 1–4 gained no command |
+
+Also verify the revision boundary from the reviewed base rather than the tip
+commit: `git diff --name-only 36f0f00..HEAD` and
+`git diff --check 36f0f00..HEAD` are the required controls.
 
 ### 21.0A What revision 9 changed, and what the EIGHTH review must attack first
 
@@ -12978,7 +13090,7 @@ test above is stated at the site of the test, and **three of them are specified
 with a mandatory control leg without which they would be vacuous.**
 
 > **NO `src/**` or `tests/**` change may be written for Gate 7 until revision 9
-> receives an **EIGHTH** independent architecture review returning **ZERO blocking
+> receives a **NINTH** independent architecture review returning **ZERO blocking
 > findings** and **`WAVE 0 APPROVED TO IMPLEMENT: YES`**. The reviewer must not be
 > the author, must not be a prior reviewer, and must not implement the fixes.
 > **This is directive T.**
@@ -14028,7 +14140,7 @@ said, and a summary would lose the falsifying detail.**
 THE MINIMUM ALLOWLIST
   STEP A  env -i + the six dispatcher insertions ONLY, zero inherited variables
           PASS G1  PASS G2  PASS G3  PASS G4  PASS G8  PASS G9
-          PASS G10a  PASS G10b  PASS RESUME              <-- NINE OF NINE
+          PASS G10a  PASS G10b  PASS RESUME  <-- HISTORICAL PROBE; G10 DELETED
           (a row PASSES only when rc==0 AND stdout is byte-identical to a
            golden captured under the FULL AMBIENT environment)
   STEP B  upper bound, all 15 candidates admitted        ALL NINE PASS
@@ -14225,7 +14337,7 @@ dead, never as a pass.**
 | **A** | **`multi-pack-index` lives at `objects/pack/multi-pack-index` on git 2.43, by BOTH creation routes.** Revisions 5–8 placed it under `objects/info/` and were wrong; a capture watching only `objects/info/` would never have seen the file | anything about **other git versions**. `NOT TESTED` beyond 2.43.0, like every measurement in this document |
 | **B** | `objects/pack/` holds at least eight distinct entry kinds, and **`.keep`, `.promisor` and `.mtimes` were created here BY PLAIN FILE WRITES with no git process at all** — which is exactly how a worker with Bash creates one | that the list is **complete**. It is a list of what this probe made appear. **Clause 4 is written to refuse EVERY new path outside `L`, precisely so that completeness of this list is not load-bearing** |
 | **C** | **a name+size capture is PROVABLY blind to a size-preserving alteration, and sha256 catches it.** This is F7-1's whole content | that a **1-bit flip is the only** size-preserving mutation. It is the cheapest one; a re-compressed same-length stream would do as well and needs no separate measurement, because the digest comparison does not care how the bytes moved |
-| **D** | the literal shape holds for all nine objects on a **sha1** repository, and three malformed shapes are rejected | **anything about a sha256 repository**, whose 62-hex tail this regex REFUSES. **That refusal is deliberate and fail-closed** — see T-41 |
+| **D** | the literal shape holds for all nine objects on a **sha1** repository, and three malformed shapes are rejected | **anything about a sha256 repository**, whose 62-hex tail this regex REFUSES. Revision 10 turns that measurement into the T-41 ruling: SHA-256 refuses once, at onboarding, as `UnsupportedObjectFormat`; it is never misreported as an R6 path divergence |
 | **E** | **`git repack -a -d` removes every loose object**, so ordinary maintenance is a clause-1 divergence and needs an operator re-baseline | **how often `gc --auto` crosses its threshold in production** — still `NOT TESTED`, and it is what decides how often T-42 is felt |
 
 > **The probe asserts on its own fixtures and raises `SystemExit` rather than
@@ -14295,6 +14407,44 @@ true` and which nobody read that way at the time.
 > step removed — **and it would have produced a capture specification with a
 > missing class**, which is exactly the F7-2 failure mode arriving by a different
 > route.
+
+### A.2W Revision 10 object admission — four controls, all fired
+
+Source and complete output:
+`commissioning/gate7-v10-probes/exp_object_admission.py` and
+`exp_object_admission.out`. Run on git 2.51.1 / CPython 3.12.13; Revision 9's
+object-format and pack measurements remain independently preserved on git 2.43.
+
+```text
+A  real referenced blob removed:
+     pinned G9 -> ?c2981a9931b383b5eb128dc5e3505654ab5269b6
+   arbitrary corrupt bytes planted at objects/c2/981a...:
+     path shape + regular file both pass the revision-9 L predicate
+     canonical validator -> False (inflate failed)
+     pinned G9 -> c2981a9931b383b5eb128dc5e3505654ab5269b6 f
+   G9 OUTPUT CHANGED: True
+
+B  one ordinary commit:
+     new fan-outs ['25', '70', '75']
+     each has a corresponding new 38-hex loose file
+   DIRECTORY/OBJECT CONTROL FIRED: True
+
+C  old non-regular tuple:
+     ('symlink', 2, None), target 'aa'
+     length-changing target arms the tuple detector
+     ('symlink', 2, None), target 'bb'
+   NONE==NONE HIDES TARGET CHANGE: True
+
+D  real --object-format=sha256 repository:
+     loose tail length 62
+     raw config contains objectformat = sha256
+   SHA256 CONTROL FIRED: True
+```
+
+The probe's canonical validator first accepts the Git-written object and then
+rejects the corrupt replacement. The G9 legs run with an environment containing
+only the six dispatcher variables and with the full pin block, so the output
+change cannot be attributed to a missing pin or ambient Git configuration.
 
 ### A.3 Checkout transform on an ordinary repository
 
@@ -14430,7 +14580,25 @@ byte-identical, sha256 `e41ef3bd…d498e`, 1286 B.
 
 ---
 
-## Appendix C — Revision 9 change log
+## Appendix C — Revision 10 change log
+
+**Four blockers. Six files: this document, the revision-10 probe and output,
+one evidence-report correction, and trailing-whitespace repairs in two preserved
+probe outputs. No `src/**`, no `tests/**`.**
+
+| Section | Change | Driver |
+|---|---|---|
+| **§5.8.2C** | `ObjectEntry` narrowed to regular files with a non-null SHA-256 digest. Loose fan-out directories are structural containers; symlinks, nested directories, malformed names and other entry types refuse before equality | **F8-1, F8-3** |
+| **§5.8.2C / §5.8.3** | Added bounded canonical SHA-1 loose-object admission: one zlib member, canonical header, declared-size and expansion bounds, and SHA-1-to-path equality. Path shape alone no longer qualifies an append | **F8-2** |
+| **§5.8.3 / onboarding** | **T-41 ruled:** Wave 0 supports SHA-1 repositories only. Raw `extensions.objectFormat` is checked before baseline creation; SHA-256 and unknown formats raise `UnsupportedObjectFormat` | **F8-4** |
+| **§5.8.3 tests / §16 / §21.0B** | Added the same-length symlink, canonical-object/G9, fan-out-directory and SHA-256-onboarding killers; retitled the gate for a ninth independent review | **F8-1…F8-4** |
+| **Appendix A.2W / `commissioning/gate7-v10-probes/`** | Added the source-controlled six-pin probe and complete output. All four controls fire: corrupt shape changes G9, normal commits create fan-outs, `None == None` hides a same-length symlink-target change, and a real SHA-256 repository declares its format with a 62-hex tail | **F8-1…F8-4** |
+| **`commissioning/gate7-z18-probes/Z18-EVIDENCE.md`** | Narrowed one overbroad sentence: the allowlist suppresses the **bare-name** filter leg only; the absolute-path leg still executes and remains assigned to the repository-config seal | consistency sweep |
+| **two preserved `.out` files** | Removed pre-existing trailing whitespace so the required reviewed-range `git diff --check` control can be green. Evidence bytes other than trailing spaces are unchanged | validation control |
+
+---
+
+## Appendix C-9 — Revision 9 change log (retained)
 
 **Three blockers. Four files: this document and three probe artefacts. No
 `src/**`, no `tests/**`.**

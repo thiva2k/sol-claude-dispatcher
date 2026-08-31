@@ -435,14 +435,14 @@ class TestRepositoryIdentity:
 
 
 class TestLockIdentity:
-    def test_repository_and_its_subdirectory_share_one_lock(
+    def test_repository_and_its_subdirectory_are_distinct_authority_locks(
         self, tmp_path: Path
     ) -> None:
         repo = _init_repo(tmp_path / "example-repo")
         (repo / "src").mkdir()
-        assert locks.lock_name_for(repo) == locks.lock_name_for(repo / "src")
+        assert locks.lock_name_for(repo) != locks.lock_name_for(repo / "src")
 
-    def test_a_subdirectory_contends_with_the_repository_lock(
+    def test_a_subdirectory_does_not_alias_the_authorized_repository_lock(
         self, tmp_path: Path
     ) -> None:
         repo = _init_repo(tmp_path / "example-repo")
@@ -452,10 +452,9 @@ class TestLockIdentity:
         held = locks.RepositoryLock(repo, locks_dir)
         held.acquire()
         try:
-            from sol_claude_dispatcher.errors import RepositoryBusy
-
-            with pytest.raises(RepositoryBusy):
-                locks.RepositoryLock(repo / "src", locks_dir).acquire()
+            subdir = locks.RepositoryLock(repo / "src", locks_dir)
+            subdir.acquire()
+            subdir.release()
         finally:
             held.release()
 

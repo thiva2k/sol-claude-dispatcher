@@ -1,0 +1,189 @@
+{
+  "schema_version": "1.0",
+  "manifest_version": "2026-08-29.1",
+  "provenance_policy": "Every projection is handwritten inert text derived only from the enumerated source-controlled files. Whole-file source hash drift and projection hash drift both refuse; hashes are never refreshed at runtime.",
+  "review_status": "Owner-authorized Gate 7 implementation; independent implementation review remains required before merge or deployment.",
+  "artifacts": [
+    {
+      "artifact_id": "core",
+      "path": "config/lifecycle/v1/core.md",
+      "projection_sha256": "6db4c091ab25a5121c0f083a6892ff3440c2540e931a4dc035fc6cafd550e586",
+      "projection_bytes": 358,
+      "projection_version": "1.0",
+      "required_deny_patterns": [],
+      "derived_from": [
+        {
+          "source_id": "gate7.lifecycle-methodology",
+          "source_kind": "source_controlled_design",
+          "source_path": "docs/GATE7-DESIGN.md",
+          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sections": ["9.1 Where the duplication is, conceptually", "9.2 Targets"],
+          "concepts": ["small verified increments", "reproduce before fixing", "evidence before claims"]
+        },
+        {
+          "source_id": "dispatcher.worker-policy",
+          "source_kind": "source_controlled_policy",
+          "source_path": "prompts/worker-policy.md",
+          "source_sha256": "1893f21084ee36cf57850c3de57319636f5696ca4bc46189ee10fa9e9e651056",
+          "source_sections": ["Acceptance criteria", "Evidence", "When you are blocked"],
+          "concepts": ["acceptance evidence", "honest blocked result"]
+        }
+      ]
+    },
+    {
+      "artifact_id": "implementation",
+      "path": "config/lifecycle/v1/implementation.md",
+      "projection_sha256": "f889f436d15128c5d83af8b16630c0ea72d8e7b86629f1143d6fa467a3fde40d",
+      "projection_bytes": 390,
+      "projection_version": "1.0",
+      "required_deny_patterns": [],
+      "derived_from": [
+        {
+          "source_id": "gate7.lifecycle-methodology",
+          "source_kind": "source_controlled_design",
+          "source_path": "docs/GATE7-DESIGN.md",
+          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sections": ["9.1 Where the duplication is, conceptually", "9.2 Targets"],
+          "concepts": ["test-driven change", "incremental implementation", "verification before completion"]
+        }
+      ]
+    },
+    {
+      "artifact_id": "planning",
+      "path": "config/lifecycle/v1/planning.md",
+      "projection_sha256": "fbb4dc447c8be61cd62ec0ffaa07ac41d146317cf8c00d10ae407a576d20d2eb",
+      "projection_bytes": 294,
+      "projection_version": "1.0",
+      "required_deny_patterns": [],
+      "derived_from": [
+        {
+          "source_id": "gate7.lifecycle-methodology",
+          "source_kind": "source_controlled_design",
+          "source_path": "docs/GATE7-DESIGN.md",
+          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sections": ["9.1 Where the duplication is, conceptually"],
+          "concepts": ["decomposition with acceptance criteria"]
+        },
+        {
+          "source_id": "dispatcher.worker-policy",
+          "source_kind": "source_controlled_policy",
+          "source_path": "prompts/worker-policy.md",
+          "source_sha256": "1893f21084ee36cf57850c3de57319636f5696ca4bc46189ee10fa9e9e651056",
+          "source_sections": ["Scope", "Acceptance criteria"],
+          "concepts": ["scope discipline", "criteria preserved"]
+        }
+      ]
+    },
+    {
+      "artifact_id": "hardening",
+      "path": "config/lifecycle/v1/hardening.md",
+      "projection_sha256": "9bd5bd032816c2373435294bf17ac0208b5efb109dffb00a61d85d517907258b",
+      "projection_bytes": 380,
+      "projection_version": "1.0",
+      "required_deny_patterns": [],
+      "derived_from": [
+        {
+          "source_id": "dispatcher.engineering-rules",
+          "source_kind": "source_controlled_policy",
+          "source_path": "AGENTS.md",
+          "source_sha256": "45312a73625091cae6f83fda33d7df1b57f8687fa0796ac03439aaec68ee5058",
+          "source_sections": ["2. The rules that are not negotiable", "5. Style"],
+          "concepts": ["fail closed", "claims are not evidence", "advisory versus enforced"]
+        }
+      ]
+    },
+    {
+      "artifact_id": "simplification",
+      "path": "config/lifecycle/v1/simplification.md",
+      "projection_sha256": "b29fd990bbc0b0faa5b18314276cf61b477859aef1023b080ce4332834dc42b0",
+      "projection_bytes": 281,
+      "projection_version": "1.0",
+      "required_deny_patterns": [],
+      "derived_from": [
+        {
+          "source_id": "gate7.lifecycle-methodology",
+          "source_kind": "source_controlled_design",
+          "source_path": "docs/GATE7-DESIGN.md",
+          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sections": ["9.1 Where the duplication is, conceptually"],
+          "concepts": ["reduce complexity without changing behaviour", "small verified increments"]
+        }
+      ]
+    },
+    {
+      "artifact_id": "validation",
+      "path": "config/lifecycle/v1/validation.md",
+      "projection_sha256": "e82f9c779e03374afaa66a1c0bef75247214502bbf77a3ff2159d7d643237739",
+      "projection_bytes": 268,
+      "projection_version": "1.0",
+      "required_deny_patterns": [],
+      "derived_from": [
+        {
+          "source_id": "dispatcher.worker-policy",
+          "source_kind": "source_controlled_policy",
+          "source_path": "prompts/worker-policy.md",
+          "source_sha256": "1893f21084ee36cf57850c3de57319636f5696ca4bc46189ee10fa9e9e651056",
+          "source_sections": ["Evidence", "Finishing"],
+          "concepts": ["real command output", "evidence before completion", "unverified gaps"]
+        }
+      ]
+    },
+    {
+      "artifact_id": "correction",
+      "path": "config/lifecycle/v1/correction.md",
+      "projection_sha256": "f628c3704f72a601cfd82526f2964292759643afc2b9185628c5f10a6a01a1ab",
+      "projection_bytes": 327,
+      "projection_version": "1.0",
+      "required_deny_patterns": [],
+      "derived_from": [
+        {
+          "source_id": "gate7.lifecycle-methodology",
+          "source_kind": "source_controlled_design",
+          "source_path": "docs/GATE7-DESIGN.md",
+          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sections": ["9.1 Where the duplication is, conceptually", "4.3 The four profiles"],
+          "concepts": ["address the finding, not the reviewer", "verification and fixup", "no initial planning material"]
+        }
+      ]
+    }
+  ],
+  "profiles": {
+    "DISPATCH_IMPLEMENTATION": {
+      "profile_id": "dispatch-implementation",
+      "profile_version": "1.0",
+      "fixed": ["core", "implementation"],
+      "by_task_kind": {
+        "security_sensitive": ["hardening"],
+        "refactor": ["simplification"],
+        "large_refactor": ["planning", "simplification"],
+        "migration": ["planning"]
+      },
+      "by_complexity": {"high": ["planning"]},
+      "by_risk": {"high": ["hardening"], "critical": ["hardening"]}
+    },
+    "CORRECTION_RESUME": {
+      "profile_id": "correction-resume",
+      "profile_version": "1.0",
+      "fixed": ["core", "validation", "correction"],
+      "by_task_kind": {"security_sensitive": ["hardening"]},
+      "by_complexity": {},
+      "by_risk": {"high": ["hardening"], "critical": ["hardening"]}
+    },
+    "VALIDATION_ONLY_RESUME": {
+      "profile_id": "validation-only-resume",
+      "profile_version": "1.0",
+      "fixed": ["core", "validation"],
+      "by_task_kind": {},
+      "by_complexity": {},
+      "by_risk": {}
+    },
+    "FABLE_REVIEW": {
+      "profile_id": "fable-review",
+      "profile_version": "1.0",
+      "fixed": [],
+      "by_task_kind": {},
+      "by_complexity": {},
+      "by_risk": {}
+    }
+  }
+}

@@ -16,6 +16,11 @@ import pytest
 
 from sol_claude_dispatcher.config import load_config
 from sol_claude_dispatcher.server import Dispatcher
+from sol_claude_dispatcher.evidence.gitadmin import (
+    baseline_path,
+    capture_repository_administration,
+    write_baseline,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SHIM = PROJECT_ROOT / "tests" / "fixtures" / "claude_worktree_shim.py"
@@ -74,7 +79,7 @@ def seeded_repo(git_repo: Path) -> Path:
 
 
 @pytest.fixture
-def integration_config_file(tmp_path: Path, git_repo: Path) -> Path:
+def integration_config_file(tmp_path: Path, seeded_repo: Path) -> Path:
     """A config allowlisting the test repository's exact git top level.
 
     ``project_root`` resolves to ``tmp_path`` (the config file's own directory),
@@ -113,7 +118,7 @@ default_model = "sonnet"
 
 [security]
 max_dispatch_depth = 1
-allowed_repository_roots = ["{git_repo}"]
+allowed_repository_roots = ["{seeded_repo}"]
 
 [validation]
 run_dispatcher_validation = true
@@ -131,6 +136,12 @@ fable_review_schema_path = "{PROJECT_ROOT}/schemas/fable-review.schema.json"
 level = "WARNING"
 """
     )
+    state_root = tmp_path / "state"
+    if not baseline_path(state_root, seeded_repo).exists():
+        write_baseline(
+            state_root,
+            capture_repository_administration(seeded_repo),
+        )
     return path
 
 
@@ -163,8 +174,15 @@ def fake_env(monkeypatch: pytest.MonkeyPatch, fake_claude_log: Path, tmp_path: P
 @pytest.fixture
 def request_payload(seeded_repo: Path) -> dict:
     """A dispatch request scoped to ``src/deploy/**`` and ``tests/**``."""
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=seeded_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     return {
-        "repository": {"root": str(seeded_repo), "base_ref": "HEAD"},
+        "repository": {"root": str(seeded_repo), "base_ref": base_commit},
         "task": {
             "kind": "implementation",
             "objective": "Implement atomic configuration deployment.",

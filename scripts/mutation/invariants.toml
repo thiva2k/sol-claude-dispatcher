@@ -1,0 +1,247 @@
+# Gate 7 Wave 0 implemented-invariant registry.
+#
+# This manifest is intentionally narrower than every invariant mentioned by the
+# design: it records the invariants for which Wave 0 code and a named killer are
+# present in this commit.  The top-level set and the rows must agree exactly.
+schema_version = 1
+implemented_wave0 = ["ZI-3", "ZI-4", "ZI-6", "ZI-8", "ZI-28", "ZI-29", "ZI-31", "ZI-32", "ZI-33", "ZI-34", "ZI-53", "ZI-54", "ZI-55", "ZI-71", "ZI-72", "ZI-74", "ZI-77", "ZI-78", "ZI-79", "ZI-80", "ZI-81", "ZI-84", "ZI-85", "ZI-86"]
+
+[[invariant]]
+id = "ZI-3"
+statement = "changed-path measurement consults no ignore source"
+creates = "0"
+lands_in = ["5"]
+modifies = []
+design_section = "5.6"
+mutants = ["W0-M001"]
+killers = ["tests/unit/test_gate7_ignore.py::test_ignore_classification_consumes_only_an_explicit_inventory"]
+
+[[invariant]]
+id = "ZI-4"
+statement = "base ignore rules classify paths and never discover them"
+creates = "0"
+lands_in = ["5"]
+modifies = []
+design_section = "5.6"
+mutants = ["W0-M002"]
+killers = ["tests/unit/test_gate7_ignore.py::test_base_ignore_matching_is_raw_byte_last_match_wins_and_deeper_wins"]
+
+[[invariant]]
+id = "ZI-6"
+statement = "repository-relative path identity remains raw bytes"
+creates = "0"
+lands_in = ["3", "5"]
+modifies = []
+design_section = "5.5.2"
+mutants = ["W0-M003"]
+killers = ["tests/unit/test_gate7_inventory.py::test_path_repr_round_trips_non_utf8_bytes_without_using_display"]
+
+[[invariant]]
+id = "ZI-8"
+statement = "scope verdict precedes content classification"
+creates = "0"
+lands_in = ["5"]
+modifies = []
+design_section = "5.5.2"
+mutants = ["W0-M004"]
+killers = ["tests/unit/test_gate7_inventory.py::test_no_lstat_before_the_scope_verdict"]
+
+[[invariant]]
+id = "ZI-28"
+statement = "task evidence uses three named raw filesystem moments"
+creates = "0"
+lands_in = ["5a"]
+modifies = []
+design_section = "5.5.3"
+mutants = ["W0-M005"]
+killers = ["tests/unit/test_gate7_attribution.py::test_final_delta_is_contained_in_the_union"]
+
+[[invariant]]
+id = "ZI-29"
+statement = "filesystem deltas compare identity rather than names alone"
+creates = "0"
+lands_in = ["5"]
+modifies = []
+design_section = "5.5.3"
+mutants = ["W0-M006"]
+killers = ["tests/unit/test_gate7_inventory.py::test_modified_path_is_in_the_delta_not_only_added_and_removed"]
+
+[[invariant]]
+id = "ZI-31"
+statement = "worker_delta is authoritative for worker authorship"
+creates = "0"
+lands_in = ["5a"]
+modifies = []
+design_section = "5.5.3"
+mutants = ["W0-M007"]
+killers = ["tests/unit/test_gate7_attribution.py::test_final_delta_is_contained_in_the_union"]
+
+[[invariant]]
+id = "ZI-32"
+statement = "worker evidence is frozen before trusted validation"
+creates = "0"
+lands_in = ["4"]
+modifies = []
+design_section = "5.5.3"
+mutants = ["W0-M008"]
+killers = ["tests/unit/test_gate7_freeze.py::test_freeze_verifies_every_file_record_and_detects_same_size_change"]
+
+[[invariant]]
+id = "ZI-33"
+statement = "an unattributed or ambiguous path fails closed"
+creates = "0"
+lands_in = ["5a"]
+modifies = []
+design_section = "5.5.3"
+mutants = ["W0-M009"]
+killers = ["tests/unit/test_gate7_attribution.py::test_closure_violation_raises_instead_of_logging_and_continuing"]
+
+[[invariant]]
+id = "ZI-34"
+statement = "a partial snapshot cannot stand in for a lifecycle moment"
+creates = "0"
+lands_in = ["5a"]
+modifies = []
+design_section = "5.5.3"
+mutants = ["W0-M010"]
+killers = ["tests/unit/test_gate7_fssnap.py::test_changed_during_read_is_recorded_as_incomplete_not_as_an_identity"]
+
+[[invariant]]
+id = "ZI-53"
+statement = "Git is refused before raw administrative establishment"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.4.3"
+mutants = ["W0-M011"]
+killers = ["tests/unit/test_gate7_git_order.py::test_git_is_refused_before_establishment_and_outside_prepare"]
+
+[[invariant]]
+id = "ZI-54"
+statement = "the immutable evidence seal is published before a worker exists"
+creates = "0"
+lands_in = ["0", "4"]
+modifies = []
+design_section = "5.5.2"
+mutants = ["W0-M012"]
+killers = ["tests/unit/test_gate7_seal.py::test_manifest_is_published_last_and_existing_seal_is_immutable"]
+
+[[invariant]]
+id = "ZI-55"
+statement = "every base object is materialized and self-verifying before launch"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.5.2"
+mutants = ["W0-M013"]
+killers = ["tests/unit/test_gate7_basetree.py::test_complete_snapshot_cannot_be_built_with_one_blob_missing"]
+
+[[invariant]]
+id = "ZI-71"
+statement = "the Git pin block is a closed ordered terminal prefix"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.4.3A"
+mutants = ["W0-M014"]
+killers = ["tests/unit/test_gate7_git_order.py::test_pin_block_is_frozen_ordered_and_injects_the_sealed_hooks_path"]
+
+[[invariant]]
+id = "ZI-72"
+statement = "declared Git order is immutable runtime data"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.4.3B"
+mutants = ["W0-M015"]
+killers = ["tests/unit/test_gate7_git_order.py::test_declared_runtime_order_cannot_regress_or_repeat"]
+
+[[invariant]]
+id = "ZI-74"
+statement = "Git closure is observed across the complete process event family"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.4.6"
+mutants = ["W0-M016"]
+killers = ["tests/unit/test_gate7_git_order.py::test_spawn_support_observes_the_whole_event_family_without_real_spawn"]
+
+[[invariant]]
+id = "ZI-77"
+statement = "task worktree base authority is eight raw comparisons"
+creates = "0"
+lands_in = ["4"]
+modifies = []
+design_section = "5.5.2C"
+mutants = ["W0-M018"]
+killers = ["tests/unit/test_gate7_worktreeauth.py::test_head_is_post_worker_whole_file_byte_equality"]
+
+[[invariant]]
+id = "ZI-78"
+statement = "new-dispatch identity is a sealed raw authority tuple"
+creates = "0"
+lands_in = ["0", "4"]
+modifies = []
+design_section = "5.5.2D"
+mutants = ["W0-M019"]
+killers = ["tests/unit/test_gate7_identity.py::TestSnapshot::test_snapshot_is_frozen_and_json_round_trips"]
+
+[[invariant]]
+id = "ZI-79"
+statement = "review declares no authority-domain Git rows"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.5.2D"
+mutants = ["W0-M020"]
+killers = ["tests/unit/test_gate7_git_order.py::test_review_cannot_establish_or_prepare_a_git_invocation"]
+
+[[invariant]]
+id = "ZI-80"
+statement = "lstat classifies every dot-git authority entry before use"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.8.2A"
+mutants = ["W0-M021"]
+killers = ["tests/unit/test_gate7_identity.py::TestClassification::test_lstat_precedes_readlink_and_open"]
+
+[[invariant]]
+id = "ZI-81"
+statement = "a symlinked dot-git entry is a prelaunch refusal"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.8.2A"
+mutants = ["W0-M022"]
+killers = ["tests/unit/test_gate7_identity.py::TestRawResolution::test_symlink_and_nonregular_dot_git_refuse"]
+
+[[invariant]]
+id = "ZI-84"
+statement = "the filesystem snapshot excludes dot-git as an explicit subsystem boundary"
+creates = "0"
+lands_in = ["5"]
+modifies = []
+design_section = "5.9.1"
+mutants = ["W0-M023"]
+killers = ["tests/unit/test_gate7_fssnap.py::test_repository_admin_tree_is_excluded_visibly"]
+
+[[invariant]]
+id = "ZI-85"
+statement = "the Git child environment is constructed from an empty inherited allowlist"
+creates = "0"
+lands_in = ["0"]
+modifies = []
+design_section = "5.4.3A"
+mutants = ["W0-M024"]
+killers = ["tests/unit/test_gate7_git_order.py::test_git_child_environment_is_exact_and_immutable"]
+
+[[invariant]]
+id = "ZI-86"
+statement = "only validated canonical loose objects may be appended"
+creates = "0"
+lands_in = ["0", "4"]
+modifies = []
+design_section = "5.8.3"
+mutants = ["W0-M025"]
+killers = ["tests/unit/test_gate7_gitadmin.py::test_exact_and_baseline_relations_refuse_divergence"]

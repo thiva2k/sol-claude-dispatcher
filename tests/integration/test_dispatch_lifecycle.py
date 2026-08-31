@@ -13,10 +13,12 @@ MCP surface itself, including a real stdio handshake.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
+import sol_claude_dispatcher.server as server_module
 from sol_claude_dispatcher.models import TaskState
 
 
@@ -49,7 +51,9 @@ async def test_dispatch_success_records_evidence_and_awaits_sol_review(
     ]
     assert observations["worker_result_parsed"] is True
     assert observations["scope_valid"] is True
-    assert observations["primary_worktree_clean"] is True
+    # Gate 7 deliberately performs no post-worker Git query.  Raw filesystem
+    # equality proves non-interference, but does not claim Git-cleanliness.
+    assert observations["primary_worktree_clean"] is None
     assert observations["diff_bytes"] > 0
 
     # §17: the dispatcher re-ran the envelope's command itself.
@@ -64,6 +68,16 @@ async def test_dispatch_success_records_evidence_and_awaits_sol_review(
     assert (task_dir / "runs" / "001" / "dispatcher-result.json").exists()
     assert (task_dir / "runs" / "001" / "worker-result.json").exists()
     assert (task_dir / "runs" / "001" / "stdout.json").exists()
+    run_dir = task_dir / "runs" / "001"
+    assert (run_dir / "git-admin-worker-start.json").exists()
+    assert (run_dir / "git-admin-worker-exit.json").exists()
+    assert (run_dir / "git-admin-validation-exit.json").exists()
+    journal = [
+        json.loads(line)
+        for line in (run_dir / "validation-invocations.jsonl").read_text().splitlines()
+    ]
+    assert [row["event"] for row in journal] == ["spawn_attempt", "completion"]
+    assert all(row["authority"] is False for row in journal)
     diff = (task_dir / "evidence" / "diff.patch").read_text()
     assert "deploy.py" in diff
     changed = json.loads((task_dir / "evidence" / "changed-paths.json").read_text())
@@ -91,6 +105,108 @@ async def test_dispatch_success_records_evidence_and_awaits_sol_review(
     assert "mcp__*" in invocation["disallowed_tools"]
 
 
+async def test_validation_admin_tamper_is_row_four_and_attributed_to_validation(
+    dispatcher, request_payload, fake_env
+):
+    script = """
+from pathlib import Path
+root = Path.cwd()
+raw = (root / '.git').read_text().strip()
+target = raw.removeprefix('gitdir: ')
+gitdir = Path(target)
+if not gitdir.is_absolute():
+    gitdir = (root / gitdir).resolve()
+(gitdir / 'VALIDATION_TAMPER').write_bytes(b'validation')
+"""
+    request_payload["validation"] = {
+        "commands": [
+            {"argv": [sys.executable, "-c", script], "timeout_seconds": 30}
+        ]
+    }
+
+    result = await dispatcher.dispatch_claude_task(request_payload)
+
+    assert result["status"] == TaskState.POLICY_VIOLATION.value
+    divergences = result["administrative_authority"]["divergences"]
+    assert [item["attributed_to"] for item in divergences] == ["validation"]
+    assert divergences[0]["code"] == "ValidationTouchedAdministrativeState"
+    assert any(
+        path.endswith("/VALIDATION_TAMPER")
+        for path in divergences[0]["details"]["added_registration"]
+    )
+    record = dispatcher.store.load(result["task_id"])
+    assert any(
+        marker.startswith("git_admin_validation:added_registration:")
+        for marker in record.policy_violations
+    )
+    run_dir = Path(dispatcher.store.run_dir(result["task_id"], 1))
+    persisted = json.loads((run_dir / "git-admin-divergence.json").read_text())
+    assert persisted["divergences"] == divergences
+
+
+async def test_worker_admin_tamper_is_row_four_and_validation_never_runs(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    monkeypatch.setenv("FAKE_CLAUDE_ADMIN_TOUCH", "WORKER_TAMPER")
+    request_payload["validation"] = {
+        "commands": [{"argv": ["/bin/true"], "timeout_seconds": 30}]
+    }
+
+    result = await dispatcher.dispatch_claude_task(request_payload)
+
+    assert result["status"] == TaskState.POLICY_VIOLATION.value
+    assert result["validation_results"] == []
+    divergences = result["administrative_authority"]["divergences"]
+    assert [item["attributed_to"] for item in divergences] == ["worker"]
+    assert any(
+        path.endswith("/WORKER_TAMPER")
+        for path in divergences[0]["details"]["added_registration"]
+    )
+    run_dir = Path(dispatcher.store.run_dir(result["task_id"], 1))
+    assert not (run_dir / "validation-invocations.jsonl").exists()
+
+
+async def test_admin_terminals_bracket_worker_and_validation_filesystem_snapshots(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    events: list[str] = []
+    real_admin = server_module.capture_repository_administration
+    real_snapshot = server_module.capture_snapshot
+
+    def capture_admin(*args, **kwargs):
+        events.append(
+            "admin_worker_exit"
+            if "admin_worker_exit" not in events
+            else "admin_validation_exit"
+        )
+        return real_admin(*args, **kwargs)
+
+    def capture_filesystem(*args, **kwargs):
+        role = kwargs.get("role")
+        if role in {
+            "task_worktree_worker_exit",
+            "task_worktree_post_validation",
+        }:
+            events.append(str(role))
+        return real_snapshot(*args, **kwargs)
+
+    monkeypatch.setattr(server_module, "capture_repository_administration", capture_admin)
+    monkeypatch.setattr(server_module, "capture_snapshot", capture_filesystem)
+    request_payload["validation"] = {
+        "commands": [{"argv": ["/bin/true"], "timeout_seconds": 30}]
+    }
+
+    result = await dispatcher.dispatch_claude_task(request_payload)
+
+    assert result["status"] == TaskState.AWAITING_SOL_REVIEW.value
+    assert events == [
+        "admin_worker_exit",
+        "task_worktree_worker_exit",
+        "task_worktree_post_validation",
+        "admin_validation_exit",
+    ]
+
+
 async def test_worker_argv_carries_the_hard_enforcement_surface(
     dispatcher, request_payload, fake_env, worker_invocations
 ):
@@ -115,9 +231,12 @@ async def test_worker_argv_carries_the_hard_enforcement_surface(
     assert "--output-format" in argv and argv[argv.index("--output-format") + 1] == "json"
     assert argv[argv.index("--permission-mode") + 1] != "bypassPermissions"
 
-    # Policy text and result schema are passed inline (DISCOVERY deltas 1/2).
+    # Policy text, the hash-verified lifecycle projection, and result schema
+    # are passed inline. Gate 7 forbids silently replacing the policy; it is
+    # the exact prefix of the composed system prompt.
     policy = Path(dispatcher.config.worker_policy_file).read_text()
-    assert call["append_system_prompt"] == policy
+    assert call["append_system_prompt"].startswith(policy + "\n\n")
+    assert "# Core execution method" in call["append_system_prompt"]
     assert json.loads(call["json_schema"])["title"] or True
 
     # The envelope's objective reached the worker; internal ids never came
@@ -369,7 +488,7 @@ async def test_worktree_is_never_merged_into_the_primary_tree(
     result = await dispatcher.dispatch_claude_task(request_payload)
 
     assert (git_repo / ".git" / "HEAD").read_text() == head_before
-    assert result["dispatcher_observations"]["primary_worktree_clean"] is True
+    assert result["dispatcher_observations"]["primary_worktree_clean"] is None
 
 
 async def test_cli_that_ran_but_produced_nothing_is_reported_as_a_cli_failure(

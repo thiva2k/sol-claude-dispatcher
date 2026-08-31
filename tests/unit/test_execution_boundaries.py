@@ -111,7 +111,7 @@ def dirty_environ(monkeypatch, tmp_path: Path) -> None:
 def _envelope_with_commands(git_repo: Path, argv_list: list[list[str]]) -> TaskEnvelope:
     request = TaskRequest.model_validate(
         {
-            "repository": {"root": str(git_repo), "base_ref": "HEAD"},
+            "repository": {"root": str(git_repo), "base_ref": BASE_COMMIT},
             "task": {"kind": "implementation", "objective": "Do the thing."},
             "validation": {
                 "commands": [{"argv": argv, "timeout_seconds": 15} for argv in argv_list]

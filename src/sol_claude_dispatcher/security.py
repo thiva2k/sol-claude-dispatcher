@@ -19,10 +19,10 @@ containment of every path it derives, so neither layer depends on the other
 having been called.
 
 ``validate_repository_root`` rejects: nonexistent paths, non-directories,
-non-git directories, any path that is not itself the git top level, paths that
-are not *exactly* a configured allowed root, path traversal, and symlink
-escapes (checked *after* ``Path.resolve()`` and after git has named the top
-level, comparing canonical paths rather than string prefixes or ancestry).
+unsupported raw ``.git`` layouts, paths that are not *exactly* a configured
+allowed root, path traversal, and symlink escapes.  Repository authorization
+is deliberately complete before the first Git process: Git is not permitted to
+name the repository whose authority is being established.
 
 ``worker_environment`` builds the child environment (§22 layer 4 and layer 7):
 it sets ``SOL_WORKER=1``, ``SOL_DISPATCH_DEPTH``, ``SOL_TASK_ID``, and strips
@@ -45,7 +45,7 @@ from .errors import (
     RecursionDetected,
     RepositoryNotAllowed,
 )
-from .git import git_top_level
+from .evidence.identity import capture_repository_authority, raw_realpath
 
 __all__ = [
     "validate_task_id",
@@ -159,25 +159,19 @@ def validate_task_id(value: str) -> str:
     return value
 
 
-def validate_repository_root(raw_root: str, config: Config) -> Path:
-    """Establish canonical repository identity and allowlist-check it (§24, P0-2).
+def authorize_repository_root(raw_root: str, config: Config) -> Path:
+    """Canonicalize and allowlist a repository without opening its authority.
 
     Order (fail closed at the first violation):
 
     1. reject empty / relative / null-byte-bearing input;
     2. resolve symlinks and ``..`` (``Path.resolve()``);
     3. reject nonexistent paths and non-directories;
-    4. ask *git* for the repository's top level (``git rev-parse
-       --show-toplevel``, argv, never a shell) and canonicalise the answer;
-       a path that is not inside a work tree is rejected here;
-    5. reject any request whose resolved path is not itself that top level —
-       a subdirectory of an allowed repository is **not** an allowed
-       repository, because accepting it would give the same repository two
-       identities (two lock names, two evidence roots);
-    6. require the canonical top level to be **exactly** equal to one of the
+    4. require the canonical path to be **exactly** equal to one of the
        configured allowed roots. Not a descendant of one, not a string prefix
        match — equal;
-    7. return the canonical top level. This becomes ``canonical_root``, and is
+    5. return the canonical root without reading ``.git``. This becomes
+       ``canonical_root``, and is
        the only spelling that may be used for locking, worktree derivation and
        evidence collection.
 
@@ -201,7 +195,7 @@ def validate_repository_root(raw_root: str, config: Config) -> Path:
             details={"root": raw_root},
         )
 
-    path = Path(raw_root).resolve()
+    path = Path(os.fsdecode(raw_realpath(raw_root)))
 
     if not path.exists():
         raise InvalidRepository(
@@ -212,28 +206,23 @@ def validate_repository_root(raw_root: str, config: Config) -> Path:
             "Repository root is not a directory.", details={"root": str(path)}
         )
 
-    # git names the repository, not the caller. Raises InvalidRepository when
-    # the path is not inside a work tree or git could not be consulted.
-    canonical_root = git_top_level(path)
-
-    if path != canonical_root:
-        raise InvalidRepository(
-            "Repository root must be the git top-level directory, not a "
-            "subdirectory of one.",
-            details={"root": str(path), "git_top_level": str(canonical_root)},
-            remediation=(
-                "Dispatch against the repository root itself "
-                f"({canonical_root}); scope a task to a subdirectory with "
-                "[scope].allowed_paths instead."
-            ),
-        )
-
     allowed_roots = [Path(r).resolve() for r in config.security.allowed_repository_roots]
-    if canonical_root not in allowed_roots:
+    if path not in allowed_roots:
+        containing = next((root for root in allowed_roots if root in path.parents), None)
+        if containing is not None:
+            raise InvalidRepository(
+                "Repository root must be the configured repository root, not a "
+                "subdirectory of one.",
+                details={"root": str(path), "allowed_root": str(containing)},
+                remediation=(
+                    "Dispatch against the configured repository root itself; "
+                    "scope the task with [scope].allowed_paths instead."
+                ),
+            )
         raise RepositoryNotAllowed(
             "Repository is not an allowed repository root.",
             details={
-                "root": str(canonical_root),
+                "root": str(path),
                 "allowed_roots": [str(r) for r in allowed_roots],
             },
             remediation=(
@@ -243,7 +232,20 @@ def validate_repository_root(raw_root: str, config: Config) -> Path:
             ),
         )
 
-    return canonical_root
+    return path
+
+
+def validate_repository_root(raw_root: str, config: Config) -> Path:
+    """Authorize a root and capture its raw repository authority."""
+
+    path = authorize_repository_root(raw_root, config)
+    # Gate 7 R4: authority is established from lstat/open/readlink only.  A
+    # normal repository with a directory .git self-authorises after the exact
+    # root allowlist check.  Linked-worktree roots require an explicit sealed
+    # administration-root authority and are therefore not accepted through
+    # this primary-root entry point.
+    capture_repository_authority(path, authorized_root=path)
+    return path
 
 
 def assert_no_recursion(

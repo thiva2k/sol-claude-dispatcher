@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -322,13 +323,63 @@ def test_fable_argv_is_read_only_and_fresh(dispatcher_config, envelope, git_repo
     ).read_text()
 
 
-def test_fable_config_with_write_tools_is_refused(dispatcher_config, envelope, git_repo, fake_env):
-    dispatcher_config.claude.reviewer_tools = ["Read", "Edit"]
-    with pytest.raises(ConfigurationError):
+@pytest.mark.parametrize(
+    "reviewer_tools",
+    [
+        pytest.param(["default"], id="default-bundle"),
+        pytest.param(["*"], id="wildcard"),
+        pytest.param(["Read", "Glob", "Grep", "WebSearch"], id="superset"),
+        pytest.param(["Read", "Agent"], id="subagent"),
+        pytest.param(["Read", "Edit"], id="mutator"),
+        pytest.param([], id="empty-restores-cli-defaults"),
+    ],
+)
+def test_fable_config_runtime_check_cannot_be_bypassed_by_assignment(
+    dispatcher_config, envelope, git_repo, fake_env, reviewer_tools
+):
+    # Pydantic validate_assignment rejects an ordinary assignment. Simulate a
+    # call-site/object mutation bypass: the invocation builder remains a
+    # separate fail-closed boundary and must still reject it before argv.
+    object.__setattr__(dispatcher_config.claude, "reviewer_tools", reviewer_tools)
+    with pytest.raises(ConfigurationError) as exc:
         build_fable_invocation(
             envelope, dispatcher_config, session_id="s", prompt="p",
             cwd=git_repo, base_env=fake_env,
         )
+    assert exc.value.details["configured_tools"] == reviewer_tools
+
+
+@pytest.mark.parametrize("reviewer_tools", [["Read"], ["Glob", "Grep"]])
+def test_fable_config_can_narrow_to_an_exact_nonempty_subset(
+    dispatcher_config, envelope, git_repo, fake_env, reviewer_tools
+):
+    dispatcher_config.claude.reviewer_tools = reviewer_tools
+    argv = build_argv(
+        build_fable_invocation(
+            envelope, dispatcher_config, session_id="s", prompt="p",
+            cwd=git_repo, base_env=fake_env,
+        )
+    )
+    assert flag_values(argv, "--tools") == reviewer_tools
+
+
+@pytest.mark.parametrize(
+    "injected_tools",
+    [["default"], ["*"], ["Read", "WebSearch"], ["Read", "Task"], []],
+)
+def test_fable_invocation_list_mutation_cannot_escape_closed_allowlist(
+    dispatcher_config, envelope, git_repo, fake_env, injected_tools
+):
+    spec = build_fable_invocation(
+        envelope, dispatcher_config, session_id="s", prompt="p",
+        cwd=git_repo, base_env=fake_env,
+    )
+    # WorkerInvocation is frozen, but list members remain mutable. Mutating
+    # that list after the builder returns must not bypass the argv boundary.
+    spec.tools.clear()
+    spec.tools.extend(injected_tools)
+    with pytest.raises(InternalDispatcherError):
+        build_argv(spec)
 
 
 # ---------------------------------------------------------------------------
@@ -619,6 +670,88 @@ async def test_run_worker_success(dispatcher_config, envelope, git_repo, fake_en
     assert log[0]["cwd"] == str(git_repo)
     assert log[0]["has_worktree"] is False          # B2: never delegated
     assert log[0]["has_resume"] is False
+
+
+async def test_spawn_callback_runs_exactly_once_after_child_exists(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    """Gate 7: RUNNING authority may be acquired only for a real child.
+
+    The callback receives the exact process that ``run_worker`` created.  A
+    live-pid check inside the callback is the load-bearing control: calling it
+    before ``create_subprocess_exec`` returns, or manufacturing a placeholder
+    object, cannot satisfy this test.
+    """
+    seen: list[tuple[int, bool]] = []
+
+    def after_spawn(process) -> None:
+        os.kill(process.pid, 0)
+        seen.append((process.pid, process.returncode is None))
+
+    spec = replace(
+        invocation(dispatcher_config, envelope, git_repo, fake_env),
+        on_spawn=after_spawn,
+    )
+    run = await run_worker(spec)
+
+    assert run.exit_code == 0
+    assert seen and len(seen) == 1
+    record = read_fake_log(tmp_path / "fake-claude.log")[0]
+    assert seen == [(record["pid"], True)]
+
+
+async def test_spawn_callback_failure_kills_child_and_is_a_refusal(
+    dispatcher_config, envelope, git_repo, fake_env
+):
+    """A failed RUNNING transition must not leave an unowned worker alive."""
+
+    class SpawnReservationRefused(RuntimeError):
+        pass
+
+    fake_env["FAKE_CLAUDE_MODE"] = "timeout"
+    fake_env["FAKE_CLAUDE_SLEEP"] = "60"
+    seen_pids: list[int] = []
+
+    def refuse_after_spawn(process) -> None:
+        os.kill(process.pid, 0)
+        seen_pids.append(process.pid)
+        raise SpawnReservationRefused("durable RUNNING transition refused")
+
+    spec = replace(
+        invocation(
+            dispatcher_config,
+            envelope,
+            git_repo,
+            fake_env,
+            timeout_seconds=30,
+            grace_seconds=0.2,
+        ),
+        on_spawn=refuse_after_spawn,
+    )
+
+    with pytest.raises(SpawnReservationRefused, match="RUNNING transition refused"):
+        await run_worker(spec)
+
+    assert len(seen_pids) == 1
+    with pytest.raises(ProcessLookupError):
+        os.kill(seen_pids[0], 0)
+
+
+async def test_spawn_callback_is_never_called_when_exec_does_not_create_a_child(
+    dispatcher_config, envelope, git_repo, fake_env, tmp_path
+):
+    """The positive callback test is paired with the no-child negative leg."""
+    calls: list[object] = []
+    dispatcher_config.claude.binary = str(tmp_path / "no-such-claude")
+    spec = replace(
+        invocation(dispatcher_config, envelope, git_repo, fake_env),
+        on_spawn=calls.append,
+    )
+
+    with pytest.raises(ClaudeBinaryNotFound):
+        await run_worker(spec)
+
+    assert calls == []
 
 
 async def test_run_worker_records_env_markers_and_no_secrets(

@@ -60,6 +60,62 @@ __all__ = [
     "ConfigurationError",
     "ConfigAuthorityViolation",
     "StateCorruption",
+    "AdminAllowlistPresent",
+    "AmbiguousRepositoryHistory",
+    "AttributionClosureViolated",
+    "BaseBlobUnreadable",
+    "BaseCommitAbsent",
+    "BaseObjectVerificationFailed",
+    "BaseRefNotACommitObject",
+    "BaseTreeSnapshotFailed",
+    "CheckoutTransformationBudgetExceeded",
+    "DispatcherSetupTouchedPrimaryTree",
+    "EvidenceFreezeViolated",
+    "EvidenceIncompleteForReview",
+    "EvidenceExceedsReviewBudget",
+    "FilesystemSnapshotFailed",
+    "ForbiddenGitInvocation",
+    "GitAdministrativeCaptureFailed",
+    "GitArgvPinDisplaced",
+    "GitBeforeEstablishment",
+    "GitIdentityDerivationAttempted",
+    "HistoryIdentityDerivationDisagreement",
+    "InventoryFilesystemUnsupported",
+    "PathIdentityUnrepresentable",
+    "PhaseRegression",
+    "ProductionBaseRefNotExact",
+    "RefResolutionFailed",
+    "RepositoryAdministrationUnestablished",
+    "RepositoryAdministrationUnreconciled",
+    "RepositoryAdministrationUnsupported",
+    "RepositoryAuthorityCaptureFailed",
+    "RepositoryIdentityUnsealed",
+    "RepositoryLayoutUnreadable",
+    "RepositoryObjectStoreEntryUnsupported",
+    "RepositoryObjectStoreMalformed",
+    "RepositoryRootDrift",
+    "RunFinalizationFailed",
+    "SealAbsentAfterWorker",
+    "SealBudgetExceeded",
+    "SealIntegrityFailed",
+    "SealPinSetStale",
+    "SealProvenanceInvalid",
+    "SnapshotBudgetExceeded",
+    "DiffBudgetExceeded",
+    "StoreRoutingUnreadable",
+    "UnsupportedObjectFormat",
+    "UnsupportedRefStorage",
+    "ValidationAttributionUnknown",
+    "ValidationTouchedAdministrativeState",
+    "ValidationTouchedPrimaryTree",
+    "WorkerAttributionAmbiguous",
+    "WorkerExitSnapshotMissing",
+    "WorktreeGitdirNotDispatcherOwned",
+    "WorktreeGitfileMalformed",
+    "WorktreeGitfileNotRegular",
+    "WorktreeHeadNotRegular",
+    "WorktreeIndirectionChanged",
+    "WorktreeSealSchemaUnsupported",
     "ERROR_CODES",
 ]
 
@@ -437,13 +493,15 @@ class UnapprovedProjectGuidanceFile(DispatcherError):
 
 
 class ContextTooLarge(DispatcherError):
-    """The composed worker context cannot be transported to the CLI (B1).
+    """The complete worker invocation cannot be transported to the CLI (B1).
 
     ``--append-system-prompt`` is emitted inline as ONE argv element, and Linux
     caps a single argv element at 131,071 bytes (measured). The dispatcher's V1
     ceiling is 122,880 bytes of UTF-8, checked against the FINAL composed value
-    before ``execve`` — and again, defensively, if the kernel returns ``E2BIG``
-    anyway.
+    before ``execve``.  The runner also measures every final argv element,
+    every encoded ``KEY=value`` envp element, all NUL terminators and the two
+    pointer tables against ``SC_ARG_MAX`` with an explicit reserve.  Kernel
+    ``E2BIG`` remains a defence-in-depth typed refusal.
 
     This is a **refusal**, not a degradation. The approved deterministic context
     is part of the task contract, so the dispatcher never drops a Skill, never
@@ -451,8 +509,9 @@ class ContextTooLarge(DispatcherError):
     selected profile is reported instead, so Sol can narrow the task or wait for
     a transport that carries more.
 
-    ``details`` carries bounded facts only — sizes, ids, the model, the role —
-    never the payload, never projected guidance, never anything secret-adjacent.
+    ``details`` carries bounded facts only — sizes, indices, ids, the model and
+    the role — never argv text, environment names or values, projected
+    guidance, or anything secret-adjacent.
     """
 
     code = "ContextTooLarge"
@@ -538,6 +597,347 @@ class InternalDispatcherError(DispatcherError):
     code = "InternalDispatcherError"
 
 
+# --------------------------------------------------------------------------
+# Gate 7 Wave-0 authority, evidence and refusal taxonomy
+# --------------------------------------------------------------------------
+
+
+class RepositoryAdministrationUnestablished(DispatcherError):
+    """No operator-approved administrative baseline exists for the repository."""
+
+    code = "RepositoryAdministrationUnestablished"
+
+
+class RepositoryAdministrationUnreconciled(DispatcherError):
+    """Current administrative authority diverges from its approved baseline."""
+
+    code = "RepositoryAdministrationUnreconciled"
+
+
+class RepositoryAdministrationUnsupported(DispatcherError):
+    """Repository administration has a shape Wave 0 cannot safely interpret."""
+
+    code = "RepositoryAdministrationUnsupported"
+
+
+class RepositoryLayoutUnreadable(DispatcherError):
+    """The raw repository-layout resolver could not establish authority."""
+
+    code = "RepositoryLayoutUnreadable"
+
+
+class RepositoryObjectStoreMalformed(DispatcherError):
+    """A loose object is not canonical for its content-addressed path."""
+
+    code = "RepositoryObjectStoreMalformed"
+
+
+class RepositoryObjectStoreEntryUnsupported(DispatcherError):
+    """An object-store entry has a prohibited name or filesystem type."""
+
+    code = "RepositoryObjectStoreEntryUnsupported"
+
+
+class UnsupportedObjectFormat(DispatcherError):
+    """The repository object format is outside Wave 0's supported set."""
+
+    code = "UnsupportedObjectFormat"
+
+
+class ProductionBaseRefNotExact(DispatcherError):
+    """A production dispatch supplied a symbolic rather than exact base."""
+
+    code = "ProductionBaseRefNotExact"
+
+
+class BaseRefNotACommitObject(DispatcherError):
+    """The exact base object exists but is not a commit."""
+
+    code = "BaseRefNotACommitObject"
+
+
+class BaseCommitAbsent(DispatcherError):
+    """The exact base commit is not locally present."""
+
+    code = "BaseCommitAbsent"
+
+
+class BaseTreeSnapshotFailed(GitEvidenceCollectionFailed):
+    """A complete base-tree identity snapshot could not be constructed."""
+
+    code = "BaseTreeSnapshotFailed"
+
+
+class BaseBlobUnreadable(GitEvidenceCollectionFailed):
+    """A base blob could not be materialised during PREPARE."""
+
+    code = "BaseBlobUnreadable"
+
+
+class BaseObjectVerificationFailed(GitEvidenceCollectionFailed):
+    """Materialised bytes did not hash to the requested Git object id."""
+
+    code = "BaseObjectVerificationFailed"
+
+
+class SealBudgetExceeded(DispatcherError):
+    """A pre-worker seal exceeded a configured fail-closed budget."""
+
+    code = "SealBudgetExceeded"
+
+
+class SealIntegrityFailed(DispatcherError):
+    """A persisted seal or one of its covered artefacts failed verification."""
+
+    code = "SealIntegrityFailed"
+
+
+class SealAbsentAfterWorker(DispatcherError):
+    """A pre-worker seal is absent after durable worker ownership existed."""
+
+    code = "SealAbsentAfterWorker"
+
+
+class SealProvenanceInvalid(InternalDispatcherError):
+    """A seal claims provenance inconsistent with durable worker ownership."""
+
+    code = "SealProvenanceInvalid"
+
+
+class WorktreeIndirectionChanged(DispatcherError):
+    """The sealed linked-worktree indirection changed after worker start."""
+
+    code = "WorktreeIndirectionChanged"
+
+
+class StoreRoutingUnreadable(DispatcherError):
+    """Object-store routing authority could not be read safely."""
+
+    code = "StoreRoutingUnreadable"
+
+
+class RepositoryAuthorityCaptureFailed(DispatcherError):
+    """A raw repository-authority capture could not be completed."""
+
+    code = "RepositoryAuthorityCaptureFailed"
+
+
+class AdminAllowlistPresent(InternalDispatcherError):
+    """Administrative capture attempted to exempt a path by name or prefix."""
+
+    code = "AdminAllowlistPresent"
+
+
+class GitBeforeEstablishment(InternalDispatcherError):
+    """A dispatcher Git invocation preceded its administrative gate."""
+
+    code = "GitBeforeEstablishment"
+
+
+class WorkerAttributionAmbiguous(DispatcherError):
+    """Worker-attributable filesystem change could not be determined exactly."""
+
+    code = "WorkerAttributionAmbiguous"
+
+
+class ValidationAttributionUnknown(DispatcherError):
+    """Validation-attributable filesystem change could not be determined."""
+
+    code = "ValidationAttributionUnknown"
+
+
+class WorkerExitSnapshotMissing(DispatcherError):
+    """The durable worker-exit snapshot needed for attribution is absent."""
+
+    code = "WorkerExitSnapshotMissing"
+
+
+class AttributionClosureViolated(InternalDispatcherError):
+    """The final delta is not contained in worker union validation deltas."""
+
+    code = "AttributionClosureViolated"
+
+
+class EvidenceFreezeViolated(DispatcherError):
+    """A validation command changed already-frozen worker evidence."""
+
+    code = "EvidenceFreezeViolated"
+
+
+class EvidenceIncompleteForReview(DispatcherError):
+    """The canonical worker patch omits at least one changed path."""
+
+    code = "EvidenceIncompleteForReview"
+
+
+class EvidenceExceedsReviewBudget(DispatcherError):
+    """The complete canonical worker patch cannot fit the review input budget."""
+
+    code = "EvidenceExceedsReviewBudget"
+
+
+class ValidationTouchedAdministrativeState(DispatcherError):
+    """Validation changed protected repository administrative authority."""
+
+    code = "ValidationTouchedAdministrativeState"
+
+
+class ValidationTouchedPrimaryTree(DispatcherError):
+    """Validation changed the primary working tree."""
+
+    code = "ValidationTouchedPrimaryTree"
+
+
+class PathIdentityUnrepresentable(DispatcherError):
+    """A changed raw path cannot be represented at the public boundary."""
+
+    code = "PathIdentityUnrepresentable"
+
+
+class InventoryFilesystemUnsupported(GitEvidenceCollectionFailed):
+    """The filesystem cannot supply the identity guarantees inventory needs."""
+
+    code = "InventoryFilesystemUnsupported"
+
+
+class FilesystemSnapshotFailed(DispatcherError):
+    """A complete raw filesystem snapshot could not be constructed."""
+
+    code = "FilesystemSnapshotFailed"
+
+
+class SnapshotBudgetExceeded(DispatcherError):
+    """A raw filesystem snapshot exceeded a configured bound."""
+
+    code = "SnapshotBudgetExceeded"
+
+
+class DiffBudgetExceeded(DispatcherError):
+    """Native diff production exceeded its deterministic-work budget."""
+
+    code = "DiffBudgetExceeded"
+
+
+class CheckoutTransformationBudgetExceeded(DispatcherError):
+    """Base-to-worktree reconciliation exceeded its configured budget."""
+
+    code = "CheckoutTransformationBudgetExceeded"
+
+
+class WorktreeGitfileNotRegular(DispatcherError):
+    """A linked-worktree .git authority entry is not a regular file."""
+
+    code = "WorktreeGitfileNotRegular"
+
+
+class WorktreeGitfileMalformed(DispatcherError):
+    """A linked-worktree .git file does not have the exact required shape."""
+
+    code = "WorktreeGitfileMalformed"
+
+
+class WorktreeGitdirNotDispatcherOwned(DispatcherError):
+    """A linked worktree points outside the dispatcher's sealed authority."""
+
+    code = "WorktreeGitdirNotDispatcherOwned"
+
+
+class WorktreeHeadNotRegular(DispatcherError):
+    """The linked-worktree HEAD authority entry is not a regular file."""
+
+    code = "WorktreeHeadNotRegular"
+
+
+class WorktreeSealSchemaUnsupported(DispatcherError):
+    """A persisted worktree authority seal uses an unsupported schema."""
+
+    code = "WorktreeSealSchemaUnsupported"
+
+
+class RepositoryIdentityUnsealed(DispatcherError):
+    """A production path attempted to consume unsealed repository identity."""
+
+    code = "RepositoryIdentityUnsealed"
+
+
+class SealPinSetStale(DispatcherError):
+    """A seal was produced under a Git pin set different from the current set."""
+
+    code = "SealPinSetStale"
+
+
+class RepositoryRootDrift(DispatcherError):
+    """The live repository root no longer matches sealed authority."""
+
+    code = "RepositoryRootDrift"
+
+
+class GitIdentityDerivationAttempted(InternalDispatcherError):
+    """A production Git path attempted a forbidden identity derivation."""
+
+    code = "GitIdentityDerivationAttempted"
+
+
+class GitArgvPinDisplaced(InternalDispatcherError):
+    """A call site displaced the fixed Git pin block from its required position."""
+
+    code = "GitArgvPinDisplaced"
+
+
+class DispatcherSetupTouchedPrimaryTree(DispatcherError):
+    """Dispatcher-owned PREPARE work changed the primary working tree."""
+
+    code = "DispatcherSetupTouchedPrimaryTree"
+
+
+class HistoryIdentityDerivationDisagreement(DispatcherError):
+    """Pinned and unpinned onboarding history walks disagreed."""
+
+    code = "HistoryIdentityDerivationDisagreement"
+
+
+class AmbiguousRepositoryHistory(DispatcherError):
+    """Onboarding found no single repository history identity to approve."""
+
+    code = "AmbiguousRepositoryHistory"
+
+
+class GitAdministrativeCaptureFailed(DispatcherError):
+    """A raw administrative capture was incomplete or unreadable."""
+
+    code = "GitAdministrativeCaptureFailed"
+
+
+class RefResolutionFailed(DispatcherError):
+    """A raw primary-tree ref chain could not be resolved safely."""
+
+    code = "RefResolutionFailed"
+
+
+class UnsupportedRefStorage(DispatcherError):
+    """The repository ref-storage format is unsupported by Wave 0."""
+
+    code = "UnsupportedRefStorage"
+
+
+class ForbiddenGitInvocation(InternalDispatcherError):
+    """Dispatcher code attempted a Git invocation outside the declared order."""
+
+    code = "ForbiddenGitInvocation"
+
+
+class RunFinalizationFailed(DispatcherError):
+    """A worker existed but its run could not be finalized safely."""
+
+    code = "RunFinalizationFailed"
+
+
+class PhaseRegression(InternalDispatcherError):
+    """A ToolExecution attempted to move to an earlier execution phase."""
+
+    code = "PhaseRegression"
+
+
 #: Every error code the dispatcher may emit. Used by tests and by the docs to
 #: guarantee the taxonomy stays complete and in sync with §29.
 ERROR_CODES: frozenset[str] = frozenset(
@@ -578,5 +978,61 @@ ERROR_CODES: frozenset[str] = frozenset(
         "RecursionDetected",
         "ConfigurationError",
         "ConfigAuthorityViolation",
+        "AdminAllowlistPresent",
+        "AmbiguousRepositoryHistory",
+        "AttributionClosureViolated",
+        "BaseBlobUnreadable",
+        "BaseCommitAbsent",
+        "BaseObjectVerificationFailed",
+        "BaseRefNotACommitObject",
+        "BaseTreeSnapshotFailed",
+        "CheckoutTransformationBudgetExceeded",
+        "DispatcherSetupTouchedPrimaryTree",
+        "EvidenceFreezeViolated",
+        "EvidenceIncompleteForReview",
+        "EvidenceExceedsReviewBudget",
+        "FilesystemSnapshotFailed",
+        "ForbiddenGitInvocation",
+        "GitAdministrativeCaptureFailed",
+        "GitArgvPinDisplaced",
+        "GitBeforeEstablishment",
+        "GitIdentityDerivationAttempted",
+        "HistoryIdentityDerivationDisagreement",
+        "InventoryFilesystemUnsupported",
+        "PathIdentityUnrepresentable",
+        "PhaseRegression",
+        "ProductionBaseRefNotExact",
+        "RefResolutionFailed",
+        "RepositoryAdministrationUnestablished",
+        "RepositoryAdministrationUnreconciled",
+        "RepositoryAdministrationUnsupported",
+        "RepositoryAuthorityCaptureFailed",
+        "RepositoryIdentityUnsealed",
+        "RepositoryLayoutUnreadable",
+        "RepositoryObjectStoreEntryUnsupported",
+        "RepositoryObjectStoreMalformed",
+        "RepositoryRootDrift",
+        "RunFinalizationFailed",
+        "SealAbsentAfterWorker",
+        "SealBudgetExceeded",
+        "SealIntegrityFailed",
+        "SealPinSetStale",
+        "SealProvenanceInvalid",
+        "SnapshotBudgetExceeded",
+        "DiffBudgetExceeded",
+        "StoreRoutingUnreadable",
+        "UnsupportedObjectFormat",
+        "UnsupportedRefStorage",
+        "ValidationAttributionUnknown",
+        "ValidationTouchedAdministrativeState",
+        "ValidationTouchedPrimaryTree",
+        "WorkerAttributionAmbiguous",
+        "WorkerExitSnapshotMissing",
+        "WorktreeGitdirNotDispatcherOwned",
+        "WorktreeGitfileMalformed",
+        "WorktreeGitfileNotRegular",
+        "WorktreeHeadNotRegular",
+        "WorktreeIndirectionChanged",
+        "WorktreeSealSchemaUnsupported",
     }
 )

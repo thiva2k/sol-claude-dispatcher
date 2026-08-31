@@ -49,13 +49,15 @@ import errno
 import json
 import os
 import signal
+import struct
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping, Sequence
 
 from .config import (
+    FABLE_REVIEWER_TOOL_ALLOWLIST,
     MAX_APPEND_SYSTEM_PROMPT_BYTES,
     MEASURED_SINGLE_ARGV_LIMIT_BYTES,
     Config,
@@ -102,6 +104,9 @@ __all__ = [
     "MAX_RECOVERED_BYTES",
     "MAX_APPEND_SYSTEM_PROMPT_BYTES",
     "MEASURED_SINGLE_ARGV_LIMIT_BYTES",
+    "EXECVE_ARGV_SAFETY_RESERVE_BYTES",
+    "ExecveTransportMeasurement",
+    "measure_execve_transport",
 ]
 
 #: Feature flags for the installed Claude CLI. Keyed by flag name; values are
@@ -166,6 +171,18 @@ CORE_DENIED_GIT_OPERATIONS: tuple[str, ...] = (
     "Bash(git reset:*)",
     "Bash(git clean:*)",
     "Bash(git worktree:*)",
+    # Gate 7 T-38. These four broad prefix rules deliberately deny every
+    # branch-creating symbolic-HEAD transition the CLI matcher can express.
+    # They also deny five HEAD-neutral false positives and three historical
+    # ``checkout`` file-restore shapes. ``prompts/worker-policy.md`` therefore
+    # requires the modern ``git restore`` spelling in this same change. This
+    # is a tool-boundary mitigation, not a security boundary: wrappers,
+    # absolute git paths and global options can evade prefix matching, so raw
+    # sealed HEAD authority remains load-bearing.
+    "Bash(git checkout:*)",
+    "Bash(git switch:*)",
+    "Bash(git symbolic-ref:*)",
+    "Bash(git update-ref:*)",
     # Gate 4.5 hole P1. ``git bisect start`` detaches HEAD and checks out
     # arbitrary historical commits; ``git bisect run <cmd>`` then executes an
     # arbitrary command at every bisection step. Neither is reached by any of
@@ -227,6 +244,13 @@ MAX_CAPTURED_BYTES: int = 1_000_000
 #: cannot make the dispatcher read an arbitrarily large file into memory.
 MAX_RECOVERED_BYTES: int = 32 * 1024 * 1024
 
+#: Bytes deliberately left unused below ``SC_ARG_MAX``.  The kernel's
+#: accounting has platform-specific auxiliary overhead beyond the strings and
+#: pointer table we can measure in user space.  Every Claude invocation uses
+#: this same reserve; reviewer-specific budgeting must not invent a second
+#: transport formula.
+EXECVE_ARGV_SAFETY_RESERVE_BYTES: int = 8_192
+
 #: How many trailing lines the structured-result recovery scan will consider.
 _MAX_RECOVERY_LINES: int = 4096
 
@@ -279,6 +303,10 @@ class WorkerInvocation:
     skill_ids: tuple[str, ...] = ()
     #: The project-guidance logical scope ids selected for this run.
     guidance_scope_ids: tuple[str, ...] = ()
+    #: Dispatcher-owned lifecycle hook; never caller data and never argv.
+    on_spawn: Callable[[asyncio.subprocess.Process], None] | None = field(
+        default=None, compare=False, repr=False
+    )
 
 
 @dataclass
@@ -622,6 +650,104 @@ def provider_failure(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ExecveTransportMeasurement:
+    """Size-only accounting for one exact ``execve`` argv and envp.
+
+    No string content is retained here.  In particular, environment names and
+    values never enter a refusal or an evidence record merely because they made
+    an invocation too large.
+    """
+
+    arg_max_bytes: int
+    safety_reserve_bytes: int
+    aggregate_limit_bytes: int
+    argv_element_bytes: tuple[int, ...]
+    envp_element_bytes: tuple[int, ...]
+    argv_bytes: int
+    envp_bytes: int
+    pointer_bytes: int
+    total_bytes: int
+    oversized_argv_indices: tuple[int, ...]
+    oversized_envp_indices: tuple[int, ...]
+
+    @property
+    def transportable(self) -> bool:
+        return (
+            not self.oversized_argv_indices
+            and not self.oversized_envp_indices
+            and self.total_bytes <= self.aggregate_limit_bytes
+        )
+
+
+def measure_execve_transport(
+    argv: Sequence[str],
+    env: Mapping[str, str],
+    *,
+    arg_max_bytes: int | None = None,
+) -> ExecveTransportMeasurement:
+    """Measure the exact NUL-inclusive string and pointer transport block.
+
+    Linux limits every argv and ``KEY=value`` envp string independently to
+    131,071 encoded content bytes (the following NUL occupies the last byte of
+    ``MAX_ARG_STRLEN``).  It also limits the aggregate.  The aggregate here is
+    the exact encoded strings including their NUL terminators plus the
+    ``argv``/``envp`` pointer tables and their two terminating NULL pointers.
+
+    ``arg_max_bytes`` exists for deterministic boundary tests.  Production
+    callers omit it and use the operating system's current ``SC_ARG_MAX``.
+    """
+
+    if arg_max_bytes is None:
+        try:
+            arg_max_bytes = int(os.sysconf("SC_ARG_MAX"))
+        except (OSError, ValueError) as exc:  # pragma: no cover - platform fault
+            raise InternalDispatcherError(
+                "The operating system did not expose a usable argv limit."
+            ) from exc
+    if arg_max_bytes <= EXECVE_ARGV_SAFETY_RESERVE_BYTES:
+        # A non-positive usable aggregate is a deterministic refusal, not an
+        # excuse to skip transport accounting.
+        aggregate_limit_bytes = max(
+            0, arg_max_bytes - EXECVE_ARGV_SAFETY_RESERVE_BYTES
+        )
+    else:
+        aggregate_limit_bytes = (
+            arg_max_bytes - EXECVE_ARGV_SAFETY_RESERVE_BYTES
+        )
+
+    argv_element_bytes = tuple(len(os.fsencode(arg)) for arg in argv)
+    envp_element_bytes = tuple(
+        len(os.fsencode(key)) + 1 + len(os.fsencode(value))
+        for key, value in env.items()
+    )
+    argv_bytes = sum(size + 1 for size in argv_element_bytes)
+    envp_bytes = sum(size + 1 for size in envp_element_bytes)
+    pointer_bytes = (len(argv) + len(env) + 2) * struct.calcsize("P")
+    total_bytes = argv_bytes + envp_bytes + pointer_bytes
+    return ExecveTransportMeasurement(
+        arg_max_bytes=arg_max_bytes,
+        safety_reserve_bytes=EXECVE_ARGV_SAFETY_RESERVE_BYTES,
+        aggregate_limit_bytes=aggregate_limit_bytes,
+        argv_element_bytes=argv_element_bytes,
+        envp_element_bytes=envp_element_bytes,
+        argv_bytes=argv_bytes,
+        envp_bytes=envp_bytes,
+        pointer_bytes=pointer_bytes,
+        total_bytes=total_bytes,
+        oversized_argv_indices=tuple(
+            index
+            for index, size in enumerate(argv_element_bytes)
+            if size > MEASURED_SINGLE_ARGV_LIMIT_BYTES
+        ),
+        oversized_envp_indices=tuple(
+            index
+            for index, size in enumerate(envp_element_bytes)
+            if size > MEASURED_SINGLE_ARGV_LIMIT_BYTES
+        ),
+    )
+
+
 def build_argv(spec: WorkerInvocation) -> list[str]:
     """Assemble the Claude argv. Pure and deterministic, so tests can assert it.
 
@@ -790,6 +916,78 @@ def _context_too_large(
     )
 
 
+def _execve_transport_too_large(
+    spec: WorkerInvocation,
+    measurement: ExecveTransportMeasurement,
+) -> ContextTooLarge:
+    """Build a bounded, content-free refusal for the complete invocation."""
+
+    oversized_argv = measurement.oversized_argv_indices[:_MAX_REPORTED_IDS]
+    oversized_envp = measurement.oversized_envp_indices[:_MAX_REPORTED_IDS]
+    if oversized_argv:
+        constraint = "argv_element"
+    elif oversized_envp:
+        constraint = "envp_element"
+    else:
+        constraint = "aggregate"
+    details: dict[str, object] = {
+        "source": "execve_preflight",
+        "binding_constraint": constraint,
+        "model": spec.model,
+        "role": spec.role,
+        "task_id": spec.task_id,
+        "resumed": bool(spec.resume_session_id),
+        "argv_count": len(measurement.argv_element_bytes),
+        "envp_count": len(measurement.envp_element_bytes),
+        "argv_bytes": measurement.argv_bytes,
+        "envp_bytes": measurement.envp_bytes,
+        "pointer_bytes": measurement.pointer_bytes,
+        "total_bytes": measurement.total_bytes,
+        "aggregate_limit_bytes": measurement.aggregate_limit_bytes,
+        "arg_max_bytes": measurement.arg_max_bytes,
+        "safety_reserve_bytes": measurement.safety_reserve_bytes,
+        "aggregate_excess_bytes": max(
+            measurement.total_bytes - measurement.aggregate_limit_bytes, 0
+        ),
+        "argv_element_limit_bytes": MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+        "largest_argv_element_bytes": max(
+            measurement.argv_element_bytes, default=0
+        ),
+        "largest_envp_element_bytes": max(
+            measurement.envp_element_bytes, default=0
+        ),
+        "oversized_argv_element_count": len(
+            measurement.oversized_argv_indices
+        ),
+        "oversized_envp_element_count": len(
+            measurement.oversized_envp_indices
+        ),
+        "oversized_argv_indices": list(oversized_argv),
+        "oversized_envp_indices": list(oversized_envp),
+    }
+    return ContextTooLarge(
+        "The complete worker invocation exceeds the operating system's execve "
+        "transport boundary, so no Claude process was started.",
+        details=details,
+        remediation=(
+            "This is a refusal, not a degradation: reduce the selected context "
+            "or task prompt, or remove oversized dispatcher-approved child "
+            "environment entries. No argv or environment value was truncated."
+        ),
+    )
+
+
+def _assert_invocation_fits_execve(
+    spec: WorkerInvocation, argv: Sequence[str]
+) -> ExecveTransportMeasurement:
+    """Refuse every over-limit worker/reviewer invocation before spawn."""
+
+    measurement = measure_execve_transport(argv, spec.env)
+    if not measurement.transportable:
+        raise _execve_transport_too_large(spec, measurement)
+    return measurement
+
+
 def _assert_context_fits_the_transport(spec: WorkerInvocation) -> None:
     """Measure the FINAL composed system prompt, in UTF-8 bytes, before exec.
 
@@ -798,11 +996,10 @@ def _assert_context_fits_the_transport(spec: WorkerInvocation) -> None:
     character count. Per-component caps summing to something legal proves
     nothing: only the composed payload is what ``execve`` sees.
 
-    Deliberately *not* extended to the other argv elements in V1. The prompt
-    positional and the projected JSON schema are bounded by their own
-    producers, and the kernel remains the authority for everything else — see
-    the ``E2BIG`` translation in :func:`run_worker`, which exists precisely
-    because this preflight covers one known element and not the whole block.
+    This authored-context policy ceiling remains intentionally tighter than the
+    kernel limit.  :func:`run_worker` separately measures every final argv and
+    envp element and the complete aggregate immediately before subprocess
+    creation; neither check substitutes for the other.
     """
     if not spec.append_system_prompt:
         return
@@ -852,11 +1049,24 @@ def _assert_invocation_sane(spec: WorkerInvocation) -> None:
                 "Fable never resumes the worker's conversation (§19).",
                 details={"resume_session_id": spec.resume_session_id},
             )
-        mutating = [t for t in spec.tools if t in MUTATING_TOOL_NAMES]
-        if mutating:
+        if not spec.tools:
             raise InternalDispatcherError(
-                "Reviewer tool set must be read-only.",
-                details={"tools": mutating},
+                "Reviewer tool set must be a non-empty subset of the closed "
+                "Read/Glob/Grep allowlist; omitting --tools restores CLI defaults.",
+                details={"tools": spec.tools},
+            )
+        unexpected = [
+            tool for tool in spec.tools
+            if tool not in FABLE_REVIEWER_TOOL_ALLOWLIST
+        ]
+        if unexpected or len(spec.tools) != len(set(spec.tools)):
+            raise InternalDispatcherError(
+                "Reviewer tool set escaped the closed Read/Glob/Grep allowlist.",
+                details={
+                    "tools": spec.tools,
+                    "unexpected_tools": unexpected,
+                    "allowed_tools": list(FABLE_REVIEWER_TOOL_ALLOWLIST),
+                },
             )
     if not spec.resume_session_id and not spec.session_id:
         raise InternalDispatcherError(
@@ -1095,12 +1305,19 @@ def build_fable_invocation(
     timeout = config.clamp_timeout(timeout)
 
     tools = list(config.claude.reviewer_tools)
-    mutating = [t for t in tools if t in MUTATING_TOOL_NAMES]
-    if mutating:
+    unexpected = [
+        tool for tool in tools if tool not in FABLE_REVIEWER_TOOL_ALLOWLIST
+    ]
+    if not tools or unexpected or len(tools) != len(set(tools)):
         raise ConfigurationError(
-            "claude.reviewer_tools must be read-only; Fable may not modify files (§7.3).",
-            details={"offending_tools": mutating},
-            remediation="Restrict reviewer_tools to Read/Glob/Grep.",
+            "claude.reviewer_tools must be a non-empty subset of the closed "
+            "Read/Glob/Grep allowlist (§7.3).",
+            details={
+                "configured_tools": tools,
+                "unexpected_tools": unexpected,
+                "allowed_tools": list(FABLE_REVIEWER_TOOL_ALLOWLIST),
+            },
+            remediation="Use one or more of Read, Glob and Grep, with no duplicates.",
         )
 
     return WorkerInvocation(
@@ -1410,6 +1627,7 @@ async def run_worker(spec: WorkerInvocation) -> WorkerRun:
             ``WorkerRun`` with ``start_failed`` set, exactly as before.
     """
     argv = build_argv(spec)
+    _assert_invocation_fits_execve(spec, argv)
     started = time.monotonic()
 
     # Opened before the process starts: an unusable spool path is a dispatcher
@@ -1454,14 +1672,12 @@ async def run_worker(spec: WorkerInvocation) -> WorkerRun:
         stdout_capture.close()
         stderr_capture.close()
         if exc.errno == errno.E2BIG:
-            # Defence in depth (B1). The preflight ceiling protects the one
-            # element we compose, but the kernel counts the whole argv+envp
-            # block and stays the authority: a longer environment, a larger
-            # projected schema, or a future flag could push us over without the
-            # system prompt having changed. Whatever the cause, an invocation
-            # too large to exec must reach Sol as a typed dispatcher error, not
-            # as a raw OSError. The original errno is preserved in details and
-            # the OSError is chained as __cause__.
+            # Defence in depth (B1). The exact user-space preflight above
+            # measures all strings, NULs and pointers with an explicit reserve,
+            # but the kernel remains authoritative and may account for
+            # platform-specific overhead that user space cannot see. Whatever
+            # the cause, E2BIG reaches Sol as a typed refusal, never a raw
+            # OSError. The original errno is preserved and chained.
             raise _context_too_large(
                 spec,
                 payload_bytes=len((spec.append_system_prompt or "").encode("utf-8")),
@@ -1480,6 +1696,22 @@ async def run_worker(spec: WorkerInvocation) -> WorkerRun:
             duration_ms=int((time.monotonic() - started) * 1000),
             start_failed=True,
         )
+
+    if spec.on_spawn is not None:
+        try:
+            spec.on_spawn(proc)
+        except BaseException:
+            _killpg(proc, signal.SIGTERM)
+            try:
+                await asyncio.wait_for(
+                    proc.wait(), timeout=max(spec.grace_seconds, 0.0)
+                )
+            except (asyncio.TimeoutError, TimeoutError):
+                _killpg(proc, signal.SIGKILL)
+                await proc.wait()
+            stdout_capture.close()
+            stderr_capture.close()
+            raise
 
     # Read the pipes in dedicated tasks rather than via communicate(): when the
     # deadline fires we cancel only the *wait*, so everything the worker had

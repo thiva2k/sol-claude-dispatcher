@@ -1,0 +1,146 @@
+[
+  {
+    "id": "W0-M001",
+    "target": "src/sol_claude_dispatcher/evidence/ignore.py",
+    "anchor": "return {\n        path: matcher.is_ignored(path, is_directory=is_dir)\n        for path, is_dir in declared\n    }",
+    "replacement": "return {path: False for path, is_dir in declared}"
+  },
+  {
+    "id": "W0-M002",
+    "target": "src/sol_claude_dispatcher/evidence/ignore.py",
+    "anchor": "ignored = not rule.negated",
+    "replacement": "ignored = False"
+  },
+  {
+    "id": "W0-M003",
+    "target": "src/sol_claude_dispatcher/evidence/inventory.py",
+    "anchor": "return RepoPath(base64.b64decode(encoded, validate=True))",
+    "replacement": "return RepoPath(str(value.get('display', '')).encode('utf-8'))"
+  },
+  {
+    "id": "W0-M004",
+    "target": "src/sol_claude_dispatcher/evidence/inventory.py",
+    "anchor": "\"\"\"Decide policy over frozen raw path identities, with no filesystem I/O.\"\"\"",
+    "replacement": "\"\"\"Mutant: consult the filesystem before deciding policy.\"\"\"\n    __import__(\"os\").lstat(b\".\")"
+  },
+  {
+    "id": "W0-M005",
+    "target": "src/sol_claude_dispatcher/evidence/attribution.py",
+    "anchor": "if post_validation is not None:\n        validation_delta = build_path_identity_set(",
+    "replacement": "if False and post_validation is not None:\n        validation_delta = build_path_identity_set("
+  },
+  {
+    "id": "W0-M006",
+    "target": "src/sol_claude_dispatcher/evidence/inventory.py",
+    "anchor": "for raw in sorted(old.keys() | new.keys()):",
+    "replacement": "for raw in sorted(old.keys() ^ new.keys()):"
+  },
+  {
+    "id": "W0-M007",
+    "target": "src/sol_claude_dispatcher/evidence/attribution.py",
+    "anchor": "worker_delta = build_path_identity_set(\n        start,\n        worker_exit,",
+    "replacement": "worker_delta = build_path_identity_set(\n        start,\n        post_validation or worker_exit,"
+  },
+  {
+    "id": "W0-M008",
+    "target": "src/sol_claude_dispatcher/evidence/freeze.py",
+    "anchor": "if current.size != expected.size or current.sha256 != expected.sha256:",
+    "replacement": "if current.size != expected.size:"
+  },
+  {
+    "id": "W0-M009",
+    "target": "src/sol_claude_dispatcher/evidence/attribution.py",
+    "anchor": "if uncovered:\n        ordered = sorted(uncovered, key=bytes)",
+    "replacement": "if False and uncovered:\n        ordered = sorted(uncovered, key=bytes)"
+  },
+  {
+    "id": "W0-M010",
+    "target": "src/sol_claude_dispatcher/evidence/fssnap.py",
+    "anchor": "except _ChangedDuringMeasurement:\n                        content_hash = None\n                        read_error = \"changed_during_measurement\"",
+    "replacement": "except _ChangedDuringMeasurement:\n                        content_hash = None\n                        read_error = None"
+  },
+  {
+    "id": "W0-M011",
+    "target": "src/sol_claude_dispatcher/evidence/git_order.py",
+    "anchor": "if (\n        execution.phase is not ExecutionPhase.PREPARE\n        or marker is None\n        or marker.execution is not execution\n        or marker.journal_path != journal.path.resolve()\n        or marker.path is not path\n    ):",
+    "replacement": "if False:"
+  },
+  {
+    "id": "W0-M012",
+    "target": "src/sol_claude_dispatcher/evidence/seal.py",
+    "anchor": "_atomic_write(manifest_path, _canonical_json(manifest.to_dict()))",
+    "replacement": "manifest_path.write_bytes(_canonical_json(manifest.to_dict()))"
+  },
+  {
+    "id": "W0-M013",
+    "target": "src/sol_claude_dispatcher/evidence/basetree.py",
+    "anchor": "if data is None:\n            raise _failed(",
+    "replacement": "if False and data is None:\n            raise _failed("
+  },
+  {
+    "id": "W0-M014",
+    "target": "src/sol_claude_dispatcher/evidence/git_order.py",
+    "anchor": "f\"core.hooksPath={path}\",",
+    "replacement": "\"core.hooksPath=\","
+  },
+  {
+    "id": "W0-M015",
+    "target": "src/sol_claude_dispatcher/evidence/git_order.py",
+    "anchor": "if previous_id not in row_indexes or row_indexes[row.row_id] <= row_indexes[previous_id]:",
+    "replacement": "if False:"
+  },
+  {
+    "id": "W0-M016",
+    "target": "tests/support/spawn_journal.py",
+    "anchor": "if name not in EVENTS:\n        return",
+    "replacement": "if True:\n        return"
+  },
+  {
+    "id": "W0-M018",
+    "target": "src/sol_claude_dispatcher/evidence/worktreeauth.py",
+    "anchor": "if observed_head_bytes != record.head_bytes:",
+    "replacement": "if False:"
+  },
+  {
+    "id": "W0-M019",
+    "target": "src/sol_claude_dispatcher/evidence/identity.py",
+    "anchor": "canonical_root_source=\"raw_realpath\",",
+    "replacement": "canonical_root_source=\"git\","
+  },
+  {
+    "id": "W0-M020",
+    "target": "src/sol_claude_dispatcher/evidence/git_order.py",
+    "anchor": "GitPath.REVIEW: EMPTY_BY_DECLARATION,",
+    "replacement": "GitPath.REVIEW: _RESUME_ROWS,"
+  },
+  {
+    "id": "W0-M021",
+    "target": "src/sol_claude_dispatcher/evidence/identity.py",
+    "anchor": "entry = _lstat(path, label=\".git\")",
+    "replacement": "entry = os.stat(path)"
+  },
+  {
+    "id": "W0-M022",
+    "target": "src/sol_claude_dispatcher/evidence/identity.py",
+    "anchor": "elif classification.shape is DotGitShape.GITFILE:",
+    "replacement": "elif classification.shape in (DotGitShape.GITFILE, DotGitShape.SYMLINK):"
+  },
+  {
+    "id": "W0-M023",
+    "target": "src/sol_claude_dispatcher/evidence/fssnap.py",
+    "anchor": "if exclude_admin and relative == b\".git\":",
+    "replacement": "if False and exclude_admin and relative == b\".git\":"
+  },
+  {
+    "id": "W0-M024",
+    "target": "src/sol_claude_dispatcher/evidence/git_order.py",
+    "anchor": "GIT_ENV_ALLOWLIST: tuple[str, ...] = ()",
+    "replacement": "GIT_ENV_ALLOWLIST: tuple[str, ...] = (\"PATH\",)"
+  },
+  {
+    "id": "W0-M025",
+    "target": "src/sol_claude_dispatcher/evidence/gitadmin.py",
+    "anchor": "or added_exact\n        or changed_exact",
+    "replacement": "or changed_exact"
+  }
+]

@@ -74,7 +74,7 @@ def _commands(*timeouts: int, program: str = "pytest") -> list[ValidationCommand
 
 def _request(git_repo: Path, *, execution: int, validation: list[ValidationCommand]):
     return TaskRequest(
-        repository={"root": str(git_repo), "base_ref": "HEAD"},
+        repository={"root": str(git_repo), "base_ref": "a" * 40},
         task={"objective": "Do the thing."},
         execution=ExecutionSpec(timeout_seconds=execution),
         validation=ValidationSpec(commands=validation),
@@ -381,7 +381,7 @@ def test_the_refusal_leaks_no_envelope_contents(config, git_repo: Path):
         ValidationCommand(argv=["make", "check"], timeout_seconds=3_600),
     ]
     request = TaskRequest(
-        repository={"root": str(git_repo), "base_ref": "HEAD"},
+        repository={"root": str(git_repo), "base_ref": "a" * 40},
         task={
             "objective": f"Rotate the credential {secret}",
             "context": f"the old value was {secret}",

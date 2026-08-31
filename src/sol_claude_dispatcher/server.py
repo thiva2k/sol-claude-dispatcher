@@ -44,17 +44,23 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import stat
 import sys
 import traceback
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable, TYPE_CHECKING, cast
 
 from pydantic import ValidationError
 
 from . import __version__
-from .config import Config, load_config
+from .config import (
+    Config,
+    MAX_APPEND_SYSTEM_PROMPT_BYTES,
+    MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+    load_config,
+)
 from .config_authority import (
     CONFIG_ENV_VAR,
     DEFAULT_CONFIG_PATH,
@@ -66,10 +72,15 @@ from .errors import (
     ClaudeStructuredOutputInvalid,
     ClaudeTimedOut,
     DispatcherError,
+    EvidenceExceedsReviewBudget,
     GitEvidenceCollectionFailed,
+    EvidenceFreezeViolated,
+    EvidenceIncompleteForReview,
     InternalDispatcherError,
+    InvalidStateTransition,
     InvalidTaskEnvelope,
     PolicyViolation,
+    RepositoryAdministrationUnreconciled,
     ResumeLimitReached,
     StateCorruption,
     WorktreeBaseMismatch,
@@ -79,16 +90,61 @@ from .git import (
     DiffEvidence,
     ScopeCheck,
     check_scope,
-    collect_diff_evidence,
     create_worktree,
     primary_tree_status,
     resolve_base_commit,
     resolve_worktree,
     worktree_head,
-    write_full_diff,
+)
+from .evidence.prepare import (
+    PreparedDispatch,
+    PreparedResume,
+    capture_matching_repository_authority,
+    capture_primary_head,
+    primary_snapshots_equal,
+    prepare_dispatch,
+    prepare_resume,
+)
+from .evidence.identity import (
+    RepositoryAuthoritySnapshot,
+    capture_repository_authority,
+    classify_dot_git,
+)
+from .evidence.identity_record import (
+    ApprovedIdentityFacts,
+    RepositoryIdentityRecord,
+)
+from .evidence.attribution import attribute_snapshots, require_attributable
+from .evidence.content import ContentInput, classify_inventory
+from .evidence.fssnap import FsEntry, FsSnapshot, capture_snapshot
+from .evidence.freeze import EvidenceFreeze, capture_evidence_freeze, verify_evidence_freeze
+from .evidence.gitadmin import (
+    capture_repository_administration,
+    reconcile_repository_administration,
+    repository_identity_key,
+)
+from .evidence.inventory import ScopeSpecBytes, decide_scope
+from .evidence.patch import build_canonical_evidence
+from .evidence.prepare import read_snapshot_entry_bytes
+from .evidence.scope import (
+    ScopeVerdictSet,
+    decide_scope_verdicts,
+    load_prior_cumulative_worker,
+)
+from .evidence.seal import load_task_seal
+from .evidence.worktreeauth import (
+    decode_worktree_authority,
+    verify_worktree_authority,
+)
+from .phase import (
+    ExecutionPhase,
+    ToolExecution,
+    begin_tool_execution,
+    current_execution,
 )
 from .locks import RepositoryLock
 from .models import (
+    ALLOWED_TRANSITIONS,
     RunKind,
     RunMetadata,
     RunRecord,
@@ -96,10 +152,12 @@ from .models import (
     TaskRecord,
     TaskRequest,
     TaskState,
+    ValidationResult,
     WorkerResult,
     WorkerRole,
     WorkerStatus,
     WorktreeBaseAnchor,
+    is_transition_allowed,
     new_run_id,
     new_session_id,
     new_task_id,
@@ -108,20 +166,32 @@ from .models import (
 from .results import build_dispatcher_observations, parse_fable_review, parse_worker_result
 from .router import explain_route
 from .runner import (
+    ALWAYS_DISALLOWED_TOOLS,
+    EXECVE_ARGV_SAFETY_RESERVE_BYTES,
     WorkerInvocation,
     WorkerRun,
+    build_argv,
     build_fable_invocation,
     build_worker_invocation,
     cli_failure,
     envelope_facts,
     fable_policy_text,
+    measure_execve_transport,
     provider_failure,
     run_worker,
     worker_policy_text,
 )
+from .lifecycle import (
+    LifecyclePhase,
+    LifecycleProfileEngine,
+    PhaseComposition,
+    compose_append_system_prompt,
+    preflight_lifecycle,
+)
 from .security import (
     assert_dispatch_depth,
     assert_no_recursion,
+    authorize_repository_root,
     redact,
     validate_repository_root,
     validate_task_id,
@@ -271,19 +341,13 @@ _NO_CONFIG = cast("Config", None)
 #: every run record would bloat state for no audit value.
 _MAX_RECORDED_ARGV_ELEMENT = 512
 
-#: Cap on the unified diff injected into Fable's prompt (§7.3: prefer state
-#: over enormous command-line arguments). The full patch stays in
-#: ``evidence/diff.patch``.
-_MAX_PROMPT_DIFF_CHARS = 120_000
+#: Kernel argv headroom deliberately left unused by Fable.  This is distinct
+#: from the authored-context reserve: it protects the complete argv+envp
+#: transport accounting performed immediately before reviewer launch.
+_FABLE_ARGV_SAFETY_RESERVE_BYTES = EXECVE_ARGV_SAFETY_RESERVE_BYTES
 
 #: Cap on any single evidence section rendered into a prompt.
 _MAX_PROMPT_SECTION_CHARS = 8_000
-
-#: Cap on how much of ``evidence/diff.patch`` is *read* to build a review
-#: prompt. The file is the complete patch and therefore unbounded; the prompt
-#: clips at :data:`_MAX_PROMPT_DIFF_CHARS` regardless, so reading beyond this
-#: would only let a runaway worker choose the dispatcher's allocation size.
-_MAX_PROMPT_PATCH_BYTES = 2 * _MAX_PROMPT_DIFF_CHARS
 
 logger = logging.getLogger("sol_claude_dispatcher.server")
 
@@ -430,6 +494,45 @@ def assert_worktree_base(
 
 def _interference_markers(divergence: dict[str, Any]) -> list[str]:
     """Policy-violation strings for a primary-tree divergence, for state."""
+    if "worker" in divergence or "validation" in divergence:
+        markers: list[str] = []
+        for actor in ("worker", "validation"):
+            interval = divergence.get(actor)
+            if interval is None:
+                continue
+            actor_markers = _interference_markers(interval)
+            markers.extend(f"{actor}:{marker}" for marker in actor_markers)
+            # Retain the established worker marker surface for stored-state
+            # compatibility.  Validation markers are always actor-qualified:
+            # they must never be reported as worker interference.
+            if actor == "worker":
+                markers.extend(actor_markers)
+        return markers
+    if "status_entries_appeared" not in divergence:
+        markers = [
+            "primary_tree_snapshot:"
+            f"{str(divergence.get('before_digest', 'unknown'))[:12]}->"
+            f"{str(divergence.get('after_digest', 'unknown'))[:12]}"
+        ]
+        markers += [
+            f"primary_tree_appeared:?? {path}"
+            for path in divergence.get("appeared", [])
+        ]
+        markers += [
+            f"primary_tree_disappeared:{path}"
+            for path in divergence.get("disappeared", [])
+        ]
+        markers += [
+            f"primary_tree_changed:{path}"
+            for path in divergence.get("changed", [])
+        ]
+        if divergence.get("head_changed"):
+            markers.append(
+                "primary_tree_head:"
+                f"{divergence['head_before']['digest'][:12]}->"
+                f"{divergence['head_after']['digest'][:12]}"
+            )
+        return markers
     markers: list[str] = []
     if divergence["head_changed"]:
         markers.append(
@@ -440,6 +543,111 @@ def _interference_markers(divergence: dict[str, Any]) -> list[str]:
     markers += [
         f"primary_tree_disappeared:{line}" for line in divergence["status_entries_disappeared"]
     ]
+    return markers
+
+
+def _primary_terminal_divergence(
+    before_tree: FsSnapshot,
+    before_head: Any,
+    after_tree: FsSnapshot,
+    after_head: Any,
+    *,
+    expected_root: bytes,
+    attributed_to: str,
+    interval: str,
+) -> dict[str, Any] | None:
+    """Return one raw primary-authority interval, or ``None`` if it held.
+
+    The function deliberately compares adjacent terminals.  Comparing only
+    WORKER_START with VALIDATION_EXIT would let validation restore a worker
+    escape and erase the evidence of who caused it.
+    """
+
+    tree_changed = not primary_snapshots_equal(
+        before_tree,
+        after_tree,
+        expected_root=expected_root,
+    )
+    head_changed = before_head != after_head
+    if not tree_changed and not head_changed:
+        return None
+
+    before_by_path = {bytes(entry.path): entry for entry in before_tree.entries}
+    after_by_path = {bytes(entry.path): entry for entry in after_tree.entries}
+    before_paths = set(before_by_path)
+    after_paths = set(after_by_path)
+    return {
+        "attributed_to": attributed_to,
+        "interval": interval,
+        "before_digest": before_tree.digest,
+        "after_digest": after_tree.digest,
+        "head_before": before_head.to_dict(),
+        "head_after": after_head.to_dict(),
+        "head_changed": head_changed,
+        "appeared": sorted(os.fsdecode(path) for path in after_paths - before_paths),
+        "disappeared": sorted(
+            os.fsdecode(path) for path in before_paths - after_paths
+        ),
+        "changed": sorted(
+            os.fsdecode(path)
+            for path in before_paths & after_paths
+            if before_by_path[path] != after_by_path[path]
+        ),
+    }
+
+
+def _combine_primary_terminal_divergences(
+    worker: dict[str, Any] | None,
+    validation: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Preserve both adjacent divergences plus a compatibility summary."""
+
+    intervals = [item for item in (worker, validation) if item is not None]
+    if not intervals:
+        return None
+    return {
+        "worker": worker,
+        "validation": validation,
+        "attributed_to": [item["attributed_to"] for item in intervals],
+        "head_changed": any(bool(item["head_changed"]) for item in intervals),
+        "appeared": sorted(
+            {path for item in intervals for path in item.get("appeared", [])}
+        ),
+        "disappeared": sorted(
+            {path for item in intervals for path in item.get("disappeared", [])}
+        ),
+        "changed": sorted(
+            {path for item in intervals for path in item.get("changed", [])}
+        ),
+    }
+
+
+def _administrative_markers(
+    divergences: list[dict[str, Any]],
+) -> list[str]:
+    """Stable state markers for worker/validation administrative tampering."""
+
+    markers: list[str] = []
+    for divergence in divergences:
+        actor = str(divergence["attributed_to"])
+        details = divergence.get("details", {})
+        named = False
+        for key in (
+            "removed_exact",
+            "added_exact",
+            "changed_exact",
+            "removed_registration",
+            "added_registration",
+            "changed_registration",
+            "removed_loose",
+            "changed_loose",
+            "unvalidated_new_loose",
+        ):
+            for path in details.get(key, []):
+                markers.append(f"git_admin_{actor}:{key}:{path}")
+                named = True
+        if not named:
+            markers.append(f"git_admin_{actor}:unknown")
     return markers
 
 
@@ -555,6 +763,29 @@ def _review_key(task_id: str, focus: list[str] | None) -> str:
     return f"review:{task_id}:{_argument_digest(list(focus or []))}"
 
 
+def _assert_fable_review_transition_allowed(record: TaskRecord) -> None:
+    """Refuse a review whose eventual state transition is already illegal.
+
+    Review legality is a PREPARE invariant, not something to discover after a
+    reviewer has run and a review has been appended. Keep the error shape
+    identical to :meth:`TaskStore.transition`; the state machine in
+    ``models.py`` remains the sole authority for which source states are legal.
+    """
+    target = TaskState.FABLE_REVIEWED
+    if is_transition_allowed(record.state, target):
+        return
+    raise InvalidStateTransition(
+        f"Cannot transition task from {record.state.value} to {target.value}.",
+        details={
+            "from": record.state.value,
+            "to": target.value,
+            "allowed": sorted(
+                state.value for state in ALLOWED_TRANSITIONS[record.state]
+            ),
+        },
+    )
+
+
 def attribute_changed_paths(
     worker_evidence: DiffEvidence, final_evidence: DiffEvidence
 ) -> dict[str, Any]:
@@ -586,6 +817,77 @@ def attribute_changed_paths(
             "command appears only under worker_changed_paths; set difference "
             "cannot separate authorship of a single path."
         ),
+    }
+
+
+def _content_kind(entry: FsEntry) -> str:
+    return {
+        "block_device": "block",
+        "char_device": "char",
+        "unknown": "fifo",
+    }.get(entry.kind, entry.kind)
+
+
+def _snapshot_content_input(
+    entry: FsEntry | None,
+    *,
+    root: Path,
+    sealed_start_root: Path | None = None,
+) -> ContentInput:
+    """Build content authority from a measured snapshot without Git."""
+    if entry is None:
+        return ContentInput.absent()
+    kind = _content_kind(entry)
+    if entry.read_error is not None:
+        return ContentInput(kind, None, entry.perm, entry.read_error)  # type: ignore[arg-type]
+    if entry.kind not in {"regular", "symlink"}:
+        return ContentInput(kind, None, entry.perm)  # type: ignore[arg-type]
+    if sealed_start_root is not None:
+        if entry.content_hash is None:
+            return ContentInput(kind, None, entry.perm, "sealed_identity_absent")  # type: ignore[arg-type]
+        path = sealed_start_root / "start-content" / entry.content_hash
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return ContentInput(kind, None, entry.perm, "sealed_content_absent")  # type: ignore[arg-type]
+    else:
+        data = read_snapshot_entry_bytes(root, entry)
+    if entry.kind == "symlink":
+        return ContentInput.symlink(data)
+    return ContentInput.regular(data, executable=bool(entry.perm & 0o111))
+
+
+def _canonical_evidence_record(canonical: Any, *, run_index: int) -> dict[str, Any]:
+    """Return the durable, single-source completeness and byte record."""
+
+    patch_file_complete = bool(canonical.patch_file_complete)
+    changes = {bytes(change.path): change for change in canonical.changes}
+    inventory: list[dict[str, Any]] = []
+    for row in canonical.per_path:
+        change = changes[bytes(row.path)]
+        carried = change.new if change.new.kind != "absent" else change.old
+        inventory.append(
+            {
+                "path": os.fsdecode(row.path),
+                "change": change.change,
+                "mode": None if carried.mode is None else f"{carried.mode:06o}",
+                "size": carried.size,
+                "sha256": carried.sha256_digest,
+                "content_class": row.content_class.value,
+                "section_count": len(row.sections),
+                "omission_reason": row.omission_reason,
+                "inventory_complete": row.inventory_complete,
+            }
+        )
+    return {
+        "schema": "canonical-evidence/1",
+        "implementer_run_index": run_index,
+        "base_commit": canonical.base_commit,
+        "patch_relpath": "evidence/diff.patch",
+        "patch_file_complete": patch_file_complete,
+        "patch_bytes": canonical.patch_bytes,
+        "patch_sha256": canonical.patch_sha256,
+        "per_path": inventory,
     }
 
 
@@ -698,82 +1000,269 @@ def build_fable_prompt(
     envelope: TaskEnvelope,
     *,
     diff_text: str,
-    changed_paths: list[str],
+    inventory: list[dict[str, Any]],
     worker_claims: WorkerResult | None,
     validation_results: list[Any],
     focus: list[str],
-    validation_added_paths: list[str] | None = None,
+    attribution: dict[str, list[str]],
 ) -> str:
-    """Render the independent review prompt from *stored* evidence (§7.3, §19)."""
+    """Render exactly §5.11's six Fable sections from one worker run."""
+    prefix, suffix = _fable_prompt_parts(
+        envelope,
+        inventory=inventory,
+        worker_claims=worker_claims,
+        validation_results=validation_results,
+        focus=focus,
+        attribution=attribution,
+    )
+    return prefix + diff_text + suffix
+
+
+def _fable_prompt_parts(
+    envelope: TaskEnvelope,
+    *,
+    inventory: list[dict[str, Any]],
+    worker_claims: WorkerResult | None,
+    validation_results: list[Any],
+    focus: list[str],
+    attribution: dict[str, list[str]],
+) -> tuple[str, str]:
+    """Return the exact prompt bytes before and after the frozen patch."""
     lines = [
-        "# Independent review",
+        "## SECTION 1 — TASK",
         "",
         "You are reviewing work produced by a different agent. You do not "
         "implement, and you do not modify files.",
         "",
-        "## Original objective",
-        "",
-        envelope.task.objective.strip(),
+        f"Task id: {envelope.task_id}",
+        f"Base commit: {envelope.repository.base_commit}",
+        f"Objective: {envelope.task.objective.strip()}",
     ]
     if envelope.task.acceptance_criteria:
-        lines += ["", "## Acceptance criteria", ""]
+        lines += ["", "Acceptance criteria:"]
         lines += [f"{i}. {c}" for i, c in enumerate(envelope.task.acceptance_criteria, 1)]
-
-    lines += [
-        "",
-        "## Revision under review",
-        "",
-        f"Base commit: {envelope.repository.base_commit}",
-        f"Worktree: {envelope.worktree_name}",
-        "",
-        "### Changed paths",
-        "",
-    ]
-    lines += [f"- {p}" for p in changed_paths] or ["(no changed paths recorded)"]
-
-    if validation_added_paths:
-        # P1-7: without this the reviewer attributes a coverage file or a
-        # formatter's rewrite to the worker under review.
-        lines += [
-            "",
-            "### Paths produced by the dispatcher's own validation, not by the worker",
-            "",
-        ]
-        lines += [f"- {p}" for p in validation_added_paths]
-        lines.append("")
-        lines.append("Do not raise findings against the worker for those paths.")
-
-    lines += ["", "## Unified diff", "", "```diff", _clip(diff_text, _MAX_PROMPT_DIFF_CHARS), "```"]
-
-    lines += ["", "## Worker report (claims, not evidence)", ""]
+    lines += ["", "Worker report (claims, not evidence):"]
     if worker_claims is None:
-        lines.append("(the worker produced no parseable structured report)")
-    else:
-        lines += ["```json", _clip(json.dumps(_dump(worker_claims), indent=2)), "```"]
-
-    lines += ["", "## Dispatcher validation (independently measured)", ""]
-    if not validation_results:
-        lines.append("(dispatcher validation was not run for this task)")
+        lines.append("none")
     else:
         lines += [
             "```json",
-            _clip(json.dumps([_dump(v) for v in validation_results], indent=2)),
+            json.dumps(_dump(worker_claims), indent=2, ensure_ascii=True),
             "```",
         ]
-
     if focus:
-        lines += ["", "## Review focus requested by the orchestrator", ""]
-        lines += [f"- {item}" for item in focus]
+        lines += ["", "Review focus:"] + [f"- {item}" for item in focus]
+    lines += ["", "## SECTION 2 — ENTIRE FROZEN WORKER PATCH", "", "```diff"]
+    prefix = "\n".join(lines) + "\n"
+
+    lines = [
+        "```",
+        "",
+        "## SECTION 3 — COMPLETE WORKER CHANGE INVENTORY",
+        "",
+    ]
+    if inventory:
+        lines += ["```json", json.dumps(inventory, indent=2, ensure_ascii=True), "```"]
+    else:
+        lines.append("none")
 
     lines += [
         "",
-        "## Output contract",
+        "## SECTION 4 — DISPATCHER VALIDATION",
+        "",
+        "Executed by the dispatcher after the worker exited. NOT Claude's work.",
+    ]
+    if not validation_results:
+        lines.append("none")
+    else:
+        lines += [
+            "```json",
+            json.dumps([_dump(v) for v in validation_results], indent=2),
+            "```",
+        ]
+    lines += ["", "## SECTION 5 — VALIDATION FILESYSTEM EFFECTS", ""]
+    for field in ("validation_only", "both_authors", "validation_reverted"):
+        paths = attribution[field]
+        lines.append(f"{field}:")
+        lines.extend([f"- {path}" for path in paths] or ["none"])
+    both = attribution["both_authors"]
+    if both:
+        rendered = ", ".join(both)
+        lines += [
+            "",
+            f"{len(both)} path(s) shown above were modified by dispatcher validation "
+            "after the worker exited. The patch above is the worktree as the worker "
+            f"left it, not as it is now: {rendered}.",
+        ]
+    lines += [
+        "",
+        "## SECTION 6 — COMPLETENESS",
+        "",
+        "Every changed path is represented above.",
+        "The patch is complete, frozen worker-exit evidence and is shown whole.",
         "",
         "Return exactly one JSON object matching the supplied --json-schema. "
         "Do not manufacture findings to appear useful. Every material finding "
         "needs evidence. Your verdict is advisory.",
     ]
-    return "\n".join(lines)
+    return prefix, "\n" + "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class FableEvidenceBundle:
+    """One selected IMPLEMENTER run and only its review evidence."""
+
+    run_index: int
+    worker_claims: WorkerResult | None
+    validation_results: tuple[ValidationResult, ...]
+    patch_data: bytes
+    patch_text: str
+    patch_sha256: str
+    patch_file_complete: bool
+    inventory: list[dict[str, Any]]
+    attribution: dict[str, list[str]]
+
+
+def _argv_transport_measurement(
+    invocation: WorkerInvocation,
+    *,
+    prefix: str,
+    suffix: str,
+    patch_data: bytes,
+) -> dict[str, Any]:
+    """Measure the exact Fable argv+envp headroom for one composed call."""
+
+    patch_text = os.fsdecode(patch_data)
+    expected_prompt = prefix + patch_text + suffix
+    if invocation.prompt != expected_prompt:
+        raise InternalDispatcherError(
+            "Fable transport measurement did not receive the launch prompt."
+        )
+    encoded_prefix = os.fsencode(prefix)
+    encoded_suffix = os.fsencode(suffix)
+    encoded_prompt = os.fsencode(invocation.prompt)
+    if encoded_prompt != encoded_prefix + patch_data + encoded_suffix:
+        raise EvidenceFreezeViolated(
+            "The frozen patch bytes cannot be transported inline without alteration.",
+            details={"changed_files": ["evidence/diff.patch"]},
+        )
+
+    provisional = replace(invocation, prompt=prefix + suffix)
+    provisional_argv = build_argv(provisional)
+    provisional_transport = measure_execve_transport(
+        provisional_argv, invocation.env
+    )
+    provisional_argv_element_bytes = list(
+        provisional_transport.argv_element_bytes
+    )
+    env_element_bytes = list(provisional_transport.envp_element_bytes)
+    argv_bytes_without_patch = provisional_transport.argv_bytes
+    env_bytes = provisional_transport.envp_bytes
+    pointer_bytes = provisional_transport.pointer_bytes
+    argv_total_limit = provisional_transport.arg_max_bytes
+    base_prompt_bytes = len(encoded_prefix) + len(encoded_suffix)
+    aggregate_headroom = max(
+        0,
+        provisional_transport.aggregate_limit_bytes
+        - provisional_transport.total_bytes,
+    )
+    element_headroom = max(
+        0, MEASURED_SINGLE_ARGV_LIMIT_BYTES - base_prompt_bytes
+    )
+    budget = min(aggregate_headroom, element_headroom)
+    patch_bytes = len(patch_data)
+    oversized_base_elements = [
+        {
+            "kind": "argv",
+            "index": index,
+            "encoded_bytes": encoded_bytes,
+            "maximum_bytes": MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+        }
+        for index in provisional_transport.oversized_argv_indices
+        for encoded_bytes in [provisional_argv_element_bytes[index]]
+    ] + [
+        {
+            "kind": "envp",
+            "index": index,
+            "encoded_bytes": encoded_bytes,
+            "maximum_bytes": MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+        }
+        for index in provisional_transport.oversized_envp_indices
+        for encoded_bytes in [env_element_bytes[index]]
+    ]
+    base_transportable = provisional_transport.transportable
+    review_input_complete = base_transportable and patch_bytes <= budget
+
+    # Rebuild the exact final argv now. The same immutable invocation is later
+    # handed to run_worker; any authored growth or different prompt would make
+    # this equality fail before a process exists.
+    final_argv = build_argv(invocation)
+    final_transport = measure_execve_transport(final_argv, invocation.env)
+    final_argv_element_bytes = list(final_transport.argv_element_bytes)
+    final_total_bytes = final_transport.total_bytes
+    oversized_final_elements = [
+        {
+            "kind": "argv",
+            "index": index,
+            "encoded_bytes": encoded_bytes,
+            "maximum_bytes": MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+        }
+        for index in final_transport.oversized_argv_indices
+        for encoded_bytes in [final_argv_element_bytes[index]]
+    ] + [
+        {
+            "kind": "envp",
+            "index": index,
+            "encoded_bytes": encoded_bytes,
+            "maximum_bytes": MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+        }
+        for index in final_transport.oversized_envp_indices
+        for encoded_bytes in [env_element_bytes[index]]
+    ]
+    if review_input_complete and (
+        not final_transport.transportable
+    ):
+        raise InternalDispatcherError(
+            "Fable argv budget and final invocation measurement diverged."
+        )
+
+    return {
+        "schema": "fable-review-input/1",
+        "patch_bytes": patch_bytes,
+        "patch_sha256": hashlib.sha256(patch_data).hexdigest(),
+        "patch_file_complete": True,
+        "review_input_complete": review_input_complete,
+        "review_patch_budget_bytes": budget,
+        "argv_total_limit_bytes": argv_total_limit,
+        "argv_safety_reserve_bytes": _FABLE_ARGV_SAFETY_RESERVE_BYTES,
+        "argv_element_limit_bytes": MEASURED_SINGLE_ARGV_LIMIT_BYTES,
+        "argv_bytes_without_patch": argv_bytes_without_patch,
+        "argv_count": len(provisional_argv),
+        "env_bytes": env_bytes,
+        "env_count": len(invocation.env),
+        "pointer_bytes": pointer_bytes,
+        "base_prompt_bytes": base_prompt_bytes,
+        "base_transportable": base_transportable,
+        # Index, kind and encoded size are sufficient to diagnose the refusal.
+        # Never persist argv text, environment keys, or environment values in
+        # this record: transport failures must not turn into content leaks.
+        "oversized_element_count": len(oversized_final_elements),
+        "oversized_elements": oversized_final_elements,
+        "largest_argv_element_bytes": max(final_argv_element_bytes, default=0),
+        "largest_envp_element_bytes": max(env_element_bytes, default=0),
+        "aggregate_headroom_bytes": aggregate_headroom,
+        "element_headroom_bytes": element_headroom,
+        "binding_constraint": (
+            oversized_final_elements[0]["kind"] + "_element"
+            if oversized_final_elements
+            else "aggregate"
+            if aggregate_headroom < element_headroom
+            else "element"
+        ),
+        "final_prompt_bytes": len(encoded_prompt),
+        "final_total_bytes": final_total_bytes,
+        "final_prompt_sha256": hashlib.sha256(encoded_prompt).hexdigest(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -836,8 +1325,15 @@ class Dispatcher:
         refusal rather than as a silent alias.
         """
         return await self._runs.run(
-            f"dispatch:{new_run_id()}", lambda: _guarded(lambda: self._dispatch(request))
+            f"dispatch:{new_run_id()}",
+            lambda: _guarded(lambda: self._dispatch_execution(request)),
         )
+
+    async def _dispatch_execution(
+        self, request: dict[str, Any] | TaskRequest
+    ) -> dict[str, Any]:
+        with begin_tool_execution("dispatch") as execution:
+            return await self._dispatch(request, execution=execution)
 
     async def resume_claude_task(
         self, task_id: str, instruction: str, timeout_seconds: int | None = None
@@ -852,8 +1348,18 @@ class Dispatcher:
         """
         return await self._runs.run(
             _resume_key(task_id, instruction, timeout_seconds),
-            lambda: _guarded(lambda: self._resume(task_id, instruction, timeout_seconds)),
+            lambda: _guarded(
+                lambda: self._resume_execution(task_id, instruction, timeout_seconds)
+            ),
         )
+
+    async def _resume_execution(
+        self, task_id: str, instruction: str, timeout_seconds: int | None
+    ) -> dict[str, Any]:
+        with begin_tool_execution("resume", task_id=task_id) as execution:
+            return await self._resume(
+                task_id, instruction, timeout_seconds, execution=execution
+            )
 
     async def review_task_with_fable(
         self, task_id: str, focus: list[str] | None = None
@@ -861,8 +1367,14 @@ class Dispatcher:
         """§7.3. Independent read-only review. Advisory. Blocks until it completes."""
         return await self._runs.run(
             _review_key(task_id, focus),
-            lambda: _guarded(lambda: self._review(task_id, focus)),
+            lambda: _guarded(lambda: self._review_execution(task_id, focus)),
         )
+
+    async def _review_execution(
+        self, task_id: str, focus: list[str] | None
+    ) -> dict[str, Any]:
+        with begin_tool_execution("review", task_id=task_id) as execution:
+            return await self._review(task_id, focus, execution=execution)
 
     async def get_task(self, task_id: str) -> dict[str, Any]:
         """§7.4. Read-only aggregation of authoritative state.
@@ -889,8 +1401,18 @@ class Dispatcher:
 
     # -- tool 1: dispatch ---------------------------------------------------
 
-    async def _dispatch(self, request: dict[str, Any] | TaskRequest) -> dict[str, Any]:
+    async def _dispatch(
+        self,
+        request: dict[str, Any] | TaskRequest,
+        *,
+        execution: ToolExecution | None = None,
+    ) -> dict[str, Any]:
         """§7.1. Create a new implementation worker and record what it did."""
+        if execution is None:
+            # Private-call compatibility for tests; production always enters
+            # through ``_dispatch_execution`` above.
+            with begin_tool_execution("dispatch") as owned:
+                return await self._dispatch(request, execution=owned)
         assert_no_recursion(self.config)
 
         task_request = self._validate_request(request)
@@ -914,9 +1436,10 @@ class Dispatcher:
 
         task_id: str | None = None
         try:
-            base_commit = await asyncio.to_thread(
-                resolve_base_commit, canonical_root, task_request.repository.base_ref
-            )
+            # Gate 7 R0-R8. Caller intent is already an exact object name; Git
+            # verifies that exact token only after raw repository authority and
+            # the operator administration baseline reconcile.
+            base_commit = task_request.repository.base_ref
             envelope = TaskEnvelope.from_request(
                 task_request,
                 canonical_root=str(canonical_root),
@@ -925,91 +1448,113 @@ class Dispatcher:
                 dispatch_depth=dispatch_depth,
             )
             task_id = envelope.task_id
-            self.store.create(envelope)
-            _event("task_created", task_id=task_id, repository=str(canonical_root))
+            prompt = build_worker_prompt(envelope)
+            preflight_result: dict[str, Any] = {}
+
+            def identity_preflight(
+                authority: RepositoryAuthoritySnapshot,
+            ) -> ApprovedIdentityFacts:
+                """R8: assemble context only after R6 and R7 are complete."""
+                approved_identity = self.context.approved_identity_facts()
+                self.context.assert_repository_reviewed()
+                identity = approved_identity.to_repository_identity(authority)
+                worker_context = self.context.for_worker(
+                    envelope,
+                    run_kind=RunKind.DISPATCH,
+                    policy_text=worker_policy_text(self.config),
+                    task_prompt=prompt,
+                    identity=identity,
+                )
+                correction_context = self.context.for_worker(
+                    envelope,
+                    run_kind=RunKind.RESUME,
+                    policy_text=worker_policy_text(self.config),
+                    task_prompt=build_resume_prompt(envelope, "Lifecycle preflight"),
+                    identity=identity,
+                )
+                review_context = self.context.for_review(
+                    envelope,
+                    policy_text=fable_policy_text(self.config),
+                    task_prompt="Lifecycle review preflight",
+                    identity=identity,
+                )
+                project_root = Path(__file__).resolve().parents[2]
+                lifecycle_engine = LifecycleProfileEngine.from_file(
+                    project_root / "config" / "approved-lifecycle-profiles.json",
+                    source_root=project_root,
+                    effective_deny_patterns=ALWAYS_DISALLOWED_TOOLS,
+                )
+                envelope_digest = hashlib.sha256(
+                    json.dumps(
+                        _dump(envelope),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        default=str,
+                    ).encode("utf-8")
+                ).hexdigest()
+                lifecycle_report = preflight_lifecycle(
+                    lifecycle_engine,
+                    task_id=task_id,
+                    envelope_digest=envelope_digest,
+                    task_kind=envelope.task.kind,
+                    complexity=envelope.routing.complexity,
+                    risk=envelope.routing.risk,
+                    max_resume_count=envelope.execution.max_resume_count,
+                    phase_compositions={
+                        LifecyclePhase.DISPATCH_IMPLEMENTATION: PhaseComposition(
+                            worker_context.append_system_prompt
+                        ),
+                        LifecyclePhase.CORRECTION_RESUME: PhaseComposition(
+                            correction_context.append_system_prompt
+                        ),
+                        LifecyclePhase.VALIDATION_ONLY_RESUME: PhaseComposition(
+                            correction_context.append_system_prompt
+                        ),
+                        LifecyclePhase.FABLE_REVIEW: PhaseComposition(
+                            review_context.append_system_prompt,
+                            review_context_available=True,
+                        ),
+                    },
+                    transport_ceiling_bytes=MAX_APPEND_SYSTEM_PROMPT_BYTES,
+                    computed_at=utc_now(),
+                )
+                dispatch_lifecycle = lifecycle_engine.project(
+                    LifecyclePhase.DISPATCH_IMPLEMENTATION,
+                    task_kind=envelope.task.kind,
+                    complexity=envelope.routing.complexity,
+                    risk=envelope.routing.risk,
+                )
+                preflight_result.update(
+                    worker_context=worker_context,
+                    lifecycle_report=lifecycle_report,
+                    append_system_prompt=compose_append_system_prompt(
+                        worker_context.append_system_prompt,
+                        dispatch_lifecycle.text,
+                        "",
+                    ),
+                )
+                return approved_identity
 
             model, reason = explain_route(envelope, self.config)
-            self.store.transition(
-                task_id, TaskState.ROUTED, reason=f"route:{reason}", selected_model=model
-            )
-
             session_id = new_session(envelope)
-            record = self.store.transition(
-                task_id, TaskState.RUNNING, reason="dispatch", session_id=session_id
-            )
-
-            run_index = record.run_count + 1
+            run_index = 1
             run_id = new_run_id()
-            prompt = build_worker_prompt(envelope)
+            expected_worktree = self._worktree_root() / envelope.worktree_name
 
-            # B2. The dispatcher creates the isolated worktree ITSELF, at the
-            # exact SHA the envelope froze, and verifies it before a single
-            # token is spent. ``claude --worktree`` takes a name and no
-            # start-point, so the previous design handed the choice of base
-            # commit to the CLI and then measured the result against a commit
-            # of its own — which is how two of three production dispatches were
-            # refused for changes their workers never made.
-            try:
-                worktree_path = await asyncio.to_thread(
-                    create_worktree,
-                    canonical_root,
-                    worktree_name=envelope.worktree_name,
-                    path=self._worktree_root() / envelope.worktree_name,
-                    start_commit=envelope.repository.base_commit,
-                )
-            except WorktreeCreationFailed as error:
-                # The task exists, so the refusal must be findable from it.
-                error.details["task_id"] = task_id
-                self.store.transition(
-                    task_id,
-                    TaskState.FAILED,
-                    reason="worktree_creation_failed",
-                    last_error=error.to_payload(),
-                )
-                raise
-            # Recorded immediately: a later failure must never leave the task
-            # unable to name the worktree Sol has to inspect (§12).
-            record = self.store.load(task_id)
-            record.worktree_path = str(worktree_path.path)
-            self.store.save(record)
-
-            try:
-                self._verify_worktree_base(
-                    envelope,
-                    worktree_path.path,
-                    phase="dispatch",
-                    anchor_on_success=True,
-                )
-            except WorktreeBaseMismatch as error:
-                # FAILED, never POLICY_VIOLATION: the worker has not even been
-                # started, so there is nobody to blame for a scope violation.
-                # Mislabelling an environment fault as worker misconduct is
-                # precisely what killed tasks 3dbd78d6 and 49231f6e.
-                self.store.transition(
-                    task_id,
-                    TaskState.FAILED,
-                    reason="worktree_base_mismatch",
-                    last_error=error.to_payload(),
-                )
-                raise
-
-            # Gate 4.5 §14. Both projections happen here, before the worker is
-            # launched, so a refusal (unapproved scope, drifted hash, unreviewed
-            # instruction file) lands the task in FAILED with ``last_error`` set
-            # instead of dispatching a worker without its guidance. Nothing in
-            # this block runs while the two feature flags are off.
-            self.context.assert_repository_reviewed()
-            identity = await asyncio.to_thread(
-                self.context.repository_identity, canonical_root
+            prepared = await asyncio.to_thread(
+                prepare_dispatch,
+                repository_root=canonical_root,
+                state_root=self.config.state_path,
+                worktree_path=expected_worktree,
+                task_id=task_id,
+                base_commit=base_commit,
+                empty_hooks_path=Path(__file__).resolve().parents[2]
+                / "config"
+                / "empty-hooks",
+                identity_preflight=identity_preflight,
             )
-            worker_context = self.context.for_worker(
-                envelope,
-                run_kind=RunKind.DISPATCH,
-                policy_text=worker_policy_text(self.config),
-                task_prompt=prompt,
-                identity=identity,
-            )
-            self._anchor_dispatch_context(task_id, worker_context)
+            worker_context = cast(WorkerContext, preflight_result["worker_context"])
+            lifecycle_report = preflight_result["lifecycle_report"]
 
             invocation = build_worker_invocation(
                 envelope,
@@ -1017,7 +1562,9 @@ class Dispatcher:
                 model=model,
                 session_id=session_id,
                 prompt=prompt,
-                append_system_prompt=worker_context.append_system_prompt,
+                append_system_prompt=cast(
+                    str, preflight_result["append_system_prompt"]
+                ),
                 # Diagnostics only (B1): named back to Sol if the composed
                 # context turns out to be too large to transport.
                 skill_ids=worker_context.skill_ids,
@@ -1026,81 +1573,72 @@ class Dispatcher:
                 # to be on the recorded base, so the worker starts *inside* it.
                 # ``build_worker_invocation`` emits no ``--worktree`` on any
                 # path, and ``_assert_invocation_sane`` refuses one that tries.
-                cwd=worktree_path.path,
+                cwd=expected_worktree,
             )
             invocation = self._with_run_spools(invocation, task_id, run_index)
 
-            # P1-5: the baseline is taken *before* the worker can touch
-            # anything. Post-run "is the primary tree clean" cannot tell an
-            # already-dirty tree from one the worker dirtied.
-            primary_tree_before = await asyncio.to_thread(
-                snapshot_primary_tree, canonical_root
+            # First lifecycle mutation: the whole PREPARE proof already exists.
+            execution.bind_task(task_id)
+            execution.mark_reserved(envelope)
+            self.store.create(envelope)
+            evidence_dir = self.store.task_dir(task_id) / "evidence"
+            evidence_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.replace(prepared.seal.materialisation, evidence_dir / "preworker-seal")
+            _event("task_created", task_id=task_id, repository=str(canonical_root))
+            self.store.transition(
+                task_id, TaskState.ROUTED, reason=f"route:{reason}", selected_model=model
             )
-            self._write_primary_tree_snapshot(task_id, "before", primary_tree_before)
+            record = self.store.load(task_id)
+            record.worktree_path = str(prepared.worktree.path)
+            self.store.save(record)
+            self._anchor_worktree_base(
+                envelope, prepared.worktree.path, envelope.repository.base_commit
+            )
+            self._write_worktree_base_evidence(
+                envelope,
+                worktree_path=prepared.worktree.path,
+                actual_head_commit=envelope.repository.base_commit,
+                held=True,
+                phase="dispatch",
+            )
+            self._anchor_dispatch_context(task_id, worker_context)
+            self.store.write_evidence(
+                task_id,
+                "lifecycle-feasibility.json",
+                json.dumps(lifecycle_report.to_dict(), indent=2),
+            )
+
+            def worker_spawned(proc: asyncio.subprocess.Process) -> None:
+                execution.mark_spawned({"pid": proc.pid})
+                self.store.transition(
+                    task_id,
+                    TaskState.RUNNING,
+                    reason="dispatch",
+                    session_id=session_id,
+                )
+
+            invocation = replace(invocation, on_spawn=worker_spawned)
+
+            # Durable before LAUNCH: a dispatcher death or spawn refusal must
+            # not erase the exact administrative operand later used to
+            # attribute worker-side tampering.
+            atomic_write_json(
+                self._run_dir(task_id, run_index) / "git-admin-worker-start.json",
+                prepared.admin_worker_start.to_dict(),
+            )
 
             started_at = utc_now()
             _event("worker_start", task_id=task_id, run_id=run_id, model=model, kind="dispatch")
+            execution.enter(ExecutionPhase.LAUNCH)
             worker_run = await run_worker(invocation)
+            if execution.phase is ExecutionPhase.LAUNCH:
+                # A runner returning without the spawn callback is not allowed
+                # to manufacture RUNNING. Preserve the launch refusal.
+                raise InternalDispatcherError(
+                    "The worker runner returned without proving a child existed."
+                )
             finished_at = utc_now()
-
-            # B2: the dispatcher created this worktree, so the only way it can
-            # be gone is that the run removed or corrupted it. That is still a
-            # fail-closed condition — nothing can be attributed to a tree that
-            # is no longer registered — and it is checked by re-reading git
-            # rather than by trusting the path recorded before the run.
-            surviving = await asyncio.to_thread(
-                resolve_worktree, canonical_root, envelope.worktree_name
-            )
-
-            if surviving is None:
-                # Evidence first, refusal second (§20): the run is recorded so
-                # Sol can see the stdout/stderr that explains the failure.
-                self._write_run_streams(task_id, run_index, worker_run)
-                # P1-5 still applies on this path: a worker that produced no
-                # worktree may still have touched the primary tree. Best-effort
-                # here — this branch is already landing an explicit safe state,
-                # and a second git failure must not mask the original refusal.
-                self._record_primary_tree_on_failure_path(
-                    task_id, canonical_root, primary_tree_before
-                )
-                error = WorktreeCreationFailed(
-                    "The task's isolated worktree is no longer registered with "
-                    "the repository.",
-                    details={
-                        "task_id": task_id,
-                        "worktree_name": envelope.worktree_name,
-                        "worktree_path": str(worktree_path.path),
-                        "exit_code": worker_run.exit_code,
-                        "stderr_tail": _tail_text(worker_run.stderr),
-                    },
-                    remediation=(
-                        "The dispatcher created this worktree before the run "
-                        "started, so it was removed or damaged during it. "
-                        "Inspect the recorded stderr; no change can be "
-                        "attributed to a tree that no longer exists."
-                    ),
-                )
-                self._record_bare_run(
-                    envelope=envelope,
-                    run_kind=RunKind.DISPATCH,
-                    role=WorkerRole.IMPLEMENTER,
-                    run_index=run_index,
-                    run_id=run_id,
-                    session_id=session_id,
-                    model=model,
-                    worktree_path=None,
-                    worker_run=worker_run,
-                    started_at=started_at,
-                    finished_at=finished_at,
-                    worker_context=worker_context,
-                )
-                self.store.transition(
-                    task_id,
-                    TaskState.FAILED,
-                    reason="worktree_missing",
-                    last_error=error.to_payload(),
-                )
-                raise error
+            execution.enter(ExecutionPhase.FINALIZE)
 
             return await self._finalise_worker_run(
                 envelope=envelope,
@@ -1109,16 +1647,21 @@ class Dispatcher:
                 run_id=run_id,
                 session_id=session_id,
                 model=model,
-                worktree_path=surviving.path,
+                worktree_path=prepared.worktree.path,
                 worker_run=worker_run,
                 started_at=started_at,
                 finished_at=finished_at,
                 repository_root=canonical_root,
-                primary_tree_before=primary_tree_before,
+                primary_tree_before=prepared.primary_prepare,
                 worker_context=worker_context,
+                prepared_dispatch=prepared,
             )
         except DispatcherError as exc:
-            self._record_failure(task_id, exc)
+            self._record_failure(
+                execution,
+                exc,
+                repository_key=repository_identity_key(canonical_root),
+            )
             raise
         finally:
             # §25: always, on every path, including a raised DispatcherError.
@@ -1131,8 +1674,18 @@ class Dispatcher:
         task_id: str,
         instruction: str,
         timeout_seconds: int | None = None,
+        *,
+        execution: ToolExecution | None = None,
     ) -> dict[str, Any]:
         """§7.2. Continue the *stored* session — never a caller-supplied one."""
+        if execution is None:
+            with begin_tool_execution("resume", task_id=task_id) as owned:
+                return await self._resume(
+                    task_id,
+                    instruction,
+                    timeout_seconds,
+                    execution=owned,
+                )
         assert_no_recursion(self.config)
 
         # Defence in depth (P0-1 / Lane A R2). ``TaskStore`` independently
@@ -1174,59 +1727,95 @@ class Dispatcher:
             task_id=task_id,
         )
 
-        canonical_root = validate_repository_root(envelope.repository.root, self.config)
+        canonical_root = authorize_repository_root(
+            envelope.repository.root, self.config
+        )
 
         lock = RepositoryLock(canonical_root, self.config.locks_path)
         lock.acquire()
         try:
-            # B2 §6, before ANY state is mutated and before a worker exists.
-            # A resume must reuse the exact recorded worktree, and that
-            # worktree's baseline must still be the one the task was approved
-            # with. A mismatched task lands in POLICY_VIOLATION, and
-            # POLICY_VIOLATION -> RESUME_REQUESTED is legal, so "issue a
-            # corrective resume" is Sol's natural next move — it must not spend
-            # another paid worker reproducing the same corrupt evidence.
-            await asyncio.to_thread(
-                self._assert_resume_worktree_identity,
-                envelope,
-                record,
-                canonical_root,
-                Path(plan.worktree_path),
-            )
-
-            self.store.transition(
-                task_id, TaskState.RESUME_REQUESTED, reason="resume_requested"
-            )
-            record = self.store.transition(
-                task_id,
-                TaskState.RUNNING,
-                reason="resume",
-                resume_count=plan.next_resume_count,
-            )
-
             run_index = record.run_count + 1
             run_id = new_run_id()
             resume_prompt = build_resume_prompt(envelope, plan.instruction)
 
-            # Gate 4.5 §16, in this order and no other: VERIFY the dispatch
-            # anchor first, then project. A changed skill hash or a changed
-            # CLAUDE.md must return the task to Sol rather than silently resume
-            # under different instructions. The resume *selection* legitimately
-            # differs from dispatch (the manifest adds ``receiving-code-review``
-            # on RunKind.RESUME) — that is not drift, and verification does not
-            # look at it.
-            identity = await asyncio.to_thread(
-                self.context.repository_identity, canonical_root
+            preflight_result: dict[str, Any] = {}
+
+            def context_preflight(
+                authority: RepositoryAuthoritySnapshot,
+                sealed_identity: RepositoryIdentityRecord,
+            ) -> None:
+                """P4, injected between raw P3 and authenticated P5."""
+                identity = self.context.sealed_repository_identity(sealed_identity)
+                self.context.verify_dispatch_anchor(
+                    record, identity=identity, envelope=envelope
+                )
+                worker_context = self.context.for_worker(
+                    envelope,
+                    run_kind=RunKind.RESUME,
+                    policy_text=worker_policy_text(self.config),
+                    task_prompt=resume_prompt,
+                    identity=identity,
+                )
+                project_root = Path(__file__).resolve().parents[2]
+                lifecycle_engine = LifecycleProfileEngine.from_file(
+                    project_root / "config" / "approved-lifecycle-profiles.json",
+                    source_root=project_root,
+                    effective_deny_patterns=ALWAYS_DISALLOWED_TOOLS,
+                )
+                try:
+                    persisted_lifecycle = json.loads(
+                        (
+                            self.store.task_dir(task_id)
+                            / "evidence"
+                            / "lifecycle-feasibility.json"
+                        ).read_text(encoding="utf-8")
+                    )
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise StateCorruption(
+                        "The task's lifecycle feasibility evidence is unavailable.",
+                        details={"task_id": task_id},
+                    ) from exc
+                if (
+                    persisted_lifecycle.get("manifest_version")
+                    != lifecycle_engine.manifest.manifest_version
+                ):
+                    raise PolicyViolation(
+                        "The approved lifecycle manifest changed after dispatch.",
+                        details={"task_id": task_id},
+                    )
+                correction_lifecycle = lifecycle_engine.project(
+                    LifecyclePhase.CORRECTION_RESUME,
+                    task_kind=envelope.task.kind,
+                    complexity=envelope.routing.complexity,
+                    risk=envelope.routing.risk,
+                )
+                preflight_result["worker_context"] = worker_context
+                preflight_result["append_system_prompt"] = (
+                    compose_append_system_prompt(
+                        worker_context.append_system_prompt,
+                        correction_lifecycle.text,
+                        "",
+                    )
+                )
+
+            seal_path = self.store.task_dir(task_id) / "evidence" / "preworker-seal"
+            prepared = await asyncio.to_thread(
+                prepare_resume,
+                repository_root=canonical_root,
+                state_root=self.config.state_path,
+                worktree_path=Path(plan.worktree_path),
+                task_id=task_id,
+                run_index=run_index,
+                base_commit=envelope.repository.base_commit,
+                seal_path=seal_path,
+                empty_hooks_path=Path(__file__).resolve().parents[2]
+                / "config"
+                / "empty-hooks",
+                context_preflight=context_preflight,
             )
-            self.context.verify_dispatch_anchor(
-                record, identity=identity, envelope=envelope
-            )
-            worker_context = self.context.for_worker(
-                envelope,
-                run_kind=RunKind.RESUME,
-                policy_text=worker_policy_text(self.config),
-                task_prompt=resume_prompt,
-                identity=identity,
+            worker_context = cast(WorkerContext, preflight_result["worker_context"])
+            append_system_prompt = cast(
+                str, preflight_result["append_system_prompt"]
             )
 
             invocation = build_worker_invocation(
@@ -1236,7 +1825,7 @@ class Dispatcher:
                 session_id=plan.session_id,
                 resume_session_id=plan.session_id,
                 prompt=resume_prompt,
-                append_system_prompt=worker_context.append_system_prompt,
+                append_system_prompt=append_system_prompt,
                 skill_ids=worker_context.skill_ids,
                 guidance_scope_ids=worker_context.guidance_scope_ids,
                 # Same worktree, no new one (§18). build_worker_invocation
@@ -1246,13 +1835,28 @@ class Dispatcher:
             )
             invocation = self._with_run_spools(invocation, task_id, run_index)
 
-            # P1-5: same baseline discipline as dispatch. A resume runs inside
-            # the worktree, so any primary-tree change is by definition
-            # interference.
-            primary_tree_before = await asyncio.to_thread(
-                snapshot_primary_tree, canonical_root
+            # The complete PREPARE proof exists before the first lifecycle
+            # mutation. RUNNING is not durable until the child exists.
+            execution.mark_reserved(plan)
+            self.store.transition(
+                task_id, TaskState.RESUME_REQUESTED, reason="resume_requested"
             )
-            self._write_primary_tree_snapshot(task_id, "before", primary_tree_before)
+
+            def worker_spawned(proc: asyncio.subprocess.Process) -> None:
+                execution.mark_spawned({"pid": proc.pid})
+                self.store.transition(
+                    task_id,
+                    TaskState.RUNNING,
+                    reason="resume",
+                    resume_count=plan.next_resume_count,
+                )
+
+            invocation = replace(invocation, on_spawn=worker_spawned)
+
+            atomic_write_json(
+                self._run_dir(task_id, run_index) / "git-admin-worker-start.json",
+                prepared.admin_worker_start.to_dict(),
+            )
 
             started_at = utc_now()
             _event(
@@ -1263,8 +1867,14 @@ class Dispatcher:
                 kind="resume",
                 resume_count=plan.next_resume_count,
             )
+            execution.enter(ExecutionPhase.LAUNCH)
             worker_run = await run_worker(invocation)
+            if execution.phase is ExecutionPhase.LAUNCH:
+                raise InternalDispatcherError(
+                    "The worker runner returned without proving a child existed."
+                )
             finished_at = utc_now()
+            execution.enter(ExecutionPhase.FINALIZE)
 
             return await self._finalise_worker_run(
                 envelope=envelope,
@@ -1278,11 +1888,12 @@ class Dispatcher:
                 started_at=started_at,
                 finished_at=finished_at,
                 repository_root=canonical_root,
-                primary_tree_before=primary_tree_before,
+                primary_tree_before=prepared.primary_prepare,
                 worker_context=worker_context,
+                prepared_dispatch=prepared,
             )
         except DispatcherError as exc:
-            self._record_failure(task_id, exc)
+            self._record_failure(execution, exc)
             raise
         finally:
             lock.release()
@@ -1290,9 +1901,46 @@ class Dispatcher:
     # -- tool 3: fable review -----------------------------------------------
 
     async def _review(
-        self, task_id: str, focus: list[str] | None = None
+        self,
+        task_id: str,
+        focus: list[str] | None = None,
+        *,
+        execution: ToolExecution | None = None,
     ) -> dict[str, Any]:
         """§7.3. Independent, read-only review in a fresh session. Advisory."""
+        if execution is None:
+            with begin_tool_execution("review", task_id=task_id) as owned:
+                return await self._review(task_id, focus, execution=owned)
+        try:
+            # Install the refusal journal boundary before PREPARE.
+            task_id = validate_task_id(task_id)
+            envelope = self.store.load_envelope(task_id)
+            # Legality is a PREPARE condition. Refuse before taking repository
+            # authority or constructing any reviewer/run/review artefact; the
+            # surrounding failure boundary records exactly one typed refusal.
+            _assert_fable_review_transition_allowed(self.store.load(task_id))
+            assert_validation_budget(
+                envelope, self.config, phase="review", task_id=task_id
+            )
+            # The budget check above precedes _review_impl's
+            # RepositoryLock.lock.acquire() call, so an over-budget review
+            # cannot contend for repository authority.
+            return await self._review_impl(task_id, focus, execution=execution)
+        except DispatcherError as exc:
+            # PREPARE refusals are journalled exactly like dispatch/resume. A
+            # refusal before reviewer spawn appends refusals.jsonl and leaves
+            # the task state byte-identical.
+            self._record_failure(execution, exc)
+            raise
+
+    async def _review_impl(
+        self,
+        task_id: str,
+        focus: list[str] | None,
+        *,
+        execution: ToolExecution,
+    ) -> dict[str, Any]:
+        """Run the review after the failure-recording boundary is installed."""
         assert_no_recursion(self.config)
 
         # Defence in depth (P0-1 / Lane A R2).
@@ -1300,17 +1948,6 @@ class Dispatcher:
 
         envelope = self.store.load_envelope(task_id)
         record = self.store.load(task_id)
-
-        # GATE 6 (FINDING K-1). A Fable review starts a Claude process on the
-        # same MCP transport as a dispatch, so it is bounded by the same tool
-        # timeout and must obey the same budget. It runs no validation commands
-        # of its own, but the envelope's declared total is the honest measure of
-        # what this task was ever allowed to cost, and a budget lowered
-        # underneath a stored envelope must refuse here too rather than start a
-        # reviewer on a call that will be cancelled.
-        assert_validation_budget(
-            envelope, self.config, phase="review", task_id=task_id
-        )
 
         if not record.worktree_path:
             raise StateCorruption(
@@ -1325,7 +1962,10 @@ class Dispatcher:
                 details={"task_id": task_id, "worktree_path": str(worktree)},
             )
 
-        canonical_root = validate_repository_root(envelope.repository.root, self.config)
+        canonical_root = authorize_repository_root(
+            envelope.repository.root, self.config
+        )
+        primary_dot_git = await asyncio.to_thread(classify_dot_git, canonical_root)
 
         # P0/P1-4: Fable used to take no lock, on the reasoning that a review is
         # read-only. Read-only is not the same as *consistent*: a resume (or a
@@ -1344,39 +1984,91 @@ class Dispatcher:
             # ``run_count + 1`` is the run *directory*, so a stale value would
             # have the review overwrite a worker run's evidence.
             record = self.store.load(task_id)
+            # Close the check-to-lock race. Another Dispatcher instance may
+            # have completed a review after the public PREPARE check but before
+            # this execution acquired repository authority. Re-check before
+            # reading review evidence or creating any reviewer artefact.
+            _assert_fable_review_transition_allowed(record)
 
-            latest = self.store.latest_run(task_id)
-            diff_text = self._prompt_diff_text(task_id)
-            changed_paths = (
-                list(latest.dispatcher_observations.changed_paths)
-                if latest is not None and latest.dispatcher_observations is not None
-                else []
+            seal_path = self.store.task_dir(task_id) / "evidence" / "preworker-seal"
+            seal = await asyncio.to_thread(
+                load_task_seal, seal_path, require_identity=True
             )
-            validation_results = list(latest.validation_results) if latest is not None else []
-            worker_claims = latest.worker_claims if latest is not None else None
+            try:
+                sealed_repo_authority = RepositoryAuthoritySnapshot.from_json_dict(
+                    json.loads((seal_path / "repository-authority.json").read_bytes())
+                )
+                sealed_worktree_authority = decode_worktree_authority(
+                    (seal_path / "worktree-authority.json").read_bytes()
+                )
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise StateCorruption(
+                    "The task's sealed review authority is unavailable.",
+                    details={"task_id": task_id},
+                ) from exc
+            if (
+                seal.manifest.task_id != task_id
+                or seal.manifest.base_commit != envelope.repository.base_commit
+            ):
+                raise StateCorruption(
+                    "The task seal identity does not match the stored envelope.",
+                    details={"task_id": task_id},
+                )
+            sealed_identity = seal.identity_record
+            if sealed_identity is None:  # require_identity makes this unreachable
+                raise InternalDispatcherError(
+                    "Verified task seal returned no repository identity."
+                )
+            if (
+                os.fsencode(canonical_root) != sealed_repo_authority.canonical_root
+                or os.fsencode(canonical_root) != sealed_identity.canonical_root
+                or primary_dot_git.shape is not sealed_repo_authority.dot_git_shape
+            ):
+                raise WorktreeBaseMismatch(
+                    "Repository authority changed before Fable review.",
+                    details={"task_id": task_id},
+                )
+            authority_verdict = await asyncio.to_thread(
+                verify_worktree_authority, sealed_worktree_authority
+            )
+            if authority_verdict.verdict != "base_held":
+                raise WorktreeBaseMismatch(
+                    "Worktree authority changed before Fable review.",
+                    details={
+                        "task_id": task_id,
+                        "verdict": authority_verdict.verdict,
+                        "expected_base_commit": envelope.repository.base_commit,
+                        "actual_head_commit": (
+                            authority_verdict.observed_head_bytes.decode(
+                                "ascii", errors="replace"
+                            ).strip()
+                            if authority_verdict.observed_head_bytes is not None
+                            else None
+                        ),
+                    },
+                )
 
+            evidence = self._load_fable_evidence(task_id)
             session_id = new_session_id()  # fresh session, never the worker's (§19)
             run_index = record.run_count + 1
             run_id = new_run_id()
 
-            review_prompt = build_fable_prompt(
+            prompt_prefix, prompt_suffix = _fable_prompt_parts(
                 envelope,
-                diff_text=diff_text,
-                changed_paths=changed_paths,
-                worker_claims=worker_claims,
-                validation_results=validation_results,
+                inventory=evidence.inventory,
+                worker_claims=evidence.worker_claims,
+                validation_results=list(evidence.validation_results),
                 focus=list(focus or []),
-                validation_added_paths=self._validation_added_paths(task_id),
+                attribution=evidence.attribution,
             )
+            review_prompt = prompt_prefix + evidence.patch_text + prompt_suffix
 
             # Gate 4.5 §15. Fable gets a SEPARATE review-context guidance
             # projection — different artifacts, different hashes, disjoint from
             # the worker's — and no skill projection at all. A scope whose
             # review projection was never approved fails closed here; it must
             # not degrade to root-only review context (RULINGS §7).
-            review_identity = await asyncio.to_thread(
-                self.context.repository_identity, canonical_root
-            )
+            review_identity = self.context.sealed_repository_identity(sealed_identity)
             review_context = self.context.for_review(
                 envelope,
                 policy_text=fable_policy_text(self.config),
@@ -1393,14 +2085,70 @@ class Dispatcher:
                 guidance_scope_ids=review_context.guidance_scope_ids,
                 cwd=worktree,
             )
+            transport = _argv_transport_measurement(
+                invocation,
+                prefix=prompt_prefix,
+                suffix=prompt_suffix,
+                patch_data=evidence.patch_data,
+            )
+            transport.update(
+                {
+                    "task_id": task_id,
+                    "implementer_run_index": evidence.run_index,
+                    "proposed_review_run_index": run_index,
+                }
+            )
+            self.store.write_evidence(
+                task_id,
+                "fable-review-input.json",
+                json.dumps(transport, indent=2),
+            )
+            if not transport["review_input_complete"]:
+                raise EvidenceExceedsReviewBudget(
+                    "The complete Fable review invocation cannot be transported "
+                    "intact within the measured execve limits.",
+                    details={
+                        "task_id": task_id,
+                        "implementer_run_index": evidence.run_index,
+                        "patch_bytes": transport["patch_bytes"],
+                        "budget_bytes": transport["review_patch_budget_bytes"],
+                        "binding_constraint": transport["binding_constraint"],
+                        "oversized_element_count": transport[
+                            "oversized_element_count"
+                        ],
+                        "oversized_elements": transport["oversized_elements"],
+                    },
+                    remediation=(
+                        "Narrow the task scope, split the work, or remove the "
+                        "oversized argv/environment element; evidence and "
+                        "invocation entries will not be clipped."
+                    ),
+                )
+            atomic_write_json(
+                self.store.run_dir(task_id, run_index) / "fable-review-input.json",
+                transport,
+            )
             invocation = self._with_run_spools(invocation, task_id, run_index)
+
+            execution.mark_reserved({"seal_manifest": seal.manifest.manifest_hash})
+
+            def reviewer_spawned(proc: asyncio.subprocess.Process) -> None:
+                execution.mark_spawned({"pid": proc.pid})
+
+            invocation = replace(invocation, on_spawn=reviewer_spawned)
 
             started_at = utc_now()
             _event(
                 "review_start", task_id=task_id, run_id=run_id, model=self.config.models.fable
             )
+            execution.enter(ExecutionPhase.LAUNCH)
             worker_run = await run_worker(invocation)
+            if execution.phase is ExecutionPhase.LAUNCH:
+                raise InternalDispatcherError(
+                    "The reviewer runner returned without proving a child existed."
+                )
             finished_at = utc_now()
+            execution.enter(ExecutionPhase.FINALIZE)
 
             self._write_run_streams(task_id, run_index, worker_run)
             self._record_bare_run(
@@ -1971,76 +2719,318 @@ class Dispatcher:
         started_at: Any,
         finished_at: Any,
         repository_root: Path,
-        primary_tree_before: PrimaryTreeSnapshot,
+        primary_tree_before: PrimaryTreeSnapshot | FsSnapshot,
         worker_context: WorkerContext | None = None,
+        prepared_dispatch: PreparedDispatch | PreparedResume | None = None,
     ) -> dict[str, Any]:
         """Collect evidence, record the run, and land the task in a state.
 
         Shared by dispatch and resume so both go through *identical* evidence
         collection, scope enforcement and state accounting (§13, §16, §17).
 
-        Evidence is collected in two phases (P1-7): phase A immediately after
-        the worker exits, phase B after the dispatcher's own validation
-        commands have run. The authoritative scope and policy decision uses the
-        **final** state — that is what is actually on disk — while the record
-        keeps the attribution so a dispatcher-generated file is never charged
-        to the worker.
+        Evidence is collected at adjacent terminals (P1-7): WORKER_START,
+        WORKER_EXIT, and VALIDATION_EXIT.  The worker-exit delta is the
+        immutable canonical patch and owns the scope verdict.  The separate
+        post-validation snapshot attributes dispatcher-created drift without
+        charging it to the worker or rewriting reviewer evidence.  Primary
+        filesystem, HEAD, and repository authority use the same terminal split
+        so validation cannot restore and erase worker interference.
         """
         task_id = envelope.task_id
+        if prepared_dispatch is None:
+            raise InternalDispatcherError(
+                "Worker finalization requires Gate 7 prepared evidence."
+            )
+
+        scope_spec = ScopeSpecBytes.from_strings(
+            allowed_paths=envelope.scope.allowed_paths,
+            forbidden_paths=envelope.scope.forbidden_paths,
+        )
+        prior_cumulative_worker = None
+        prior_scope_raw = self.store.read_evidence(task_id, "scope-verdicts.json")
+        if run_index == 1:
+            if prior_scope_raw is not None:
+                raise StateCorruption(
+                    "A first worker run unexpectedly has prior scope history.",
+                    details={"task_id": task_id, "run_index": run_index},
+                )
+        else:
+            if prior_scope_raw is None:
+                raise StateCorruption(
+                    "The prior cumulative worker scope history is absent.",
+                    details={"task_id": task_id, "run_index": run_index},
+                )
+            try:
+                prior_scope_value = json.loads(prior_scope_raw)
+                if not isinstance(prior_scope_value, dict):
+                    raise ValueError("scope evidence root is not an object")
+                prior_cumulative_worker = load_prior_cumulative_worker(
+                    prior_scope_value,
+                    scope=scope_spec,
+                    base_commit=envelope.repository.base_commit,
+                )
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise StateCorruption(
+                    "The prior cumulative worker scope history is malformed.",
+                    details={"task_id": task_id, "run_index": run_index},
+                ) from exc
 
         self._write_run_streams(task_id, run_index, worker_run)
-
-        # --- INVARIANT B2: the choke point ---------------------------------
-        # Shared by dispatch and resume, and placed *before* every consumer of
-        # the base: evidence A, the validation commands, evidence B, the scope
-        # decision, ``evidence/diff.patch`` and the review prompt. The worktree
-        # was created on the recorded base and verified before launch, but a
-        # worker has Bash and its own git; if HEAD moved during the run, every
-        # measurement below would describe a tree that never existed.
-        #
-        # Diff evidence is deliberately NOT collected "just for the record"
-        # first. That artefact is the lie — producing it and labelling it would
-        # reintroduce the defect in a file someone will later read as evidence.
-        try:
-            worktree_head_commit = await asyncio.to_thread(
-                self._verify_worktree_base,
-                envelope,
-                worktree_path,
-                phase=run_kind.value,
-            )
-        except WorktreeBaseMismatch as error:
-            self._record_primary_tree_on_failure_path(
-                task_id, repository_root, primary_tree_before
-            )
-            # The run happened and must be in the record, even though no diff
-            # evidence exists for it (§20: evidence first, refusal second).
-            self._record_bare_run(
-                envelope=envelope,
-                run_kind=run_kind,
-                role=WorkerRole.IMPLEMENTER,
-                run_index=run_index,
-                run_id=run_id,
-                session_id=session_id,
-                model=model,
-                worktree_path=str(worktree_path),
-                worker_run=worker_run,
-                started_at=started_at,
-                finished_at=finished_at,
-                worker_context=worker_context,
-            )
-            self.store.transition(
-                task_id,
-                TaskState.FAILED,
-                reason="worktree_base_mismatch",
-                last_error=error.to_payload(),
-            )
-            raise
-
-        # --- evidence A: the worktree as the worker left it (§16, P1-7) ---
-        worker_evidence = await asyncio.to_thread(
-            collect_diff_evidence, worktree_path, envelope.repository.base_commit
+        worker_exit_repository_authority = await asyncio.to_thread(
+            capture_matching_repository_authority,
+            repository_root,
+            prepared_dispatch.repository_authority,
+            phase="worker_exit",
         )
+        primary_worker_exit = await asyncio.to_thread(
+            capture_snapshot,
+            repository_root,
+            role="primary_post",
+            fidelity="stat_identity",
+        )
+        primary_worker_exit_head = await asyncio.to_thread(
+            capture_primary_head, worker_exit_repository_authority
+        )
+        primary_worker_divergence = _primary_terminal_divergence(
+            prepared_dispatch.primary_worker_start,
+            prepared_dispatch.primary_worker_start_head,
+            primary_worker_exit,
+            primary_worker_exit_head,
+            expected_root=worker_exit_repository_authority.canonical_root,
+            attributed_to="worker",
+            interval="worker_start_to_worker_exit",
+        )
+
+        run_dir = self._run_dir(task_id, run_index)
+        worker_start_primary_evidence = {
+            "phase": "worker_start",
+            "repository_authority": (
+                prepared_dispatch.repository_authority.to_json_dict()
+            ),
+            "tree": prepared_dispatch.primary_worker_start.to_dict(),
+            "head": prepared_dispatch.primary_worker_start_head.to_dict(),
+        }
+        worker_exit_primary_evidence = {
+            "phase": "worker_exit",
+            "repository_authority": worker_exit_repository_authority.to_json_dict(),
+            "tree": primary_worker_exit.to_dict(),
+            "head": primary_worker_exit_head.to_dict(),
+        }
+        self.store.write_evidence(
+            task_id,
+            "primary-tree-worker-start.json",
+            json.dumps(worker_start_primary_evidence, indent=2),
+        )
+        self.store.write_evidence(
+            task_id,
+            "primary-tree-worker-exit.json",
+            json.dumps(worker_exit_primary_evidence, indent=2),
+        )
+        atomic_write_json(
+            run_dir / "git-admin-worker-start.json",
+            prepared_dispatch.admin_worker_start.to_dict(),
+        )
+        administrative_divergences: list[dict[str, Any]] = []
+        admin_worker_exit = None
+        try:
+            admin_worker_exit = await asyncio.to_thread(
+                capture_repository_administration,
+                repository_root,
+                baseline=prepared_dispatch.admin_worker_start,
+                selected_worktree_gitdir=(
+                    prepared_dispatch.worktree_authority.gitdir_realpath
+                ),
+            )
+            atomic_write_json(
+                run_dir / "git-admin-worker-exit.json",
+                admin_worker_exit.to_dict(),
+            )
+            try:
+                await asyncio.to_thread(
+                    reconcile_repository_administration,
+                    prepared_dispatch.admin_worker_start,
+                    admin_worker_exit,
+                )
+            except RepositoryAdministrationUnreconciled as exc:
+                administrative_divergences.append(
+                    {
+                        "attributed_to": "worker",
+                        "verdict": "tamper",
+                        "code": exc.code,
+                        "details": exc.details,
+                    }
+                )
+        except DispatcherError as exc:
+            # An unreadable or unsupported FINALIZE capture is unknown, never
+            # clean.  Validation is not launched against authority the worker
+            # may already have poisoned.
+            administrative_divergences.append(
+                {
+                    "attributed_to": "worker",
+                    "verdict": "unknown_treated_as_tamper",
+                    "code": exc.code,
+                    "details": exc.details,
+                }
+            )
+
+        native_worker_snapshot: FsSnapshot | None = None
+        native_worker_attribution = None
+        native_scope_verdict = None
+        if prepared_dispatch is not None:
+            # Gate 7: post-worker authority is raw and literal.  Exactly the
+            # four sealed linked-worktree authority files are re-read; no Git
+            # process exists on this side of the worker boundary.
+            authority_verdict = await asyncio.to_thread(
+                verify_worktree_authority, prepared_dispatch.worktree_authority
+            )
+            if authority_verdict.verdict != "base_held":
+                observed_head = (
+                    authority_verdict.observed_head_bytes.decode(
+                        "ascii", errors="replace"
+                    ).strip()
+                    if authority_verdict.observed_head_bytes is not None
+                    else ""
+                )
+                self._write_worktree_base_evidence(
+                    envelope,
+                    worktree_path=worktree_path,
+                    actual_head_commit=observed_head,
+                    held=False,
+                    phase=run_kind.value,
+                )
+                self._record_bare_run(
+                    envelope=envelope,
+                    run_kind=run_kind,
+                    role=WorkerRole.IMPLEMENTER,
+                    run_index=run_index,
+                    run_id=run_id,
+                    session_id=session_id,
+                    model=model,
+                    worktree_path=str(worktree_path),
+                    worker_run=worker_run,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    worker_context=worker_context,
+                )
+                raise WorktreeBaseMismatch(
+                    "The sealed worktree authority changed during the worker run.",
+                    details={
+                        "task_id": task_id,
+                        "verdict": authority_verdict.verdict,
+                        "expected_base_commit": envelope.repository.base_commit,
+                        "actual_head_commit": observed_head or None,
+                        "differences": [
+                            asdict(item) for item in authority_verdict.differences
+                        ],
+                    },
+                )
+            worktree_head_commit = envelope.repository.base_commit
+            native_worker_snapshot = await asyncio.to_thread(
+                capture_snapshot,
+                worktree_path,
+                role="task_worktree_worker_exit",
+            )
+            native_worker_attribution = attribute_snapshots(
+                prepared_dispatch.worktree_start,
+                native_worker_snapshot,
+                None,
+                base_commit=envelope.repository.base_commit,
+            )
+            require_attributable(native_worker_attribution)
+            native_scope_verdict = decide_scope(
+                native_worker_attribution.worker_delta,
+                ScopeSpecBytes.from_strings(
+                    allowed_paths=envelope.scope.allowed_paths,
+                    forbidden_paths=envelope.scope.forbidden_paths,
+                ),
+            )
+            start_by_path = {
+                bytes(entry.path): entry
+                for entry in prepared_dispatch.worktree_start.entries
+            }
+            worker_by_path = {
+                bytes(entry.path): entry for entry in native_worker_snapshot.entries
+            }
+            sealed_start = self.store.task_dir(task_id) / "evidence" / "preworker-seal"
+            authority_by_path = {
+                bytes(change.path): (
+                    _snapshot_content_input(
+                        start_by_path.get(bytes(change.path)),
+                        root=worktree_path,
+                        sealed_start_root=sealed_start,
+                    ),
+                    _snapshot_content_input(
+                        worker_by_path.get(bytes(change.path)), root=worktree_path
+                    ),
+                )
+                for change in native_worker_attribution.worker_delta.changes
+            }
+            classified = classify_inventory(
+                native_worker_attribution.worker_delta,
+                native_scope_verdict,
+                authority_by_path,
+            )
+            canonical = build_canonical_evidence(
+                classified,
+                base_commit=envelope.repository.base_commit,
+                patch_path=self.store.task_dir(task_id) / "evidence" / "diff.patch",
+            )
+            worker_evidence = canonical.to_diff_evidence()
         self._write_phase_evidence(task_id, "pre-validation", worker_evidence)
+
+        # Step 16: persist the exact canonical byte/completeness record and the
+        # three raw inputs that produced it, then freeze that declared set
+        # before any trusted validation command can run.  The freeze detects
+        # same-uid overwrites; it does not claim to prevent them.
+        canonical_record = _canonical_evidence_record(canonical, run_index=run_index)
+        self.store.write_evidence(
+            task_id,
+            "canonical-evidence.json",
+            json.dumps(canonical_record, indent=2),
+        )
+        atomic_write_json(run_dir / "canonical-evidence.json", canonical_record)
+        atomic_write_json(
+            run_dir / "fs-snapshot-start.json",
+            prepared_dispatch.worktree_start.to_dict(),
+        )
+        atomic_write_json(
+            run_dir / "fs-snapshot-worker-exit.json",
+            native_worker_snapshot.to_dict(),
+        )
+        atomic_write_json(
+            run_dir / "path-inventory.json",
+            {
+                "schema": "path-inventory/1",
+                "identity": classified.identity.to_dict(),
+                "scope_verdict": classified.verdict.to_dict(),
+                "classes": [
+                    {
+                        "path": os.fsdecode(row.path),
+                        "content_class": row.content_class.value,
+                        "ignored_by_base": row.ignored_by_base,
+                        "inventory_complete": row.inventory_complete,
+                    }
+                    for row in classified.classes
+                ],
+            },
+        )
+        frozen_relpaths = (
+            b"evidence/diff.patch",
+            b"evidence/canonical-evidence.json",
+            b"evidence/pre-validation-diff-stat.txt",
+            b"evidence/pre-validation-status.txt",
+            b"evidence/pre-validation-changed-paths.json",
+            f"runs/{run_index:03d}/fs-snapshot-start.json".encode("ascii"),
+            f"runs/{run_index:03d}/fs-snapshot-worker-exit.json".encode("ascii"),
+            f"runs/{run_index:03d}/path-inventory.json".encode("ascii"),
+            f"runs/{run_index:03d}/canonical-evidence.json".encode("ascii"),
+        )
+        evidence_freeze = await asyncio.to_thread(
+            capture_evidence_freeze,
+            self.store.task_dir(task_id),
+            frozen_relpaths,
+        )
+        atomic_write_json(run_dir / "evidence-freeze.json", evidence_freeze.to_dict())
 
         # --- what the worker CLAIMED (§16) --------------------------------
         worker_result: WorkerResult | None = None
@@ -2097,52 +3087,296 @@ class Dispatcher:
 
         # --- independent validation (§17) ---------------------------------
         validation_results: list[Any] = []
-        if not worker_run.timed_out and not worker_run.start_failed:
+        if (
+            not worker_run.timed_out
+            and not worker_run.start_failed
+            and not administrative_divergences
+        ):
             # env is deliberately not passed: ``run_validations`` treats
             # ``env=None`` as "build the sanitized environment" (P1-6).
-            validation_results = await run_validations(envelope, worktree_path, self.config)
+            validation_results = await run_validations(
+                envelope,
+                worktree_path,
+                self.config,
+                journal_path=run_dir / "validation-invocations.jsonl",
+            )
         atomic_write_json(
             self._run_dir(task_id, run_index) / "validation.json",
             [_dump(v) for v in validation_results],
         )
+        try:
+            await asyncio.to_thread(
+                verify_evidence_freeze,
+                self.store.task_dir(task_id),
+                evidence_freeze,
+            )
+        except EvidenceFreezeViolated as exc:
+            administrative_divergences.append(
+                {
+                    "attributed_to": "validation",
+                    "verdict": "tamper",
+                    "code": exc.code,
+                    "details": exc.details,
+                }
+            )
+        validation_exit_repository_authority = await asyncio.to_thread(
+            capture_matching_repository_authority,
+            repository_root,
+            prepared_dispatch.repository_authority,
+            phase="validation_exit",
+        )
+        primary_validation_exit = await asyncio.to_thread(
+            capture_snapshot,
+            repository_root,
+            role="primary_post",
+            fidelity="stat_identity",
+        )
+        primary_validation_exit_head = await asyncio.to_thread(
+            capture_primary_head, validation_exit_repository_authority
+        )
+        primary_validation_divergence = _primary_terminal_divergence(
+            primary_worker_exit,
+            primary_worker_exit_head,
+            primary_validation_exit,
+            primary_validation_exit_head,
+            expected_root=validation_exit_repository_authority.canonical_root,
+            attributed_to="validation",
+            interval="worker_exit_to_validation_exit",
+        )
+        validation_exit_primary_evidence = {
+            "phase": "validation_exit",
+            "repository_authority": (
+                validation_exit_repository_authority.to_json_dict()
+            ),
+            "tree": primary_validation_exit.to_dict(),
+            "head": primary_validation_exit_head.to_dict(),
+        }
+        self.store.write_evidence(
+            task_id,
+            "primary-tree-validation-exit.json",
+            json.dumps(validation_exit_primary_evidence, indent=2),
+        )
 
         # --- evidence B: after validation (P1-7) --------------------------
-        # Validation commands mutate worktrees routinely — formatters, coverage
-        # files, lockfiles, snapshot updates. Post-worker evidence is stale the
-        # moment one of them runs, so the state that gets policed is re-measured
-        # here. Skipped only when nothing ran, in which case B is A by
-        # construction rather than by assumption.
-        if validation_results:
-            final_evidence = await asyncio.to_thread(
-                collect_diff_evidence, worktree_path, envelope.repository.base_commit
+        # Validation commands can mutate worktrees — formatters, coverage
+        # files, lockfiles, snapshot updates.  Re-measure them for attribution,
+        # but never replace the authoritative worker-exit evidence or verdict.
+        # Skipped only when nothing ran, in which case B is A by construction.
+        if prepared_dispatch is not None:
+            assert native_worker_snapshot is not None
+            post_validation = (
+                await asyncio.to_thread(
+                    capture_snapshot,
+                    worktree_path,
+                    role="task_worktree_post_validation",
+                )
+                if validation_results
+                else None
             )
-        else:
+            # Capture #2 follows the post-validation filesystem terminal.  It
+            # is compared only with capture #1, so no worker-side or primary-
+            # ref exception can erase validation attribution.
+            admin_validation_exit = admin_worker_exit
+            if validation_results and admin_worker_exit is not None:
+                try:
+                    admin_validation_exit = await asyncio.to_thread(
+                        capture_repository_administration,
+                        repository_root,
+                        baseline=admin_worker_exit,
+                        selected_worktree_gitdir=(
+                            prepared_dispatch.worktree_authority.gitdir_realpath
+                        ),
+                    )
+                    atomic_write_json(
+                        run_dir / "git-admin-validation-exit.json",
+                        admin_validation_exit.to_dict(),
+                    )
+                    try:
+                        await asyncio.to_thread(
+                            reconcile_repository_administration,
+                            admin_worker_exit,
+                            admin_validation_exit,
+                        )
+                    except RepositoryAdministrationUnreconciled as exc:
+                        administrative_divergences.append(
+                            {
+                                "attributed_to": "validation",
+                                "verdict": "tamper",
+                                "code": "ValidationTouchedAdministrativeState",
+                                "details": exc.details,
+                            }
+                        )
+                except DispatcherError as exc:
+                    administrative_divergences.append(
+                        {
+                            "attributed_to": "validation",
+                            "verdict": "unknown_treated_as_tamper",
+                            "code": "ValidationTouchedAdministrativeState",
+                            "capture_error": exc.code,
+                            "details": exc.details,
+                        }
+                    )
+            elif admin_validation_exit is not None:
+                atomic_write_json(
+                    run_dir / "git-admin-validation-exit.json",
+                    admin_validation_exit.to_dict(),
+                )
+            if administrative_divergences:
+                atomic_write_json(
+                    run_dir / "git-admin-divergence.json",
+                    {"divergences": administrative_divergences},
+                )
+            native_worker_attribution = attribute_snapshots(
+                prepared_dispatch.worktree_start,
+                native_worker_snapshot,
+                post_validation,
+                base_commit=envelope.repository.base_commit,
+            )
+            require_attributable(native_worker_attribution)
             final_evidence = worker_evidence
-        attribution = attribute_changed_paths(worker_evidence, final_evidence)
-
-        scope = check_scope(final_evidence.changed_paths, envelope.scope)
-
-        # --- primary-tree non-interference (P1-5) -------------------------
-        primary_tree_after = await asyncio.to_thread(
-            snapshot_primary_tree, repository_root
-        )
-        primary_tree_divergence = compare_primary_tree(
-            primary_tree_before, primary_tree_after
-        )
-        self._write_primary_tree_snapshot(task_id, "after", primary_tree_after)
-        self._write_primary_tree_invariant(
-            task_id, primary_tree_before, primary_tree_after, primary_tree_divergence
-        )
+            attribution = native_worker_attribution.to_dict()
+            attribution["implementer_run_index"] = run_index
+            final_delta = (
+                native_worker_attribution.final_delta
+                or native_worker_attribution.worker_delta
+            )
+            attribution.update(
+                worker_changed_paths=[
+                    os.fsdecode(bytes(change.path))
+                    for change in native_worker_attribution.worker_delta.changes
+                ],
+                final_changed_paths=[
+                    os.fsdecode(bytes(change.path))
+                    for change in final_delta.changes
+                ],
+                validation_added_paths=[
+                    os.fsdecode(bytes(path))
+                    for path in native_worker_attribution.validation_only
+                ],
+                validation_removed_paths=[
+                    os.fsdecode(bytes(path))
+                    for path in native_worker_attribution.validation_reverted
+                ],
+            )
+            scope_verdicts = decide_scope_verdicts(
+                prior_cumulative_worker=prior_cumulative_worker,
+                attribution=native_worker_attribution,
+                scope=scope_spec,
+                base_commit=envelope.repository.base_commit,
+            )
+            scope = ScopeCheck(
+                valid=scope_verdicts.valid,
+                out_of_scope=[
+                    os.fsdecode(bytes(path))
+                    for path in scope_verdicts.outside_allowed
+                ],
+                forbidden=[
+                    os.fsdecode(bytes(path))
+                    for path in scope_verdicts.forbidden_hits
+                ],
+            )
+            scope_verdict_evidence = scope_verdicts.to_dict()
+            attribution["scope_verdicts"] = scope_verdict_evidence
+            atomic_write_json(run_dir / "scope-verdicts.json", scope_verdict_evidence)
+            atomic_write_json(run_dir / "evidence-attribution.json", attribution)
+            self.store.write_evidence(
+                task_id,
+                "scope-verdicts.json",
+                json.dumps(scope_verdict_evidence, indent=2),
+            )
+            assert isinstance(primary_tree_before, FsSnapshot)
+            primary_tree_divergence = _combine_primary_terminal_divergences(
+                primary_worker_divergence,
+                primary_validation_divergence,
+            )
+            self.store.write_evidence(
+                task_id,
+                "primary-tree-before.json",
+                json.dumps(worker_start_primary_evidence, indent=2),
+            )
+            self.store.write_evidence(
+                task_id,
+                "primary-tree-after.json",
+                json.dumps(validation_exit_primary_evidence, indent=2),
+            )
+            self.store.write_evidence(
+                task_id,
+                "primary-tree-invariant.json",
+                json.dumps(
+                    {
+                        "invariant": (
+                            "PRIMARY_WORKER_START == PRIMARY_WORKER_EXIT and "
+                            "PRIMARY_WORKER_EXIT == PRIMARY_VALIDATION_EXIT"
+                        ),
+                        "held": primary_tree_divergence is None,
+                        "before": worker_start_primary_evidence,
+                        "after": validation_exit_primary_evidence,
+                        "worker_interval": {
+                            "held": primary_worker_divergence is None,
+                            "repository_authority_held": (
+                                prepared_dispatch.repository_authority
+                                == worker_exit_repository_authority
+                            ),
+                            "before": worker_start_primary_evidence,
+                            "after": worker_exit_primary_evidence,
+                            "divergence": primary_worker_divergence,
+                        },
+                        "validation_interval": {
+                            "held": primary_validation_divergence is None,
+                            "repository_authority_held": (
+                                worker_exit_repository_authority
+                                == validation_exit_repository_authority
+                            ),
+                            "before": worker_exit_primary_evidence,
+                            "after": validation_exit_primary_evidence,
+                            "divergence": primary_validation_divergence,
+                        },
+                        "divergence": primary_tree_divergence,
+                    },
+                    indent=2,
+                ),
+            )
+            primary_status = "RAW_SNAPSHOT_UNMEASURED_CLEANLINESS\n"
 
         # Evidence is on disk before any state decision is taken (§13, §20).
         await self._write_evidence(
             task_id,
-            worktree_path=worktree_path,
-            base_commit=envelope.repository.base_commit,
             diff_evidence=final_evidence,
             scope=scope,
             attribution=attribution,
-            primary_status=primary_tree_after.porcelain_status,
+            primary_status=primary_status,
+            canonical_record=canonical_record,
+        )
+        # Fable must not consume claims or validation from the mutable run
+        # journal.  Persist the minimal prompt input from these in-memory
+        # values, then bind those exact bytes into the review freeze below.
+        # The normal dispatcher-result remains an audit record, but is not an
+        # authority for review input.
+        atomic_write_json(
+            run_dir / "fable-run-evidence.json",
+            {
+                "schema": "fable-run-evidence/1",
+                "implementer_run_index": run_index,
+                "worker_claims": _dump(worker_result),
+                "validation_results": [_dump(row) for row in validation_results],
+            },
+        )
+        # The Fable consumer is keyed to this implementer run, not to whichever
+        # subprocess happened most recently. Freeze the run-specific metadata
+        # and attribution together with the task-level canonical patch after
+        # validation has finished and no further trusted command will run.
+        review_freeze = await asyncio.to_thread(
+            capture_evidence_freeze,
+            self.store.task_dir(task_id),
+            (
+                b"evidence/diff.patch",
+                f"runs/{run_index:03d}/canonical-evidence.json".encode("ascii"),
+                f"runs/{run_index:03d}/evidence-attribution.json".encode("ascii"),
+                f"runs/{run_index:03d}/fable-run-evidence.json".encode("ascii"),
+            ),
+        )
+        atomic_write_json(
+            run_dir / "review-evidence-freeze.json", review_freeze.to_dict()
         )
 
         claim_verification = compare_claims_to_validation(worker_result, validation_results)
@@ -2170,18 +3404,14 @@ class Dispatcher:
             # classified from an earlier run's envelope.
             api_error_status=cli_envelope.get("api_error_status"),
             terminal_reason=cli_envelope.get("terminal_reason"),
-            # B2: measured by git inside the worktree, before any of the
-            # evidence above was collected. Equal to ``base_commit`` on every
-            # run that gets this far, by construction — the run is refused
-            # otherwise — and recorded so a reader never has to take that on
-            # trust.
+            # B2: established by exact byte equality over the sealed worktree
+            # authority paths. Equal to ``base_commit`` on every run that gets
+            # this far; no post-worker Git process is used to derive it.
             worktree_head_commit=worktree_head_commit,
-            # Literal measurement, not the invariant: this says the primary tree
-            # has no uncommitted changes *now*. Non-interference
-            # (post_state == pre_state) is a different question and is decided
-            # by ``primary_tree_divergence`` below — an already-dirty tree is
-            # not a violation.
-            primary_worktree_clean=(primary_tree_after.porcelain_status.strip() == ""),
+            # Raw equality cannot answer Git-cleanliness, so this field remains
+            # explicitly unmeasured. Non-interference (post_state == pre_state)
+            # is the separate, authoritative verdict below.
+            primary_worktree_clean=None,
             # The invariant verdict itself, typed rather than only inferable
             # from the ``primary_tree_*`` prefixes in ``policy_violations``.
             primary_tree_unchanged=primary_tree_divergence is None,
@@ -2215,10 +3445,12 @@ class Dispatcher:
         record = self._land_state(
             task_id=task_id,
             scope=scope,
+            scope_verdicts=scope_verdicts,
             worker_run=worker_run,
             worker_result=worker_result,
             worker_result_error=worker_result_error,
             primary_tree_divergence=primary_tree_divergence,
+            administrative_divergences=administrative_divergences,
         )
 
         if record.state not in WORKER_ACTIONABLE_STATES:  # pragma: no cover - invariant
@@ -2266,11 +3498,16 @@ class Dispatcher:
                 "valid": scope.valid,
                 "out_of_scope": list(scope.out_of_scope),
                 "forbidden": list(scope.forbidden),
+                "verdicts": scope_verdict_evidence,
             },
             "evidence_attribution": attribution,
             "primary_tree": {
                 "unchanged": primary_tree_divergence is None,
                 "divergence": primary_tree_divergence,
+            },
+            "administrative_authority": {
+                "unchanged": not administrative_divergences,
+                "divergences": administrative_divergences,
             },
             "last_error": record.last_error,
             # GATE 6 §2/§3. Restated in-band, because the server instructions
@@ -2350,49 +3587,212 @@ class Dispatcher:
             ),
         )
 
-    def _prompt_diff_text(self, task_id: str) -> str:
-        """Bounded read of ``evidence/diff.patch`` for the review prompt.
+    def _load_fable_evidence(self, task_id: str) -> FableEvidenceBundle:
+        """Load one latest IMPLEMENTER run's complete, frozen review bundle."""
+        implementer_runs = [
+            run
+            for run in self.store.load_runs(task_id)
+            if run.metadata.role is WorkerRole.IMPLEMENTER
+        ]
+        if not implementer_runs:
+            raise EvidenceIncompleteForReview(
+                "The task has no canonical worker evidence to review.",
+                details={"task_id": task_id},
+            )
+        selected_run = implementer_runs[-1]
+        run_index = selected_run.metadata.run_index
+        run_dir = self.store.run_dir(task_id, run_index)
+        freeze_path = run_dir / "review-evidence-freeze.json"
+        try:
+            freeze_value = json.loads(freeze_path.read_bytes())
+            if not isinstance(freeze_value, dict):
+                raise ValueError("freeze record is not an object")
+            frozen = EvidenceFreeze.from_dict(freeze_value)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise EvidenceFreezeViolated(
+                "The selected implementer run's review freeze is unavailable.",
+                details={"changed_files": ["<freeze-record>"], "task_id": task_id},
+            ) from exc
+        verify_evidence_freeze(self.store.task_dir(task_id), frozen)
 
-        ``diff.patch`` is the *complete* patch now (Lane A R3), so it has no
-        upper bound — reading it whole to build a prompt that clips at
-        ``_MAX_PROMPT_DIFF_CHARS`` anyway would let a runaway worker decide how
-        much memory the dispatcher allocates. The full patch stays on disk; the
-        prompt gets a marked head.
-        """
+        try:
+            raw_run_evidence = json.loads(
+                (run_dir / "fable-run-evidence.json").read_bytes()
+            )
+            if not isinstance(raw_run_evidence, dict) or set(raw_run_evidence) != {
+                "schema",
+                "implementer_run_index",
+                "worker_claims",
+                "validation_results",
+            }:
+                raise ValueError("Fable run evidence has the wrong schema")
+            if raw_run_evidence["schema"] != "fable-run-evidence/1":
+                raise ValueError("Fable run evidence has an unsupported version")
+            if raw_run_evidence["implementer_run_index"] != run_index:
+                raise ValueError("Fable run evidence belongs to another run")
+            raw_claims = raw_run_evidence["worker_claims"]
+            worker_claims = (
+                None if raw_claims is None else WorkerResult.model_validate(raw_claims)
+            )
+            raw_validation = raw_run_evidence["validation_results"]
+            if not isinstance(raw_validation, list):
+                raise ValueError("Fable validation evidence is not a list")
+            validation_results = tuple(
+                ValidationResult.model_validate(row) for row in raw_validation
+            )
+        except (
+            KeyError,
+            OSError,
+            TypeError,
+            ValueError,
+            ValidationError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise EvidenceFreezeViolated(
+                "The selected implementer run's frozen claims or validation are malformed.",
+                details={
+                    "changed_files": [
+                        f"runs/{run_index:03d}/fable-run-evidence.json"
+                    ],
+                    "task_id": task_id,
+                },
+            ) from exc
+
+        try:
+            metadata = json.loads((run_dir / "canonical-evidence.json").read_bytes())
+            if not isinstance(metadata, dict):
+                raise ValueError("canonical metadata is not an object")
+            if metadata["implementer_run_index"] != run_index:
+                raise ValueError("canonical metadata belongs to another run")
+            patch_bytes = metadata["patch_bytes"]
+            patch_sha256 = metadata["patch_sha256"]
+            patch_file_complete = metadata["patch_file_complete"]
+            inventory = metadata["per_path"]
+            if (
+                not isinstance(patch_bytes, int)
+                or isinstance(patch_bytes, bool)
+                or patch_bytes < 0
+                or not isinstance(patch_sha256, str)
+                or len(patch_sha256) != 64
+                or not isinstance(patch_file_complete, bool)
+                or not isinstance(inventory, list)
+            ):
+                raise ValueError("canonical metadata fields have invalid types")
+            required = {"path", "change", "mode", "size", "sha256"}
+            if any(
+                not isinstance(row, dict)
+                or not required.issubset(row)
+                or not isinstance(row["path"], str)
+                or not isinstance(row["change"], str)
+                or (row["mode"] is not None and not isinstance(row["mode"], str))
+                or (row["size"] is not None and not isinstance(row["size"], int))
+                or (row["sha256"] is not None and not isinstance(row["sha256"], str))
+                for row in inventory
+            ):
+                raise ValueError("worker inventory is malformed")
+        except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise EvidenceFreezeViolated(
+                "The selected implementer run's canonical evidence is malformed.",
+                details={
+                    "changed_files": [f"runs/{run_index:03d}/canonical-evidence.json"],
+                    "task_id": task_id,
+                },
+            ) from exc
+
+        omissions = [
+            {"path": row.get("path"), "reason": row.get("omission_reason")}
+            for row in metadata.get("per_path", [])
+            if isinstance(row, dict) and row.get("omission_reason") is not None
+        ]
+        if not patch_file_complete:
+            raise EvidenceIncompleteForReview(
+                "The canonical worker patch omits changed content.",
+                details={"task_id": task_id, "omitted": omissions},
+                remediation="Inspect the inventory and use a human review path for unsupported content.",
+            )
+
         path = self.store.task_dir(task_id) / "evidence" / "diff.patch"
         try:
             info = path.lstat()
-        except OSError:
-            return ""
-        if stat.S_ISLNK(info.st_mode):
-            # A symlinked evidence file is not evidence (Lane A's containment
-            # rule, applied here because this read bypasses read_evidence).
-            raise StateCorruption(
-                "The task's diff evidence is a symlink, not a file.",
-                details={"task_id": task_id, "name": "diff.patch"},
-                remediation="Task state has been tampered with; do not review it.",
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("diff.patch is not a regular file")
+            flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(
+                os, "O_NOFOLLOW", 0
             )
-        if info.st_size <= _MAX_PROMPT_PATCH_BYTES:
-            return self.store.read_evidence(task_id, "diff.patch") or ""
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            head = handle.read(_MAX_PROMPT_PATCH_BYTES)
-        return head + (
-            f"\n[dispatcher] patch clipped at {_MAX_PROMPT_PATCH_BYTES} bytes for "
-            f"this prompt; the complete {info.st_size}-byte patch is "
-            "evidence/diff.patch\n"
-        )
-
-    def _validation_added_paths(self, task_id: str) -> list[str]:
-        """Paths the dispatcher's validation created, from stored evidence (P1-7)."""
-        raw = self.store.read_evidence(task_id, "evidence-phases.json")
-        if not raw:
-            return []
+            fd = os.open(path, flags)
+            try:
+                opened = os.fstat(fd)
+                chunks: list[bytes] = []
+                while True:
+                    chunk = os.read(fd, 1024 * 1024)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                patch_data = b"".join(chunks)
+                after = os.fstat(fd)
+            finally:
+                os.close(fd)
+        except OSError as exc:
+            raise EvidenceFreezeViolated(
+                "The canonical patch cannot be read as a regular frozen file.",
+                details={"changed_files": ["evidence/diff.patch"], "task_id": task_id},
+            ) from exc
+        if (
+            (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
+            != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            or len(patch_data) != patch_bytes
+            or info.st_size != patch_bytes
+            or hashlib.sha256(patch_data).hexdigest() != patch_sha256
+        ):
+            raise EvidenceFreezeViolated(
+                "The canonical patch no longer matches its exact byte record.",
+                details={"changed_files": ["evidence/diff.patch"], "task_id": task_id},
+            )
         try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            return []
-        added = data.get("validation_added_paths")
-        return [str(p) for p in added] if isinstance(added, list) else []
+            raw_attribution = json.loads(
+                (run_dir / "evidence-attribution.json").read_bytes()
+            )
+            if (
+                not isinstance(raw_attribution, dict)
+                or raw_attribution.get("implementer_run_index") != run_index
+                or raw_attribution.get("verdict") != "attributable"
+            ):
+                raise ValueError("attribution does not identify the selected run")
+            rendered_attribution: dict[str, list[str]] = {}
+            for field in (
+                "validation_only",
+                "both_authors",
+                "validation_reverted",
+            ):
+                rows = raw_attribution[field]
+                if not isinstance(rows, list):
+                    raise ValueError(f"{field} is not a list")
+                rendered: list[str] = []
+                for row in rows:
+                    if isinstance(row, str):
+                        rendered.append(row)
+                    elif isinstance(row, dict) and isinstance(row.get("display"), str):
+                        rendered.append(row["display"])
+                    else:
+                        raise ValueError(f"{field} contains a malformed path")
+                rendered_attribution[field] = rendered
+        except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise EvidenceIncompleteForReview(
+                "The selected implementer run's validation attribution is unavailable.",
+                details={"task_id": task_id, "run_index": run_index},
+            ) from exc
+
+        return FableEvidenceBundle(
+            run_index=run_index,
+            worker_claims=worker_claims,
+            validation_results=validation_results,
+            patch_data=patch_data,
+            patch_text=os.fsdecode(patch_data),
+            patch_sha256=patch_sha256,
+            patch_file_complete=patch_file_complete,
+            inventory=inventory,
+            attribution=rendered_attribution,
+        )
 
     def _record_primary_tree_on_failure_path(
         self,
@@ -2432,42 +3832,18 @@ class Dispatcher:
         self,
         task_id: str,
         *,
-        worktree_path: Path,
-        base_commit: str,
         diff_evidence: DiffEvidence,
         scope: ScopeCheck,
         attribution: dict[str, Any],
         primary_status: str,
+        canonical_record: dict[str, Any],
     ) -> None:
         """Persist the §27 evidence artefacts. Never deleted on failure (§13).
 
-        ``diff.patch`` is the **complete** patch, streamed straight from git to
-        the file (Lane A R3), because Fable reviews that file: a silently
-        shortened patch is a review of something other than the change. If the
-        stream cannot be written the truncated in-memory text is kept *with* its
-        explicit marker — never an unmarked short patch.
+        ``diff.patch`` and its exact metadata were written and frozen before
+        validation.  This method never repairs or regenerates that file: a
+        validation overwrite must remain visible to the freeze verdict.
         """
-        evidence_dir = self.store.task_dir(task_id) / "evidence"
-        diff_patch_complete = True
-        try:
-            patch_bytes = await asyncio.to_thread(
-                write_full_diff, worktree_path, base_commit, evidence_dir / "diff.patch"
-            )
-        except GitEvidenceCollectionFailed as exc:
-            diff_patch_complete = False
-            patch_bytes = 0
-            logger.warning(
-                "full diff could not be streamed for task %s: %s", task_id, exc.message
-            )
-            diff_text = diff_evidence.diff_text
-            marker = (
-                "\n[dispatcher] diff.patch is INCOMPLETE: the full patch could "
-                "not be streamed from git, and the in-memory value "
-                f"{'was truncated at the configured byte cap' if diff_evidence.truncated else 'is all that was retained'}"
-                f" ({len(diff_evidence.diff_text)} of {diff_evidence.diff_total_bytes} bytes)\n"
-            )
-            self.store.write_evidence(task_id, "diff.patch", diff_text + marker)
-
         self.store.write_evidence(task_id, "diff-stat.txt", diff_evidence.diff_stat)
         self.store.write_evidence(
             task_id,
@@ -2478,15 +3854,12 @@ class Dispatcher:
                     "changed_paths": list(diff_evidence.changed_paths),
                     "out_of_scope": list(scope.out_of_scope),
                     "forbidden": list(scope.forbidden),
-                    # So a reader can always tell the on-disk patch from the
-                    # in-memory one rather than trusting that "no marker" means
-                    # "complete" (Lane A R3).
-                    "diff_bytes_retained": len(
-                        diff_evidence.diff_text.encode("utf-8", errors="replace")
-                    ),
+                    "diff_bytes_retained": canonical_record["patch_bytes"],
                     "diff_total_bytes": diff_evidence.diff_total_bytes,
-                    "diff_patch_bytes": patch_bytes,
-                    "diff_patch_complete": diff_patch_complete,
+                    "diff_patch_bytes": canonical_record["patch_bytes"],
+                    "diff_patch_sha256": canonical_record["patch_sha256"],
+                    "diff_patch_complete": canonical_record["patch_file_complete"],
+                    "patch_file_complete": canonical_record["patch_file_complete"],
                 },
                 indent=2,
             ),
@@ -2505,10 +3878,12 @@ class Dispatcher:
         *,
         task_id: str,
         scope: ScopeCheck,
+        scope_verdicts: ScopeVerdictSet,
         worker_run: WorkerRun,
         worker_result: WorkerResult | None,
         worker_result_error: str | None,
         primary_tree_divergence: dict[str, Any] | None = None,
+        administrative_divergences: list[dict[str, Any]] | None = None,
     ) -> TaskRecord:
         """Decide the post-run state. Deterministic, in a fixed precedence.
 
@@ -2535,26 +3910,63 @@ class Dispatcher:
         # it survives a failure between the run and this decision.
         updates: dict[str, Any] = {}
 
-        if not scope.valid or primary_tree_divergence is not None:
+        administrative_divergences = administrative_divergences or []
+        if (
+            not scope.valid
+            or primary_tree_divergence is not None
+            or administrative_divergences
+        ):
             details: dict[str, Any] = {
                 "task_id": task_id,
                 "out_of_scope": list(scope.out_of_scope),
                 "forbidden": list(scope.forbidden),
+                "scope_verdicts": scope_verdicts.to_dict(),
             }
             reasons: list[str] = []
             if not scope.valid:
                 reasons.append("scope_violation")
+            if scope_verdicts.validation.forbidden_hits:
+                reasons.append("validation_forbidden_path")
             if primary_tree_divergence is not None:
-                reasons.append("primary_tree_interference")
-                details["primary_tree_divergence"] = primary_tree_divergence
-            parts: list[str] = []
-            if not scope.valid:
-                parts.append("changed paths outside the task's declared scope")
-            if primary_tree_divergence is not None:
-                parts.append(
-                    "changed the primary working tree, which it must never touch"
+                primary_actors = list(
+                    primary_tree_divergence.get("attributed_to", ["worker"])
                 )
-            message = "Worker " + " and ".join(parts) + "."
+                reasons.extend(
+                    f"primary_tree_{actor}_interference"
+                    for actor in primary_actors
+                )
+                details["primary_tree_divergence"] = primary_tree_divergence
+            if administrative_divergences:
+                reasons.append("administrative_authority_tamper")
+                details["administrative_divergences"] = administrative_divergences
+            parts: list[str] = []
+            if (
+                scope_verdicts.run_worker.outside_allowed
+                or scope_verdicts.run_worker.forbidden_hits
+                or scope_verdicts.cumulative_worker.outside_allowed
+                or scope_verdicts.cumulative_worker.forbidden_hits
+            ):
+                parts.append("Worker changed paths outside the task's declared scope")
+            if scope_verdicts.validation.forbidden_hits:
+                parts.append("Validation changed caller-forbidden paths")
+            if primary_tree_divergence is not None:
+                primary_actor_text = " and ".join(primary_actors).capitalize()
+                parts.append(
+                    f"{primary_actor_text} changed the primary repository "
+                    "authority during its measured interval"
+                )
+            if administrative_divergences:
+                actors = sorted(
+                    {
+                        str(item["attributed_to"])
+                        for item in administrative_divergences
+                    }
+                )
+                parts.append(
+                    "Protected repository administrative authority changed "
+                    f"(attributed to {', '.join(actors)})"
+                )
+            message = "; ".join(parts) + "."
             error = PolicyViolation(
                 message,
                 details=details,
@@ -2566,9 +3978,22 @@ class Dispatcher:
             record = self.store.load(task_id)
             violations = list(record.policy_violations)
             violations += [f"out_of_scope:{p}" for p in scope.out_of_scope]
-            violations += [f"forbidden:{p}" for p in scope.forbidden]
+            validation_forbidden = {
+                os.fsdecode(bytes(path))
+                for path in scope_verdicts.validation.forbidden_hits
+            }
+            violations += [
+                f"forbidden:{p}"
+                for p in scope.forbidden
+                if p not in validation_forbidden
+            ]
+            violations += [
+                f"forbidden_validation:{p}" for p in sorted(validation_forbidden)
+            ]
             if primary_tree_divergence is not None:
                 violations += _interference_markers(primary_tree_divergence)
+            violations += _administrative_markers(administrative_divergences)
+            violations = list(dict.fromkeys(violations))
             return self.store.transition(
                 task_id,
                 TaskState.POLICY_VIOLATION,
@@ -2691,15 +4116,45 @@ class Dispatcher:
             task_id, TaskState.AWAITING_SOL_REVIEW, reason="awaiting_sol_review"
         )
 
-    def _record_failure(self, task_id: str | None, exc: DispatcherError) -> None:
+    def _record_failure(
+        self,
+        execution: ToolExecution,
+        exc: DispatcherError,
+        *,
+        repository_key: str | None = None,
+    ) -> None:
         """Best-effort: persist the error into task state before it is returned.
 
         §29: diagnostics live in state, the MCP response stays concise. A
         failure to record must never mask the original error.
         """
-        if not task_id or not self.store.exists(task_id):
-            return
+        current = current_execution()
+        if current is not execution:
+            raise InternalDispatcherError(
+                "Failure recording execution is not current.",
+                details={"tool": execution.tool},
+            )
+
+        task_id = execution.task_id
         try:
+            if execution.worker is None:
+                refusal = {
+                    "at": utc_now().isoformat(),
+                    "tool": execution.tool,
+                    "phase": execution.phase.name,
+                    "code": exc.code,
+                    "message": exc.message,
+                    "details": dict(exc.details),
+                }
+                if task_id and self.store.exists(task_id):
+                    self.store.append_refusal(refusal, task_id=task_id)
+                elif repository_key is not None:
+                    self.store.append_refusal(
+                        refusal, repository_key=repository_key
+                    )
+                return
+            if not task_id or not self.store.exists(task_id):
+                return
             record = self.store.load(task_id)
             if record.state in {
                 TaskState.CREATED,
@@ -2710,7 +4165,11 @@ class Dispatcher:
                 self.store.transition(
                     task_id,
                     TaskState.FAILED,
-                    reason=f"error:{exc.code}",
+                    reason=(
+                        "worktree_base_mismatch"
+                        if exc.code == "WorktreeBaseMismatch"
+                        else f"error:{exc.code}"
+                    ),
                     last_error=exc.to_payload(),
                 )
             else:

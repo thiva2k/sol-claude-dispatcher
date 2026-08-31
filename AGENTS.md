@@ -57,7 +57,15 @@ This VPS has live Codex and Claude sessions on it. While working here:
 - never spawn a real `claude` or `codex` child process from a test or a build
   step — `tests/fake_bin/claude` exists for exactly this reason;
 - never touch a repository outside this project;
-- never push, merge, or deploy.
+- never merge or deploy. A push is permitted only when the repository owner
+  explicitly authorizes it for the current task. Push a review branch by
+  default, never force-push, and never update `main` unless the owner names
+  that exact target;
+- architecture review normally precedes implementation of a safety gate. The
+  repository owner may explicitly authorize implementation before the next
+  independent review. Record that sequencing override, keep implementation,
+  review, and owner approval distinct, and complete an independent review with
+  all blocking findings repaired before any merge or deployment.
 
 ## 4. How to add code
 

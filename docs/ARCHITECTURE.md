@@ -176,7 +176,8 @@ assert_no_recursion
   → RepositoryLock.acquire()                 (EXCLUSIVE, non-blocking —
                                                refuses with RepositoryBusy)
   → store.load again, inside the lock         (run_index names a directory)
-  → fresh session_id, config.models.fable, reviewer_tools only (Read/Glob/Grep)
+  → fresh session_id, config.models.fable, reviewer_tools from the closed
+    Read/Glob/Grep allowlist only (non-empty; config can narrow, never widen)
   → no --worktree, no --resume — Fable never touches the worker's
     conversation or creates a worktree of its own
   → cwd = the worker's own worktree; prompt assembled from objective,

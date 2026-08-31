@@ -31,10 +31,12 @@ import errno
 import os
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
+from sol_claude_dispatcher import runner as runner_module
 from sol_claude_dispatcher.config import (
     DISPATCHER_AUTHORED_RESERVE_BYTES,
     MAX_APPEND_SYSTEM_PROMPT_BYTES,
@@ -50,10 +52,12 @@ from sol_claude_dispatcher.config import (
 from sol_claude_dispatcher.errors import ConfigurationError, ContextTooLarge
 from sol_claude_dispatcher.models import TaskEnvelope, TaskRequest
 from sol_claude_dispatcher.runner import (
+    EXECVE_ARGV_SAFETY_RESERVE_BYTES,
     WorkerInvocation,
     build_argv,
     build_fable_invocation,
     build_worker_invocation,
+    measure_execve_transport,
     run_worker,
 )
 
@@ -401,6 +405,133 @@ class TestEveryInvocationPath:
         assert run.start_failed is False
 
 
+class TestCompleteExecvePreflight:
+    """The generic runner measures argv, envp, NULs and pointers exactly."""
+
+    def test_argv_element_exact_boundary_and_one_byte_over(self):
+        exact = measure_execve_transport(
+            ["x" * MEASURED_SINGLE_ARGV_LIMIT_BYTES],
+            {},
+            arg_max_bytes=2_000_000,
+        )
+        over = measure_execve_transport(
+            ["x" * (MEASURED_SINGLE_ARGV_LIMIT_BYTES + 1)],
+            {},
+            arg_max_bytes=2_000_000,
+        )
+        assert exact.transportable is True
+        assert exact.oversized_argv_indices == ()
+        assert over.transportable is False
+        assert over.oversized_argv_indices == (0,)
+
+    def test_envp_element_exact_boundary_and_one_byte_over(self):
+        # K=<value>: one byte for K and one for '='.  The NUL is included in
+        # aggregate accounting but not in the 131,071-byte content ceiling.
+        exact_value = "x" * (MEASURED_SINGLE_ARGV_LIMIT_BYTES - 2)
+        exact = measure_execve_transport(
+            ["worker"], {"K": exact_value}, arg_max_bytes=2_000_000
+        )
+        over = measure_execve_transport(
+            ["worker"], {"K": exact_value + "x"}, arg_max_bytes=2_000_000
+        )
+        assert exact.envp_element_bytes == (MEASURED_SINGLE_ARGV_LIMIT_BYTES,)
+        assert exact.transportable is True
+        assert over.transportable is False
+        assert over.oversized_envp_indices == (0,)
+
+    def test_aggregate_exact_boundary_and_one_byte_over(self):
+        argv = ["worker", "x" * 100]
+        probe = measure_execve_transport(argv, {}, arg_max_bytes=2_000_000)
+        exact_arg_max = EXECVE_ARGV_SAFETY_RESERVE_BYTES + probe.total_bytes
+        exact = measure_execve_transport(
+            argv, {}, arg_max_bytes=exact_arg_max
+        )
+        over = measure_execve_transport(
+            ["worker", "x" * 101], {}, arg_max_bytes=exact_arg_max
+        )
+        assert exact.total_bytes == exact.aggregate_limit_bytes
+        assert exact.transportable is True
+        assert over.total_bytes == over.aggregate_limit_bytes + 1
+        assert over.oversized_argv_indices == ()
+        assert over.transportable is False
+
+    async def test_positional_prompt_over_limit_never_calls_spawn(
+        self, tmp_path: Path, monkeypatch
+    ):
+        spawn = AsyncMock()
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+        secret = "PRIVATE-POSITIONAL-PROMPT-"
+        spec = spec_with(
+            "small policy",
+            prompt=secret
+            + "x" * (MEASURED_SINGLE_ARGV_LIMIT_BYTES + 1 - len(secret)),
+            cwd=tmp_path,
+            env={"PATH": "/usr/bin:/bin"},
+        )
+
+        with pytest.raises(ContextTooLarge) as caught:
+            await run_worker(spec)
+
+        spawn.assert_not_awaited()
+        assert caught.value.details["source"] == "execve_preflight"
+        assert caught.value.details["binding_constraint"] == "argv_element"
+        assert secret not in str(caught.value.to_payload())
+
+    async def test_oversized_envp_never_calls_spawn_or_leaks_value(
+        self, tmp_path: Path, monkeypatch
+    ):
+        spawn = AsyncMock()
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+        secret_key = "PRIVATE_TRANSPORT_SECRET"
+        secret_value = "do-not-render-" + "x" * MEASURED_SINGLE_ARGV_LIMIT_BYTES
+        spec = spec_with(
+            "small policy",
+            cwd=tmp_path,
+            env={secret_key: secret_value},
+        )
+
+        with pytest.raises(ContextTooLarge) as caught:
+            await run_worker(spec)
+
+        spawn.assert_not_awaited()
+        assert caught.value.details["binding_constraint"] == "envp_element"
+        rendered = str(caught.value.to_payload())
+        assert secret_key not in rendered
+        assert "do-not-render" not in rendered
+
+    async def test_aggregate_over_limit_never_calls_spawn(
+        self, tmp_path: Path, monkeypatch
+    ):
+        spawn = AsyncMock()
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+        spec = spec_with(
+            "small policy",
+            prompt="ordinary positional prompt",
+            cwd=tmp_path,
+            env={"PATH": "/usr/bin:/bin"},
+        )
+        argv = build_argv(spec)
+        probe = measure_execve_transport(argv, spec.env, arg_max_bytes=2_000_000)
+        constrained_arg_max = (
+            EXECVE_ARGV_SAFETY_RESERVE_BYTES + probe.total_bytes - 1
+        )
+        real_sysconf = runner_module.os.sysconf
+
+        def constrained_sysconf(name):
+            if name == "SC_ARG_MAX":
+                return constrained_arg_max
+            return real_sysconf(name)
+
+        monkeypatch.setattr(runner_module.os, "sysconf", constrained_sysconf)
+
+        with pytest.raises(ContextTooLarge) as caught:
+            await run_worker(spec)
+
+        spawn.assert_not_awaited()
+        assert caught.value.details["binding_constraint"] == "aggregate"
+        assert caught.value.details["aggregate_excess_bytes"] == 1
+
+
 # ---------------------------------------------------------------------------
 # 5. defence in depth — the kernel stays authoritative
 # ---------------------------------------------------------------------------
@@ -553,7 +684,10 @@ class TestConfigCeiling:
         assert composed <= MAX_APPEND_SYSTEM_PROMPT_BYTES
 
     def test_the_shipped_production_config_is_within_the_budget(self):
-        config = load_config(PROJECT_ROOT / "config" / "dispatcher.toml")
+        production_path = PROJECT_ROOT / "config" / "dispatcher.toml"
+        if not production_path.exists():
+            pytest.skip("host-local production config is not installed")
+        config = load_config(production_path)
         composed = (
             config.skills.max_projected_bytes
             + config.project_guidance.max_projected_bytes
