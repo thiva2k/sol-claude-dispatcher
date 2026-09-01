@@ -930,7 +930,7 @@ def prepare_resume(
         / "tasks"
         / task_id
         / "runs"
-        / f"{run_index:04d}"
+        / f"{run_index:03d}"
         / "git-invocations.jsonl"
     )
     executor = Gate7GitExecutor(

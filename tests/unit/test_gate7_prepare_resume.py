@@ -139,6 +139,10 @@ def test_prepare_resume_executes_only_the_declared_g1_prime_row(
     ]
     assert [row["path"] for row in rows] == ["resume", "resume"]
     assert rows[1]["cwd_role"] == "primary"
+    assert resumed.git_journal_path == (
+        state / "tasks" / TASK_ID / "runs" / "002" / "git-invocations.jsonl"
+    )
+    assert not (state / "tasks" / TASK_ID / "runs" / "0002").exists()
 
 
 def test_prepare_resume_refuses_an_absent_identity_before_git(
@@ -150,7 +154,7 @@ def test_prepare_resume_refuses_an_absent_identity_before_git(
     with pytest.raises(RepositoryIdentityUnsealed, match="identity"):
         _resume(prepared, state, hooks)
 
-    assert not (state / "tasks" / TASK_ID / "runs" / "0002").exists()
+    assert not (state / "tasks" / TASK_ID / "runs" / "002").exists()
 
 
 def test_prepare_resume_refuses_live_repository_authority_drift_before_git(
@@ -171,7 +175,7 @@ def test_prepare_resume_refuses_live_repository_authority_drift_before_git(
     finally:
         os.chmod(git_repo, before_mode & 0o7777)
 
-    assert not (state / "tasks" / TASK_ID / "runs" / "0002").exists()
+    assert not (state / "tasks" / TASK_ID / "runs" / "002").exists()
 
 
 def test_prepare_resume_refuses_live_worktree_authority_drift_before_git(
@@ -191,4 +195,4 @@ def test_prepare_resume_refuses_live_worktree_authority_drift_before_git(
         _resume(prepared, state, hooks)
 
     assert raised.value.details["verdict"] == "base_mismatch"
-    assert not (state / "tasks" / TASK_ID / "runs" / "0002").exists()
+    assert not (state / "tasks" / TASK_ID / "runs" / "002").exists()

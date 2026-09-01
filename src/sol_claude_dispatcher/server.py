@@ -49,6 +49,7 @@ import stat
 import sys
 import traceback
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, TYPE_CHECKING, cast
 
@@ -741,6 +742,127 @@ def _dump(model: Any) -> Any:
     if model is None:
         return None
     return json.loads(model.model_dump_json())
+
+
+def _envelope_digest(envelope: TaskEnvelope) -> str:
+    """Stable identity of the exact stored envelope used by lifecycle proof."""
+    material = json.dumps(
+        _dump(envelope),
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+def _json_types_match(actual: Any, expected: Any) -> bool:
+    """Whether two JSON values have the same recursive runtime types."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(actual) == set(expected) and all(
+            _json_types_match(actual[key], value) for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(actual) == len(expected) and all(
+            _json_types_match(left, right)
+            for left, right in zip(actual, expected, strict=True)
+        )
+    return True
+
+
+def _assert_persisted_lifecycle_identity(
+    persisted: Any,
+    *,
+    task_id: str,
+    expected_report: Any,
+) -> None:
+    """Compare the complete stable dispatch-time lifecycle proof on resume.
+
+    The report is recomputed with the same fixed preflight prompts used at
+    dispatch.  Every field except ``computed_at`` is therefore stable.  The
+    timestamp remains schema-validated but is not expected to equal the new
+    computation time.
+    """
+    if not isinstance(persisted, dict):
+        raise StateCorruption(
+            "The task's lifecycle feasibility evidence is malformed.",
+            details={"task_id": task_id},
+        )
+    # Match the JSON representation that was actually persisted; ``asdict``
+    # retains tuples in memory while JSON materialises them as arrays.
+    expected = json.loads(json.dumps(expected_report.to_dict(), default=str))
+    if set(persisted) != set(expected):
+        raise StateCorruption(
+            "The task's lifecycle feasibility evidence has the wrong fields.",
+            details={"task_id": task_id},
+        )
+
+    computed_at = persisted["computed_at"]
+    if not isinstance(computed_at, str):
+        raise StateCorruption(
+            "The task's lifecycle feasibility timestamp is malformed.",
+            details={"task_id": task_id},
+        )
+    try:
+        parsed_at = datetime.fromisoformat(computed_at)
+    except ValueError as exc:
+        raise StateCorruption(
+            "The task's lifecycle feasibility timestamp is malformed.",
+            details={"task_id": task_id},
+        ) from exc
+    if parsed_at.tzinfo is None or parsed_at.utcoffset() is None:
+        raise StateCorruption(
+            "The task's lifecycle feasibility timestamp has no timezone.",
+            details={"task_id": task_id},
+        )
+
+    for field, expected_value in expected.items():
+        if field in {"computed_at", "phases"}:
+            continue
+        if not _json_types_match(persisted[field], expected_value):
+            raise StateCorruption(
+                "The task's lifecycle feasibility evidence has invalid field types.",
+                details={"task_id": task_id, "field": field},
+            )
+        if persisted[field] != expected_value:
+            raise PolicyViolation(
+                "The persisted lifecycle proof no longer matches this task.",
+                details={"task_id": task_id, "field": field},
+            )
+
+    rows = persisted["phases"]
+    expected_rows = expected["phases"]
+    if not isinstance(rows, list) or len(rows) != len(expected_rows):
+        raise StateCorruption(
+            "The task's lifecycle phase evidence is incomplete.",
+            details={"task_id": task_id},
+        )
+    for index, (row, expected_row) in enumerate(zip(rows, expected_rows, strict=True)):
+        if not isinstance(row, dict) or set(row) != set(expected_row):
+            raise StateCorruption(
+                "The task's lifecycle phase evidence is malformed.",
+                details={"task_id": task_id, "phase_index": index},
+            )
+        for field, expected_value in expected_row.items():
+            if not _json_types_match(row[field], expected_value):
+                raise StateCorruption(
+                    "The task's lifecycle phase evidence has invalid field types.",
+                    details={
+                        "task_id": task_id,
+                        "phase": expected_row["phase"],
+                        "field": field,
+                    },
+                )
+            if row[field] != expected_value:
+                raise PolicyViolation(
+                    "The approved lifecycle profile changed after dispatch.",
+                    details={
+                        "task_id": task_id,
+                        "phase": expected_row["phase"],
+                        "field": field,
+                    },
+                )
 
 
 def _argument_digest(*parts: Any) -> str:
@@ -1484,14 +1606,7 @@ class Dispatcher:
                     source_root=project_root,
                     effective_deny_patterns=ALWAYS_DISALLOWED_TOOLS,
                 )
-                envelope_digest = hashlib.sha256(
-                    json.dumps(
-                        _dump(envelope),
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        default=str,
-                    ).encode("utf-8")
-                ).hexdigest()
+                envelope_digest = _envelope_digest(envelope)
                 lifecycle_report = preflight_lifecycle(
                     lifecycle_engine,
                     task_id=task_id,
@@ -1775,14 +1890,57 @@ class Dispatcher:
                         "The task's lifecycle feasibility evidence is unavailable.",
                         details={"task_id": task_id},
                     ) from exc
-                if (
-                    persisted_lifecycle.get("manifest_version")
-                    != lifecycle_engine.manifest.manifest_version
-                ):
-                    raise PolicyViolation(
-                        "The approved lifecycle manifest changed after dispatch.",
-                        details={"task_id": task_id},
-                    )
+                dispatch_preflight_context = self.context.for_worker(
+                    envelope,
+                    run_kind=RunKind.DISPATCH,
+                    policy_text=worker_policy_text(self.config),
+                    task_prompt=build_worker_prompt(envelope),
+                    identity=identity,
+                )
+                correction_preflight_context = self.context.for_worker(
+                    envelope,
+                    run_kind=RunKind.RESUME,
+                    policy_text=worker_policy_text(self.config),
+                    task_prompt=build_resume_prompt(envelope, "Lifecycle preflight"),
+                    identity=identity,
+                )
+                review_preflight_context = self.context.for_review(
+                    envelope,
+                    policy_text=fable_policy_text(self.config),
+                    task_prompt="Lifecycle review preflight",
+                    identity=identity,
+                )
+                expected_lifecycle = preflight_lifecycle(
+                    lifecycle_engine,
+                    task_id=task_id,
+                    envelope_digest=_envelope_digest(envelope),
+                    task_kind=envelope.task.kind,
+                    complexity=envelope.routing.complexity,
+                    risk=envelope.routing.risk,
+                    max_resume_count=envelope.execution.max_resume_count,
+                    phase_compositions={
+                        LifecyclePhase.DISPATCH_IMPLEMENTATION: PhaseComposition(
+                            dispatch_preflight_context.append_system_prompt
+                        ),
+                        LifecyclePhase.CORRECTION_RESUME: PhaseComposition(
+                            correction_preflight_context.append_system_prompt
+                        ),
+                        LifecyclePhase.VALIDATION_ONLY_RESUME: PhaseComposition(
+                            correction_preflight_context.append_system_prompt
+                        ),
+                        LifecyclePhase.FABLE_REVIEW: PhaseComposition(
+                            review_preflight_context.append_system_prompt,
+                            review_context_available=True,
+                        ),
+                    },
+                    transport_ceiling_bytes=MAX_APPEND_SYSTEM_PROMPT_BYTES,
+                    computed_at=utc_now(),
+                )
+                _assert_persisted_lifecycle_identity(
+                    persisted_lifecycle,
+                    task_id=task_id,
+                    expected_report=expected_lifecycle,
+                )
                 correction_lifecycle = lifecycle_engine.project(
                     LifecyclePhase.CORRECTION_RESUME,
                     task_kind=envelope.task.kind,
