@@ -36,6 +36,7 @@ import json
 import os
 import re
 import uuid
+import fcntl
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -85,6 +86,45 @@ _TRANSITION_UPDATABLE_FIELDS = frozenset(
 # dispatcher's own internal identifiers while still being impossible to escape
 # with.
 _SAFE_ID_COMPONENT_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_REPOSITORY_KEY_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+
+
+def _append_json_line(path: Path, data: dict[str, object]) -> None:
+    """Append one durable JSON object without following a planted symlink."""
+    _mkdir(path.parent)
+    payload = (json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n").encode(
+        "utf-8"
+    )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, _FILE_MODE)
+    except OSError as exc:
+        raise StateCorruption(
+            "Refusal journal could not be opened safely.",
+            details={"path": str(path), "reason": str(exc)},
+        ) from exc
+    try:
+        os.chmod(path, _FILE_MODE)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short write while appending refusal journal")
+            view = view[written:]
+        os.fsync(fd)
+    except OSError as exc:
+        raise StateCorruption(
+            "Refusal journal could not be written durably.",
+            details={"path": str(path), "reason": str(exc)},
+        ) from exc
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 def _reject_unsafe_component(value: object, *, what: str) -> str:
     """Refuse anything that is not a single, traversal-free path component."""
@@ -307,6 +347,31 @@ class TaskStore:
 
     def _evidence_dir(self, task_id: str) -> Path:
         return self.task_dir(task_id) / "evidence"
+
+    def _refusal_path(
+        self, *, task_id: str | None, repository_key: str | None
+    ) -> Path:
+        """Select exactly one refusal journal without inventing a task id.
+
+        A refusal before task creation is repository-scoped. This resolves the
+        Gate-7 wording conflict between "record the refusal" and "create no task
+        directory": the repository journal is durable, while ``state/tasks``
+        remains empty for the refused request.
+        """
+        if (task_id is None) == (repository_key is None):
+            raise InvalidTaskEnvelope(
+                "A refusal must name exactly one task or repository key."
+            )
+        if task_id is not None:
+            return self.task_dir(task_id) / "refusals.jsonl"
+        assert repository_key is not None
+        if not _REPOSITORY_KEY_RE.fullmatch(repository_key):
+            raise InvalidTaskEnvelope(
+                "repository_key must be a lowercase SHA-256 digest.",
+                details={"repository_key": repr(repository_key)},
+            )
+        path = self.root / "_refusals" / "repositories" / f"{repository_key}.jsonl"
+        return self._contained(path, task_id=f"repository:{repository_key}")
 
     # -- existence / creation -------------------------------------------
 
@@ -585,6 +650,69 @@ class TaskStore:
                 "evidence file could not be read.",
                 details={"task_id": task_id, "name": name, "reason": str(exc)},
             ) from exc
+
+    # -- PREPARE refusal audit -------------------------------------------
+
+    def append_refusal(
+        self,
+        refusal: dict[str, object],
+        *,
+        task_id: str | None = None,
+        repository_key: str | None = None,
+    ) -> Path:
+        """Append a refusal without mutating ``state.json``.
+
+        ``refusal`` is dispatcher-produced data and must carry the stable audit
+        fields. Unknown additional detail fields are allowed because individual
+        error classes own their diagnostics; missing audit identity is not.
+        """
+        required = {"at", "tool", "phase", "code", "message", "details"}
+        missing = sorted(required - refusal.keys())
+        if missing:
+            raise InvalidTaskEnvelope(
+                "Refusal audit record is missing required fields.",
+                details={"missing": missing},
+            )
+        path = self._refusal_path(task_id=task_id, repository_key=repository_key)
+        _append_json_line(path, refusal)
+        return path
+
+    def load_refusals(
+        self,
+        *,
+        task_id: str | None = None,
+        repository_key: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        """Load the newest bounded refusal records, failing closed on damage."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            raise InvalidTaskEnvelope("Refusal limit must be a positive integer.")
+        path = self._refusal_path(task_id=task_id, repository_key=repository_key)
+        if not path.exists():
+            return []
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise StateCorruption(
+                "Refusal journal could not be read.",
+                details={"path": str(path), "reason": str(exc)},
+            ) from exc
+        records: list[dict[str, object]] = []
+        for index, line in enumerate(lines, start=1):
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise StateCorruption(
+                    "Refusal journal contains invalid JSON.",
+                    details={"path": str(path), "line": index},
+                ) from exc
+            if not isinstance(record, dict):
+                raise StateCorruption(
+                    "Refusal journal entry is not an object.",
+                    details={"path": str(path), "line": index},
+                )
+            records.append(record)
+        return records[-limit:]
 
 
 def _allowed_targets(state: TaskState) -> frozenset[TaskState]:

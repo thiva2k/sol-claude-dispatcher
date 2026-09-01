@@ -44,8 +44,15 @@ def git_repo(tmp_path: Path) -> Path:
 @pytest.fixture
 def valid_request_dict(git_repo: Path) -> dict:
     """A minimal well-formed ``TaskRequest`` payload."""
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=git_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     return {
-        "repository": {"root": str(git_repo), "base_ref": "HEAD"},
+        "repository": {"root": str(git_repo), "base_ref": base_commit},
         "task": {
             "kind": "implementation",
             "objective": "Implement atomic configuration deployment.",

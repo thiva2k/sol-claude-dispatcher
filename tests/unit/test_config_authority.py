@@ -583,6 +583,8 @@ class TestLiveEntrypoints:
         self, tmp_path, git_repo
     ):
         """6, through the real harness process."""
+        if not CANONICAL.exists():
+            pytest.skip("host-local production config is not installed")
         wider = _wider_config(tmp_path, git_repo, roots=[PRODUCTION_ROOT])
         proc = subprocess.run(  # noqa: S603 - argv list, no shell
             [sys.executable, "-m", "sol_claude_dispatcher.dev_server", str(wider)],

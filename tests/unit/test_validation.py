@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -16,6 +18,7 @@ from sol_claude_dispatcher.models import (
     ValidationResult,
     WorkerResult,
 )
+from sol_claude_dispatcher.runner import measure_execve_transport
 from sol_claude_dispatcher.validation import (
     compare_claims_to_validation,
     run_validation_command,
@@ -55,7 +58,7 @@ def _config(tmp_path: Path, *, run_dispatcher_validation: bool = True):
 def _envelope(git_repo: Path, argv_list: list[list[str]]) -> TaskEnvelope:
     request = TaskRequest.model_validate(
         {
-            "repository": {"root": str(git_repo), "base_ref": "HEAD"},
+            "repository": {"root": str(git_repo), "base_ref": "a" * 40},
             "task": {"kind": "implementation", "objective": "Do the thing."},
             "validation": {
                 "commands": [{"argv": argv, "timeout_seconds": 5} for argv in argv_list]
@@ -111,12 +114,17 @@ async def test_timing_out_command_that_ignores_sigterm_gets_sigkilled(tmp_path, 
         "time.sleep(10)"
     )
     cmd = ValidationCommand(argv=[sys.executable, "-c", script], timeout_seconds=1)
-    result = await run_validation_command(cmd, tmp_path)
+    journal = tmp_path / "validation-invocations.jsonl"
+    result = await run_validation_command(cmd, tmp_path, journal_path=journal)
     assert result.timed_out is True
     assert result.passed is False
     assert "SIGKILL" in result.stderr_tail
     # 1s timeout + two ~0.3s grace windows, well under the ignored 10s sleep.
     assert result.duration_ms < 3000
+    completion = json.loads(journal.read_text().splitlines()[-1])
+    assert completion["sigkill"] is True
+    assert completion["timed_out"] is True
+    assert completion["pgid"] == completion["pid"]
 
 
 async def test_output_is_bounded_to_tail(tmp_path):
@@ -131,10 +139,150 @@ async def test_output_is_bounded_to_tail(tmp_path):
 
 async def test_missing_binary_reports_failure_without_raising(tmp_path):
     cmd = ValidationCommand(argv=["/no/such/binary/anywhere"], timeout_seconds=5)
-    result = await run_validation_command(cmd, tmp_path)
+    journal = tmp_path / "validation-invocations.jsonl"
+    result = await run_validation_command(cmd, tmp_path, journal_path=journal)
     assert result.exit_code is None
     assert result.passed is False
     assert result.timed_out is False
+    attempt, completion = [
+        json.loads(line) for line in journal.read_text().splitlines()
+    ]
+    assert "returncode" not in attempt
+    assert completion["returncode"] is None
+    assert completion["pid"] is None
+    assert completion["pgid"] is None
+    assert completion["sigkill"] is False
+
+
+async def test_validation_envp_exact_element_boundary_spawns_once(
+    tmp_path, monkeypatch
+):
+    """131,071 encoded KEY=value bytes are legal and reach execve once."""
+
+    original_spawn = validation_module.asyncio.create_subprocess_exec
+    spawn_count = 0
+
+    async def counted_spawn(*args, **kwargs):
+        nonlocal spawn_count
+        spawn_count += 1
+        return await original_spawn(*args, **kwargs)
+
+    monkeypatch.setattr(
+        validation_module.asyncio, "create_subprocess_exec", counted_spawn
+    )
+    key = "BOUNDARY"
+    value = "v" * (131_071 - len(key) - 1)
+    result = await run_validation_command(
+        ValidationCommand(argv=[TRUE_BIN], timeout_seconds=5),
+        tmp_path,
+        env={key: value},
+    )
+
+    assert result.passed is True
+    assert spawn_count == 1
+
+
+async def test_validation_envp_one_byte_over_element_boundary_is_refused_without_spawn(
+    tmp_path, monkeypatch
+):
+    """131,072 encoded KEY=value bytes refuse before the subprocess call."""
+
+    original_spawn = validation_module.asyncio.create_subprocess_exec
+    spawn_count = 0
+
+    async def counted_spawn(*args, **kwargs):
+        nonlocal spawn_count
+        spawn_count += 1
+        return await original_spawn(*args, **kwargs)
+
+    monkeypatch.setattr(
+        validation_module.asyncio, "create_subprocess_exec", counted_spawn
+    )
+    key = "ENV_SECRET_SENTINEL"
+    value = "s" * (131_072 - len(key) - 1)
+    journal = tmp_path / "validation-invocations.jsonl"
+    result = await run_validation_command(
+        ValidationCommand(argv=[TRUE_BIN], timeout_seconds=5),
+        tmp_path,
+        env={key: value},
+        journal_path=journal,
+    )
+
+    assert result.exit_code is None
+    assert result.passed is False
+    assert result.timed_out is False
+    assert "refused before spawn" in result.stderr_tail
+    assert spawn_count == 0
+    raw_journal = journal.read_text()
+    assert key not in raw_journal
+    assert value[:64] not in raw_journal
+    row = json.loads(raw_journal)
+    assert row["event"] == "spawn_refused"
+    assert row["refusal_code"] == "ContextTooLarge"
+    assert row["refusal_source"] == "execve_preflight"
+    assert row["binding_constraint"] == "envp_element"
+    assert row["largest_envp_element_bytes"] == 131_072
+    assert row["oversized_envp_element_count"] == 1
+    assert row["pid"] is None
+    assert row["pgid"] is None
+
+
+async def test_validation_aggregate_boundary_and_plus_one_audit_spawn_count(
+    tmp_path, monkeypatch
+):
+    """The NUL-and-pointer aggregate accepts equality and refuses +1."""
+
+    original_spawn = validation_module.asyncio.create_subprocess_exec
+    spawn_count = 0
+
+    async def counted_spawn(*args, **kwargs):
+        nonlocal spawn_count
+        spawn_count += 1
+        return await original_spawn(*args, **kwargs)
+
+    monkeypatch.setattr(
+        validation_module.asyncio, "create_subprocess_exec", counted_spawn
+    )
+    arg_max = 10_000
+
+    def constrained_measure(argv, env):
+        return measure_execve_transport(argv, env, arg_max_bytes=arg_max)
+
+    monkeypatch.setattr(
+        validation_module, "measure_execve_transport", constrained_measure
+    )
+    argv = [TRUE_BIN]
+    empty_value = measure_execve_transport(
+        argv, {"X": ""}, arg_max_bytes=arg_max
+    )
+    exact_value_size = empty_value.aggregate_limit_bytes - empty_value.total_bytes
+    assert exact_value_size > 0
+
+    exact_journal = tmp_path / "exact.jsonl"
+    exact_result = await run_validation_command(
+        ValidationCommand(argv=argv, timeout_seconds=5),
+        tmp_path,
+        env={"X": "x" * exact_value_size},
+        journal_path=exact_journal,
+    )
+    refused_journal = tmp_path / "refused.jsonl"
+    refused_result = await run_validation_command(
+        ValidationCommand(argv=argv, timeout_seconds=5),
+        tmp_path,
+        env={"X": "x" * (exact_value_size + 1)},
+        journal_path=refused_journal,
+    )
+
+    assert exact_result.passed is True
+    assert refused_result.passed is False
+    assert refused_result.exit_code is None
+    assert spawn_count == 1
+    exact_rows = [json.loads(line) for line in exact_journal.read_text().splitlines()]
+    assert [row["event"] for row in exact_rows] == ["spawn_attempt", "completion"]
+    refused_row = json.loads(refused_journal.read_text())
+    assert refused_row["event"] == "spawn_refused"
+    assert refused_row["binding_constraint"] == "aggregate"
+    assert refused_row["total_bytes"] == refused_row["aggregate_limit_bytes"] + 1
 
 
 async def test_shell_metacharacters_are_never_interpreted(tmp_path):
@@ -175,6 +323,84 @@ async def test_run_validations_executes_envelope_commands(git_repo, tmp_path):
     results = await run_validations(envelope, git_repo, config)
     assert [r.exit_code for r in results] == [0, 1]
     assert [r.passed for r in results] == [True, False]
+
+
+async def test_validation_journal_is_non_authority_and_records_every_attempt(
+    git_repo, tmp_path
+):
+    config = _config(tmp_path)
+    envelope = _envelope(git_repo, [[TRUE_BIN], [FALSE_BIN]])
+    journal = tmp_path / "run" / "validation-invocations.jsonl"
+
+    results = await run_validations(
+        envelope, git_repo, config, journal_path=journal
+    )
+
+    assert [result.exit_code for result in results] == [0, 1]
+    rows = [json.loads(line) for line in journal.read_text().splitlines()]
+    assert [(row["sequence"], row["event"]) for row in rows] == [
+        (1, "spawn_attempt"),
+        (1, "completion"),
+        (2, "spawn_attempt"),
+        (2, "completion"),
+    ]
+    assert all(row["domain"] == "trusted_validation" for row in rows)
+    assert all(row["authority"] is False for row in rows)
+    assert all(row["phase"] == "POST_WORKER" for row in rows)
+    assert all(row["cwd_role"] == "task_worktree" for row in rows)
+    assert all(row["env_policy"] == "validation_environment/1" for row in rows)
+    assert all(row["pins_applied"] == [] for row in rows)
+    assert all(row["start_new_session"] is True for row in rows)
+    assert all(row["descendants_observed"] is None for row in rows)
+    assert [row["program"] for row in rows] == ["true", "true", "false", "false"]
+    assert all(row["argv_len"] == 1 for row in rows)
+    assert all(row["is_git"] is False for row in rows)
+    expected = hashlib.sha256(
+        json.dumps([TRUE_BIN], separators=(",", ":")).encode("ascii")
+    ).hexdigest()
+    assert rows[0]["argv_sha256"] == expected
+    assert rows[0]["index"] == 0
+    assert rows[0]["pid"] is None
+    assert rows[0]["pgid"] is None
+    assert rows[0]["sigkill"] is False
+    assert "returncode" not in rows[0]
+    assert rows[1]["returncode"] == 0
+    assert isinstance(rows[1]["pid"], int)
+    assert rows[1]["pgid"] == rows[1]["pid"]
+    assert rows[1]["sigkill"] is False
+
+
+def test_git_validation_command_is_accepted_by_the_envelope_validator(git_repo):
+    envelope = _envelope(git_repo, [["git", "diff", "--exit-code"]])
+    assert envelope.validation.commands[0].argv == ["git", "diff", "--exit-code"]
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+async def test_git_is_a_legal_validation_command_and_is_journalled_without_authority(
+    git_repo, tmp_path, absolute
+):
+    git_binary = shutil.which("git")
+    if git_binary is None:
+        pytest.skip("git is not installed")
+    argv = [git_binary if absolute else "git", "diff", "--exit-code"]
+    journal = tmp_path / "run" / "validation-invocations.jsonl"
+
+    result = await run_validation_command(
+        ValidationCommand(argv=argv, timeout_seconds=5),
+        git_repo,
+        journal_path=journal,
+    )
+
+    assert result.exit_code is not None
+    rows = [json.loads(line) for line in journal.read_text().splitlines()]
+    independently_computed_hash = hashlib.sha256(
+        json.dumps(argv, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    ).hexdigest()
+    assert {row["argv_sha256"] for row in rows} == {independently_computed_hash}
+    assert all(row["program"] == "git" for row in rows)
+    assert all(row["is_git"] is True for row in rows)
+    assert all(row["authority"] is False for row in rows)
+    assert all(row["pins_applied"] == [] for row in rows)
 
 
 async def test_run_validations_disabled_by_config_returns_empty(git_repo, tmp_path):

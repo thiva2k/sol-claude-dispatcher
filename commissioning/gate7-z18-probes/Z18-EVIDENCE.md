@@ -150,7 +150,8 @@ the child environment rather than from the pin block.
 * that a bare-name smudge program is resolved by something other than the
   child's `PATH` — leg B (ordinary PATH, shim absent from it) refutes it;
 * that the final child-environment construction fails to suppress a
-  repository-supplied filter driver — leg C refutes it;
+  **bare-name** repository-supplied filter driver — leg C refutes that narrow
+  proposition; leg D proves an absolute-path driver still executes;
 * that `git` cannot be invoked at all without `PATH` — the T-40 leg refutes it.
 
 ### THREE DISTINCTIONS THAT MUST NOT COLLAPSE

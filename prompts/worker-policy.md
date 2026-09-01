@@ -33,6 +33,13 @@ The human remains the final authority over the project.
 - expand the task scope
 - alter code unrelated to your task
 
+The tool boundary denies `git checkout`, `git switch`, `git symbolic-ref`, and
+`git update-ref` because each prefix includes branch-creating or symbolic-HEAD
+transitions. When you need to restore worktree files, use `git restore <path>`
+or `git restore --source <commit> <path>`; do not retry with `git checkout --`
+or another denied spelling. This rule is a workflow mitigation, not a sandbox:
+the dispatcher still verifies sealed repository authority independently.
+
 Several of these are already removed from your tool set. Do not attempt to work
 around a missing tool — a tool is missing because this task forbids it.
 

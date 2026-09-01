@@ -5,9 +5,9 @@ git repository, a real ``TaskStore`` on disk and the fake worker binary:
 
 * **P0/P1-4** — Fable review and worker mutation are serialised by the same
   exclusive repository lock, and the lock is released on every path.
-* **P1-5** — the primary working tree is fingerprinted *before* the worker runs
-  and compared afterwards. The invariant is ``post_state == pre_state``, not
-  "the primary tree is clean".
+* **P1-5** — the primary working tree, raw HEAD, and repository authority are
+  captured at WORKER_START, WORKER_EXIT, and VALIDATION_EXIT. Adjacent
+  terminals are compared so validation cannot erase worker interference.
 * **P1-7** — evidence is collected twice, once as the worker left the worktree
   and once after the dispatcher's own validation commands have run, and the
   record distinguishes who produced which path.
@@ -24,13 +24,16 @@ which terminates in ``tests/fake_bin/claude``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+import sol_claude_dispatcher.server as server_module
 from sol_claude_dispatcher.models import TaskState
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -165,10 +168,16 @@ async def test_resume_while_a_review_holds_the_repository_is_refused(
     assert resume["retryable"] is True
 
 
-async def test_a_review_while_a_worker_holds_the_repository_is_refused(
+async def test_a_review_while_a_worker_is_running_is_refused_by_state_preflight(
     dispatcher, request_payload, fake_env, monkeypatch, integration_config
 ):
-    """The mirror image: Fable refuses rather than reading a moving tree."""
+    """An active worker makes review illegal before lock contention matters.
+
+    The task is already RUNNING when this call arrives, so PREPARE can prove
+    that FABLE_REVIEWED is not a legal target without touching repository
+    authority. A separate Fable test holds the lock while the task remains
+    AWAITING_SOL_REVIEW and pins RepositoryBusy for that opposite control.
+    """
     from sol_claude_dispatcher.server import Dispatcher
 
     dispatched = await _dispatch_touching(dispatcher, request_payload, monkeypatch)
@@ -183,8 +192,9 @@ async def test_a_review_while_a_worker_holds_the_repository_is_refused(
     review = await dispatcher.review_task_with_fable(task_id)
     await resume_task
 
-    assert review["error"] == "RepositoryBusy", review
-    assert "lock_path" in review["details"]
+    assert review["error"] == "InvalidStateTransition", review
+    assert review["details"]["from"] == TaskState.RUNNING.value
+    assert review["details"]["to"] == TaskState.FABLE_REVIEWED.value
 
 
 async def test_two_concurrent_reviews_produce_one_winner_and_one_refusal(
@@ -264,9 +274,8 @@ async def test_an_initially_clean_primary_tree_stays_clean(
     assert result["primary_tree"]["unchanged"] is True
     invariant = _evidence_json(dispatcher, result["task_id"], "primary-tree-invariant.json")
     assert invariant["held"] is True
-    assert invariant["before"]["porcelain_status"] == ""
-    assert invariant["after"]["porcelain_status"] == ""
-    assert invariant["before"]["head_commit"] == invariant["after"]["head_commit"]
+    assert invariant["before"]["tree"]["entries"] == invariant["after"]["tree"]["entries"]
+    assert invariant["before"]["head"]["digest"] == invariant["after"]["head"]["digest"]
 
     run = dispatcher.store.latest_run(result["task_id"])
     assert run is not None and run.dispatcher_observations is not None
@@ -296,21 +305,20 @@ async def test_an_initially_dirty_primary_tree_is_accepted_when_unchanged(
 
     assert result["status"] == TaskState.AWAITING_SOL_REVIEW.value
     assert result["primary_tree"]["unchanged"] is True
-    # The raw measurement is honest about the tree being dirty; the invariant
-    # verdict is the separate, correct question.
-    assert result["dispatcher_observations"]["primary_worktree_clean"] is False
+    # The raw equality measurement does not pretend to answer Git-cleanliness.
+    assert result["dispatcher_observations"]["primary_worktree_clean"] is None
     invariant = _evidence_json(dispatcher, result["task_id"], "primary-tree-invariant.json")
     assert invariant["held"] is True
-    assert " M README.md" in invariant["before"]["status_lines"]
-    assert invariant["before"]["status_lines"] == invariant["after"]["status_lines"]
+    assert invariant["before"]["tree"]["entries"] == invariant["after"]["tree"]["entries"]
+    assert invariant["before"]["head"]["digest"] == invariant["after"]["head"]["digest"]
 
 
 @pytest.mark.parametrize(
     "action,expected_marker",
     [
-        ("modify", "primary_tree_appeared: M README.md"),
+        ("modify", "primary_tree_changed:README.md"),
         ("add", "primary_tree_appeared:?? worker-was-here.txt"),
-        ("delete", "primary_tree_appeared: D README.md"),
+        ("delete", "primary_tree_disappeared:README.md"),
     ],
 )
 async def test_a_worker_that_touches_the_primary_tree_is_a_policy_violation(
@@ -349,11 +357,11 @@ async def test_a_worker_that_touches_the_primary_tree_is_a_policy_violation(
     # Both halves of the evidence survive, which is what makes the verdict
     # checkable by a human rather than merely asserted.
     task_id = result["task_id"]
-    assert _evidence(dispatcher, task_id, "primary-tree-before.txt")
-    assert _evidence(dispatcher, task_id, "primary-tree-after.txt")
+    assert _evidence(dispatcher, task_id, "primary-tree-before.json")
+    assert _evidence(dispatcher, task_id, "primary-tree-after.json")
     invariant = _evidence_json(dispatcher, task_id, "primary-tree-invariant.json")
     assert invariant["held"] is False
-    assert invariant["divergence"]["status_entries_appeared"]
+    assert any(invariant["divergence"][key] for key in ("appeared", "disappeared", "changed"))
 
 
 async def test_a_commit_in_the_primary_tree_is_detected_by_the_head_fingerprint(
@@ -385,43 +393,135 @@ async def test_a_commit_in_the_primary_tree_is_detected_by_the_head_fingerprint(
     )
 
 
+async def test_validation_cannot_restore_and_erase_worker_primary_interference(
+    dispatcher,
+    request_payload,
+    fake_env,
+    monkeypatch,
+    meddling_worker,
+    seeded_repo,
+    tmp_path,
+):
+    """A WORKER_EXIT terminal makes worker interference non-erasable."""
+
+    restore = tmp_path / "restore_primary.py"
+    restore.write_text(
+        "from pathlib import Path\n"
+        f"Path({str(seeded_repo / 'README.md')!r}).write_text('test repo\\n')\n"
+    )
+    request_payload["validation"] = {
+        "commands": [{"argv": [sys.executable, str(restore)]}]
+    }
+    meddling_worker("modify")
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "success")
+
+    result = await dispatcher.dispatch_claude_task(request_payload)
+
+    assert result["status"] == TaskState.POLICY_VIOLATION.value, result
+    invariant = _evidence_json(
+        dispatcher, result["task_id"], "primary-tree-invariant.json"
+    )
+    assert invariant["worker_interval"]["held"] is False
+    assert invariant["worker_interval"]["divergence"]["attributed_to"] == "worker"
+    assert invariant["validation_interval"]["held"] is False
+    assert (
+        invariant["validation_interval"]["divergence"]["attributed_to"]
+        == "validation"
+    )
+    # The final bytes equal WORKER_START, but raw stat identity and both
+    # adjacent transitions remain as non-erasable evidence.
+    assert (seeded_repo / "README.md").read_text() == "test repo\n"
+    assert invariant["before"]["head"]["digest"] == invariant["after"]["head"]["digest"]
+    violations = dispatcher.store.load(result["task_id"]).policy_violations
+    assert "worker:primary_tree_changed:README.md" in violations
+    assert "validation:primary_tree_changed:README.md" in violations
+
+
+async def test_validation_only_primary_interference_is_attributed_to_validation(
+    dispatcher,
+    request_payload,
+    fake_env,
+    monkeypatch,
+    seeded_repo,
+    tmp_path,
+):
+    """A validator escape is a policy violation, but never blamed on worker."""
+
+    meddler = tmp_path / "validation_touches_primary.py"
+    meddler.write_text(
+        "from pathlib import Path\n"
+        f"Path({str(seeded_repo / 'validation-was-here.txt')!r}).write_text('escaped\\n')\n"
+    )
+    request_payload["validation"] = {
+        "commands": [{"argv": [sys.executable, str(meddler)]}]
+    }
+
+    result = await _dispatch_touching(dispatcher, request_payload, monkeypatch)
+
+    assert result["status"] == TaskState.POLICY_VIOLATION.value, result
+    invariant = _evidence_json(
+        dispatcher, result["task_id"], "primary-tree-invariant.json"
+    )
+    assert invariant["worker_interval"]["held"] is True
+    assert invariant["worker_interval"]["repository_authority_held"] is True
+    assert invariant["validation_interval"]["held"] is False
+    assert invariant["validation_interval"]["repository_authority_held"] is True
+    divergence = invariant["validation_interval"]["divergence"]
+    assert divergence["attributed_to"] == "validation"
+    assert divergence["appeared"] == ["validation-was-here.txt"]
+    error = result["last_error"]
+    assert error["error"] == "PolicyViolation"
+    assert error["message"].startswith("Validation changed")
+    violations = dispatcher.store.load(result["task_id"]).policy_violations
+    assert "validation:primary_tree_appeared:?? validation-was-here.txt" in violations
+    assert "primary_tree_appeared:?? validation-was-here.txt" not in violations
+
+    for name in (
+        "primary-tree-worker-start.json",
+        "primary-tree-worker-exit.json",
+        "primary-tree-validation-exit.json",
+    ):
+        terminal = _evidence_json(dispatcher, result["task_id"], name)
+        assert terminal["repository_authority"]
+        assert terminal["tree"]
+        assert terminal["head"]
+
+
 async def test_an_unmeasurable_primary_tree_fails_closed(
     dispatcher, request_payload, fake_env, monkeypatch, seeded_repo
 ):
     """P0-3 at this call site: "could not look" is never "nothing changed".
 
-    ``primary_tree_status`` raises rather than returning ``""`` now, so a
-    dispatch whose primary tree cannot be fingerprinted lands FAILED with the
+    ``capture_snapshot`` raises rather than returning a partial snapshot, so a
+    dispatch whose primary tree cannot be measured lands FAILED with the
     diagnostics preserved — it must never reach AWAITING_SOL_REVIEW.
     """
     from sol_claude_dispatcher import server as server_module
-    from sol_claude_dispatcher.errors import GitEvidenceCollectionFailed
+    from sol_claude_dispatcher.errors import FilesystemSnapshotFailed
 
-    calls = {"n": 0}
-    real = server_module.primary_tree_status
+    real = server_module.capture_snapshot
 
-    def _fail_after_the_baseline(repo):
-        calls["n"] += 1
-        if calls["n"] > 1:
-            raise GitEvidenceCollectionFailed(
-                "git evidence could not be collected: the git command failed.",
-                details={"what": "git status --porcelain (primary tree)"},
+    def _fail_post(root, *, role, fidelity="content_hash_all", **kwargs):
+        if role == "primary_post":
+            raise FilesystemSnapshotFailed(
+                "The primary tree could not be measured completely.",
+                details={"role": role},
             )
-        return real(repo)
+        return real(root, role=role, fidelity=fidelity, **kwargs)
 
-    monkeypatch.setattr(server_module, "primary_tree_status", _fail_after_the_baseline)
+    monkeypatch.setattr(server_module, "capture_snapshot", _fail_post)
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "success")
 
     result = await dispatcher.dispatch_claude_task(request_payload)
 
-    assert result["error"] == "GitEvidenceCollectionFailed", result
+    assert result["error"] == "FilesystemSnapshotFailed", result
     # The refusal payload is concise by design (§29); the task is on disk.
     task_ids = dispatcher.store.list_tasks()
     assert len(task_ids) == 1
     record = dispatcher.store.load(task_ids[0])
     assert record.state is TaskState.FAILED
     assert record.state is not TaskState.AWAITING_SOL_REVIEW
-    assert record.last_error["error"] == "GitEvidenceCollectionFailed"
+    assert record.last_error["error"] == "FilesystemSnapshotFailed"
 
 
 # ---------------------------------------------------------------------------
@@ -444,8 +544,8 @@ async def test_validation_generated_paths_are_seen_and_attributed_to_the_dispatc
 
     assert result["status"] == TaskState.AWAITING_SOL_REVIEW.value, result
     observations = result["dispatcher_observations"]
-    # The final state is what is on disk, and it is what gets policed.
-    assert "src/deploy/generated.py" in observations["changed_paths"]
+    # The authoritative worker delta is immutable after WORKER_EXIT.
+    assert observations["changed_paths"] == ["src/deploy/deploy.py"]
 
     attribution = result["evidence_attribution"]
     assert attribution["worker_changed_paths"] == ["src/deploy/deploy.py"]
@@ -460,41 +560,34 @@ async def test_validation_generated_paths_are_seen_and_attributed_to_the_dispatc
     post = _evidence_json(dispatcher, task_id, "changed-paths.json")
     assert pre["phase"] == "pre-validation"
     assert pre["changed_paths"] == ["src/deploy/deploy.py"]
-    assert "src/deploy/generated.py" in post["changed_paths"]
+    assert post["changed_paths"] == ["src/deploy/deploy.py"]
     phases = _evidence_json(dispatcher, task_id, "evidence-phases.json")
     assert phases["validation_added_paths"] == ["src/deploy/generated.py"]
 
-    # The reviewed patch is the final one, so Fable is not reviewing a fiction:
-    # validation rewrote deploy.py after the worker did, and that is what the
-    # patch shows. (An untracked file never appears in `git diff`; that is what
-    # changed-paths.json is for.)
+    # Canonical evidence remains the worker's immutable delta.  Validation
+    # outputs are separately attributed and named in the review prompt.
     patch = _evidence(dispatcher, task_id, "diff.patch")
-    assert "validated" in patch
-    assert "touched by fake claude" not in patch
+    assert "touched by fake claude" in patch
+    assert "validated" not in patch
     assert post["diff_patch_complete"] is True
 
 
-async def test_out_of_scope_validation_output_is_refused_but_attributed(
+async def test_out_of_scope_validation_output_is_attributed_not_charged_to_worker(
     dispatcher, request_payload, fake_env, monkeypatch, mutating_validation
 ):
-    """Safe first, fair second: refuse on the final state, record who did it.
-
-    An out-of-scope file is a policy violation whoever created it — the
-    dispatcher will not decide that its own artefact is acceptable. What it
-    *does* guarantee is that the record says the dispatcher created it, so Sol
-    never charges it to Claude.
-    """
+    """Validation output is recorded separately from the worker scope verdict."""
     request_payload["validation"] = mutating_validation(in_scope=True, out_of_scope=True)
 
     result = await _dispatch_touching(dispatcher, request_payload, monkeypatch)
 
-    assert result["status"] == TaskState.POLICY_VIOLATION.value, result
-    assert sorted(result["scope"]["out_of_scope"]) == [".coverage", "docs/coverage.xml"]
+    assert result["status"] == TaskState.AWAITING_SOL_REVIEW.value, result
+    assert result["scope"]["out_of_scope"] == []
 
     attribution = result["evidence_attribution"]
     assert attribution["worker_changed_paths"] == ["src/deploy/deploy.py"]
     assert set(attribution["validation_added_paths"]) == {
         ".coverage",
+        "docs",
         "docs/coverage.xml",
         "src/deploy/generated.py",
     }
@@ -517,7 +610,8 @@ async def test_the_review_prompt_names_dispatcher_generated_paths(
     await dispatcher.review_task_with_fable(dispatched["task_id"])
 
     prompt = worker_invocations()[-1]["prompt"]
-    assert "Paths produced by the dispatcher's own validation" in prompt
+    assert "## SECTION 5 — VALIDATION FILESYSTEM EFFECTS" in prompt
+    assert "validation_only:" in prompt
     assert "- src/deploy/generated.py" in prompt
 
 
@@ -582,15 +676,10 @@ async def test_the_complete_worker_stream_reaches_the_run_directory(
 # ---------------------------------------------------------------------------
 
 
-async def test_the_persisted_patch_is_untruncated_even_past_the_memory_cap(
+async def test_validation_cannot_rewrite_the_persisted_worker_patch(
     dispatcher, request_payload, fake_env, monkeypatch, tmp_path
 ):
-    """Fable reviews ``evidence/diff.patch``; a shortened one reviews a fiction.
-
-    ``collect_diff_evidence`` still caps the diff it holds *in memory* at 2 MB.
-    Pre-fix that capped string was what got written to disk, so a large change
-    was reviewed as a fragment. ``write_full_diff`` streams the real patch.
-    """
+    """A huge validation rewrite cannot replace canonical worker evidence."""
     big = tmp_path / "make_a_big_tracked_change.py"
     big.write_text(
         "from pathlib import Path\n"
@@ -605,43 +694,116 @@ async def test_the_persisted_patch_is_untruncated_even_past_the_memory_cap(
     task_id = result["task_id"]
 
     changed = _evidence_json(dispatcher, task_id, "changed-paths.json")
-    assert changed["diff_total_bytes"] > 2_000_000, changed
+    assert changed["diff_total_bytes"] < 2_000_000, changed
     assert changed["diff_patch_complete"] is True
-    # The retained in-memory value is capped; the file on disk is not.
-    assert changed["diff_bytes_retained"] <= 2_000_000
+    assert changed["diff_bytes_retained"] == changed["diff_total_bytes"]
     patch_path = Path(dispatcher.store.task_dir(task_id)) / "evidence" / "diff.patch"
     assert patch_path.stat().st_size == changed["diff_total_bytes"]
+    canonical = _evidence_json(dispatcher, task_id, "canonical-evidence.json")
+    patch_data = patch_path.read_bytes()
+    assert canonical["patch_bytes"] == len(patch_data)
+    assert canonical["patch_sha256"] == hashlib.sha256(patch_data).hexdigest()
+    assert canonical["patch_file_complete"] is True
     assert "[dispatcher] diff truncated" not in patch_path.read_text()
+    assert "touched by fake claude" in patch_path.read_text()
+    assert any(
+        row["display"] == "src/deploy/deploy.py"
+        for row in result["evidence_attribution"]["both_authors"]
+    )
 
 
-async def test_an_enormous_patch_is_clipped_when_read_into_a_review_prompt(
+async def test_validation_overwrite_of_frozen_evidence_is_detected_and_attributed(
+    dispatcher, request_payload, fake_env, monkeypatch, tmp_path
+):
+    """A live same-uid overwrite fires and lands row 4 as validation tamper."""
+    overwrite = tmp_path / "overwrite_frozen_patch.py"
+    overwrite.write_text(
+        "from pathlib import Path\n"
+        f"root = Path({str(dispatcher.store.root)!r})\n"
+        "patches = list(root.glob('*/evidence/diff.patch'))\n"
+        "assert len(patches) == 1, patches\n"
+        "patches[0].write_bytes(b'PWNED')\n"
+    )
+    request_payload["validation"] = {
+        "commands": [
+            {"argv": [sys.executable, str(overwrite)], "timeout_seconds": 60}
+        ]
+    }
+
+    result = await _dispatch_touching(dispatcher, request_payload, monkeypatch)
+
+    assert result["validation_results"][0]["passed"] is True
+    assert result["status"] == TaskState.POLICY_VIOLATION.value
+    divergences = result["administrative_authority"]["divergences"]
+    freeze = next(row for row in divergences if row["code"] == "EvidenceFreezeViolated")
+    assert freeze["attributed_to"] == "validation"
+    assert freeze["details"]["changed_files"] == ["evidence/diff.patch"]
+    patch = Path(dispatcher.store.task_dir(result["task_id"])) / "evidence" / "diff.patch"
+    assert patch.read_bytes() == b"PWNED"  # detection, deliberately not prevention
+    freeze_record = json.loads(
+        Path(dispatcher.store.run_dir(result["task_id"], 1), "evidence-freeze.json").read_text()
+    )
+    frozen_patch = next(
+        row for row in freeze_record["entries"] if row["relpath"] == "evidence/diff.patch"
+    )
+    assert frozen_patch["sha256"] != hashlib.sha256(b"PWNED").hexdigest()
+
+
+async def test_complete_patch_reaches_fable_without_clipping(
     dispatcher, request_payload, fake_env, monkeypatch, worker_invocations
 ):
-    """The complete patch is unbounded; reading it into a prompt must not be.
-
-    Adjacent to Lane A R3: making ``diff.patch`` complete removed the only
-    bound on that read, and the reader is a prompt that clips at 120k
-    characters anyway.
-    """
+    """The success half: every canonical patch byte reaches the reviewer."""
     dispatched = await _dispatch_touching(dispatcher, request_payload, monkeypatch)
     task_id = dispatched["task_id"]
-    dispatcher.store.write_evidence(task_id, "diff.patch", "d" * 9_000_000)
-
-    # The read itself is bounded and says so; the prompt then clips further.
-    read_back = dispatcher._prompt_diff_text(task_id)
-    assert len(read_back) < 300_000
-    assert "[dispatcher] patch clipped at" in read_back
-    assert "9000000-byte patch is evidence/diff.patch" in read_back
+    patch = dispatcher.store.read_evidence(task_id, "diff.patch")
+    assert patch
 
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "fable-review")
-    await dispatcher.review_task_with_fable(task_id)
+    result = await dispatcher.review_task_with_fable(task_id)
+    assert "error" not in result, result
 
     prompt = worker_invocations()[-1]["prompt"]
-    assert len(prompt) < 400_000
-    assert "truncated at 120000 characters by the dispatcher" in prompt
-    # The complete patch is untouched on disk.
-    patch_path = Path(dispatcher.store.task_dir(task_id)) / "evidence" / "diff.patch"
-    assert patch_path.stat().st_size == 9_000_000
+    assert f"```diff\n{patch}\n```" in prompt
+    assert "patch clipped" not in prompt
+    patch_section = prompt[
+        prompt.index("## SECTION 2"):prompt.index("## SECTION 3")
+    ]
+    assert "truncated" not in patch_section
+
+
+async def test_incomplete_canonical_patch_refuses_before_fable_spawn(
+    dispatcher, request_payload, fake_env, monkeypatch, worker_invocations
+):
+    """Representation failure is persisted and cannot reach a reviewer."""
+    original = server_module.build_canonical_evidence
+
+    def incomplete(*args, **kwargs):
+        canonical = original(*args, **kwargs)
+        first = canonical.per_path[0]
+        return replace(
+            canonical,
+            per_path=(
+                replace(
+                    first,
+                    sections=(),
+                    omission_reason="binary_no_approved_representation",
+                ),
+                *canonical.per_path[1:],
+            ),
+        )
+
+    monkeypatch.setattr(server_module, "build_canonical_evidence", incomplete)
+    dispatched = await _dispatch_touching(dispatcher, request_payload, monkeypatch)
+    task_id = dispatched["task_id"]
+    metadata = _evidence_json(dispatcher, task_id, "canonical-evidence.json")
+    assert metadata["patch_file_complete"] is False
+    before_spawns = len(worker_invocations())
+
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "fable-review")
+    result = await dispatcher.review_task_with_fable(task_id)
+
+    assert result["error"] == "EvidenceIncompleteForReview", result
+    assert len(worker_invocations()) == before_spawns
 
 
 async def test_a_symlinked_diff_patch_is_refused_rather_than_reviewed(
@@ -660,7 +822,7 @@ async def test_a_symlinked_diff_patch_is_refused_rather_than_reviewed(
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "fable-review")
     result = await dispatcher.review_task_with_fable(task_id)
 
-    assert result["error"] == "StateCorruption", result
+    assert result["error"] == "EvidenceFreezeViolated", result
 
 
 # ---------------------------------------------------------------------------
@@ -685,8 +847,11 @@ async def test_evidence_is_on_disk_even_when_the_run_lands_a_violation(
         "diff-check.txt",
         "evidence-phases.json",
         "pre-validation-changed-paths.json",
-        "primary-tree-before.txt",
-        "primary-tree-after.txt",
+        "primary-tree-before.json",
+        "primary-tree-after.json",
+        "primary-tree-worker-start.json",
+        "primary-tree-worker-exit.json",
+        "primary-tree-validation-exit.json",
         "primary-tree-invariant.json",
         "primary-tree-status.txt",
     ):

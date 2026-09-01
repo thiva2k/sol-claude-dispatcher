@@ -1558,7 +1558,10 @@ class TestProjectGuidanceConfigSection:
 
     def test_shipped_toml_files_declare_the_section(self):
         for name in ("dispatcher.toml", "dispatcher.example.toml"):
-            text = (PROJECT_ROOT / "config" / name).read_text()
+            path = PROJECT_ROOT / "config" / name
+            if name == "dispatcher.toml" and not path.exists():
+                continue
+            text = path.read_text()
             assert "[project_guidance]" in text, name
             assert "approved-guidance.json" in text, name
 

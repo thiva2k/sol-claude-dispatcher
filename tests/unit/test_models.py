@@ -63,7 +63,7 @@ class TestTaskRequestHappyPath:
 
     def test_optional_sections_default(self, git_repo):
         req = TaskRequest(
-            repository={"root": str(git_repo)},
+            repository={"root": str(git_repo), "base_ref": "a" * 40},
             task={"objective": "Do the thing."},
         )
         assert req.scope.allowed_paths == []
@@ -73,7 +73,10 @@ class TestTaskRequestHappyPath:
         assert req.constraints.allow_subagents is False
 
     def test_routing_accepts_both_model_and_requested_model_spellings(self, git_repo):
-        base = {"repository": {"root": str(git_repo)}, "task": {"objective": "x"}}
+        base = {
+            "repository": {"root": str(git_repo), "base_ref": "a" * 40},
+            "task": {"objective": "x"},
+        }
         a = TaskRequest(**base, routing={"model": "opus"})
         b = TaskRequest(**base, routing={"requested_model": "opus"})
         assert a.routing.requested_model == b.routing.requested_model
@@ -126,11 +129,26 @@ class TestTaskRequestRejectsInternalFields:
 
     def test_parent_task_id_is_allowed_because_sol_owns_lineage(self, git_repo):
         req = TaskRequest(
-            repository={"root": str(git_repo)},
+            repository={"root": str(git_repo), "base_ref": "a" * 40},
             task={"objective": "x"},
             parent_task_id="abc",
         )
         assert req.parent_task_id == "abc"
+
+    @pytest.mark.parametrize("symbolic", ["HEAD", "main", "origin/main", "A" * 40])
+    def test_symbolic_or_noncanonical_base_ref_is_rejected(
+        self, valid_request_dict, symbolic
+    ):
+        payload = dict(valid_request_dict)
+        payload["repository"] = {**payload["repository"], "base_ref": symbolic}
+        with pytest.raises(ValidationError):
+            TaskRequest(**payload)
+
+    def test_base_ref_is_required(self, valid_request_dict):
+        payload = dict(valid_request_dict)
+        payload["repository"] = {"root": payload["repository"]["root"]}
+        with pytest.raises(ValidationError):
+            TaskRequest(**payload)
 
 
 class TestTaskRequestPathSafety:

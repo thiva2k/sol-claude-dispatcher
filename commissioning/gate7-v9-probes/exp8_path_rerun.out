@@ -4,7 +4,7 @@
 # about PATH as declared, and revision 9 removes every claim that rested on it.
 
 fixture: .gitattributes 'f.txt filter=z17' committed; filter.z17.smudge=z17filter
-         the smudge program lives ONLY in /tmp/z17pbin.n91l488h 
+         the smudge program lives ONLY in /tmp/z17pbin.n91l488h
 
   PATH ADMITTED (contains the filter program)    rc=0 filter_EXECUTED=False f.txt='payload'
       stderr: /tmp/z17pbin.n91l488h/z17filter: 2: touch: not found

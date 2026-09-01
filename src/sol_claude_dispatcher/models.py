@@ -395,7 +395,7 @@ class RepositoryRequest(StrictModel):
     """
 
     root: NonEmptyStr
-    base_ref: NonEmptyStr = "HEAD"
+    base_ref: str = Field(pattern=r"^[0-9a-f]{40}$")
     workspace_mode: Literal["worktree"] = "worktree"
 
     @field_validator("root")
@@ -405,6 +405,17 @@ class RepositoryRequest(StrictModel):
             raise ValueError("repository.root must be an absolute path")
         if "\x00" in v:
             raise ValueError("null byte in repository.root")
+        return v
+
+    @field_validator("base_ref")
+    @classmethod
+    def _base_ref_is_an_exact_object_name(cls, v: str) -> str:
+        """Production intent is immutable: symbolic refs are never accepted."""
+        if not re.fullmatch(r"[0-9a-f]{40}", v):
+            raise ValueError(
+                "repository.base_ref must be an exact 40-character lowercase "
+                "commit object name; symbolic refs such as HEAD are forbidden"
+            )
         return v
 
 
@@ -527,7 +538,7 @@ class RepositoryResolved(RepositoryRequest):
     """Repository after canonicalisation and base-commit resolution."""
 
     root: NonEmptyStr  # canonical, resolved, allowlist-checked
-    base_commit: str = Field(min_length=7, max_length=64, pattern=r"^[0-9a-f]+$")
+    base_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
 
 
 class LineageSpec(StrictModel):

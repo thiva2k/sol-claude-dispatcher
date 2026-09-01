@@ -1,5 +1,5 @@
 fixture: .gitattributes 'f.txt filter=z17' committed; filter.z17.smudge=z17filter
-         the smudge program lives ONLY in /tmp/z17pbin.ta51anak 
+         the smudge program lives ONLY in /tmp/z17pbin.ta51anak
 
   PATH ADMITTED (contains the filter program)    rc=0 filter_EXECUTED=False f.txt='payload'
       stderr: /tmp/z17pbin.ta51anak/z17filter: 2: touch: not found

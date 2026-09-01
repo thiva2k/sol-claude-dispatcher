@@ -1,9 +1,8 @@
 """Repository locking (brief §25). — Wave 2.
 
 V1 permits exactly one mutating worker per repository. The lock identity is
-derived from the *canonical git top level*, so every spelling of the same
-repository — a trailing slash, a symlink alias, or a subdirectory of the work
-tree — contends for the same lock::
+derived from the already-authorised raw canonical repository root.  Locking
+must not start Git to rediscover identity after authorization::
 
     state/locks/<sha256(canonical_git_top_level)>.lock
 
@@ -48,37 +47,29 @@ from pathlib import Path
 from types import TracebackType
 
 from .errors import RepositoryBusy
-from .git import git_top_level_or_none
+from .evidence.identity import raw_realpath
 
 __all__ = ["RepositoryLock", "lock_name_for", "lock_identity_for"]
 
 
 def lock_identity_for(repository_root: Path) -> Path:
-    """Canonical identity of the repository ``repository_root`` belongs to.
+    """Return the raw-realpath identity supplied by repository authorization.
 
-    The git top level when there is one, otherwise the resolved path. Two
-    spellings of the same repository — including a subdirectory of its work
-    tree — always produce the same identity, which is what makes "one mutating
-    worker per repository" actually hold.
-
-    A non-git directory legitimately has no top level (the lock primitive is
-    useful on its own and its unit tests exercise plain directories), so that
-    case falls back to the resolved path rather than refusing. Security
-    decisions never come through here: ``security.validate_repository_root``
-    has already refused anything that is not an allowed git top level before a
-    lock is ever constructed in production.
+    Production passes only the exact root returned by
+    :func:`security.validate_repository_root`.  This primitive intentionally
+    does not infer a parent repository for arbitrary subdirectories: doing so
+    would require a forbidden pre-gate Git query or an ambient filesystem
+    search.  Symlink aliases still converge through ``raw_realpath``.
     """
-    resolved = Path(repository_root).resolve()
-    top_level = git_top_level_or_none(resolved)
-    return top_level if top_level is not None else resolved
+    return Path(os.fsdecode(raw_realpath(repository_root)))
 
 
 def lock_name_for(repository_root: Path) -> str:
     """Return ``<sha256-of-canonical-repository-identity>.lock``.
 
-    Identity comes from :func:`lock_identity_for`, so ``/a/b``, ``/a/b/``, a
-    symlink pointing at ``/a/b`` and ``/a/b/src`` (when ``/a/b`` is the git top
-    level) all produce the same lock name.
+    Identity comes from :func:`lock_identity_for`, so ``/a/b``, ``/a/b/`` and
+    a symlink pointing at ``/a/b`` produce the same lock name.  Subdirectories
+    are rejected by repository authorization and are not reinterpreted here.
     """
     return _digest_name(lock_identity_for(repository_root))
 

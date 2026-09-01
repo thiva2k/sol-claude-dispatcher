@@ -10,8 +10,12 @@ from __future__ import annotations
 
 import inspect
 import json
+from dataclasses import replace
 from pathlib import Path
 
+import sol_claude_dispatcher.server as server_module
+from sol_claude_dispatcher.lifecycle import LifecyclePhase, LifecycleProfileEngine
+from sol_claude_dispatcher.evidence.gitadmin import repository_identity_key
 from sol_claude_dispatcher.models import TaskState, is_transition_allowed
 from sol_claude_dispatcher.server import Dispatcher
 
@@ -58,6 +62,9 @@ async def test_resume_continues_the_same_session_model_and_worktree(
         "implemented",
         "awaiting_sol_review",
     ]
+    journal = dispatcher.store.run_dir(first["task_id"], 2) / "git-invocations.jsonl"
+    assert journal.is_file()
+    assert not (dispatcher.store.task_dir(first["task_id"]) / "runs" / "0002").exists()
 
 
 async def test_resume_takes_no_session_argument_at_all(dispatcher):
@@ -186,16 +193,10 @@ async def test_resume_after_nonzero_worker_exit_recovers_the_task(
     assert dispatcher.store.load(task_id).resume_count == 1
 
 
-async def test_resume_from_failed_without_a_stored_worktree_is_refused(
-    dispatcher, request_payload, fake_env, monkeypatch, tmp_path
+async def test_preworker_worktree_failure_creates_no_resumable_task(
+    dispatcher, request_payload, fake_env, tmp_path
 ):
-    """Legality is not feasibility: ``resume_plan`` still refuses damaged state.
-
-    The transition table permits FAILED -> RESUME_REQUESTED; it says nothing
-    about whether the state a resume must reuse actually exists. A worker that
-    never produced a worktree leaves nothing to resume into, and the refusal is
-    a structured error, not a traceback and certainly not a silent success.
-    """
+    """A PREPARE refusal is audited without manufacturing a failed task."""
     # A file where the dispatcher expects its worktree directory: no worktree
     # can be created, so the dispatch fails before a worker starts (B2 — the
     # dispatcher owns creation now, so this is where creation is broken).
@@ -205,26 +206,12 @@ async def test_resume_from_failed_without_a_stored_worktree_is_refused(
 
     failed = await dispatcher.dispatch_claude_task(request_payload)
     assert failed["error"] == "WorktreeCreationFailed"
-    task_id = failed["details"]["task_id"]
-    record = dispatcher.store.load(task_id)
-    assert record.state is TaskState.FAILED
-    assert not record.worktree_path
-
-    monkeypatch.setenv("FAKE_CLAUDE_MODE", "resume")
-    refused = await dispatcher.resume_claude_task(task_id, "Try that again.")
-
-    # The refusal comes from resume_plan's feasibility check, not from the
-    # transition table — the table itself permits this edge.
-    assert is_transition_allowed(TaskState.FAILED, TaskState.RESUME_REQUESTED)
-    assert refused["error"] == "StateCorruption"
-    assert refused["details"]["missing"] == ["worktree_path"]
-    assert "traceback" not in json.dumps(refused).lower()
-
-    # Nothing ran and nothing moved.
-    after = dispatcher.store.load(task_id)
-    assert after.state is TaskState.FAILED
-    assert after.resume_count == 0
-    assert after.run_count == record.run_count
+    assert dispatcher.store.list_tasks() == []
+    key = repository_identity_key(request_payload["repository"]["root"])
+    refusals = dispatcher.store.load_refusals(repository_key=key)
+    assert refusals[-1]["phase"] == "PREPARE"
+    assert refusals[-1]["code"] == "WorktreeCreationFailed"
+    assert "traceback" not in json.dumps(failed).lower()
 
 
 async def test_resume_cap_still_holds_from_failed(
@@ -288,3 +275,116 @@ async def test_resume_survives_a_store_restart(
     assert result["session_id"] == first["session_id"]
     assert result["worktree"] == first["worktree"]
     assert Path(result["worktree"]).is_dir()
+
+
+async def test_resume_refuses_a_persisted_lifecycle_envelope_identity_mismatch(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    first = await _dispatch_then(dispatcher, request_payload, monkeypatch)
+    task_id = first["task_id"]
+    path = dispatcher.store.task_dir(task_id) / "evidence" / "lifecycle-feasibility.json"
+    report = json.loads(path.read_text(encoding="utf-8"))
+    report["envelope_digest"] = "0" * 64
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = await dispatcher.resume_claude_task(task_id, "Carry on.")
+
+    assert result["error"] == "PolicyViolation"
+    assert result["details"]["field"] == "envelope_digest"
+    assert dispatcher.store.load(task_id).run_count == 1
+
+
+async def test_resume_refuses_a_persisted_correction_profile_identity_mismatch(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    first = await _dispatch_then(dispatcher, request_payload, monkeypatch)
+    task_id = first["task_id"]
+    path = dispatcher.store.task_dir(task_id) / "evidence" / "lifecycle-feasibility.json"
+    report = json.loads(path.read_text(encoding="utf-8"))
+    correction = next(
+        row for row in report["phases"] if row["phase"] == "CORRECTION_RESUME"
+    )
+    correction["profile_version"] = "stale-profile"
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = await dispatcher.resume_claude_task(task_id, "Carry on.")
+
+    assert result["error"] == "PolicyViolation"
+    assert result["details"]["field"] == "profile_version"
+    assert result["details"]["phase"] == "CORRECTION_RESUME"
+    assert dispatcher.store.load(task_id).run_count == 1
+
+
+async def test_resume_refuses_current_profile_drift_without_a_manifest_bump(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    first = await _dispatch_then(dispatcher, request_payload, monkeypatch)
+    task_id = first["task_id"]
+    original_from_file = LifecycleProfileEngine.from_file
+
+    def changed_profile_engine(manifest_path, **kwargs):
+        engine = original_from_file(manifest_path, **kwargs)
+        profiles = dict(engine.manifest.profiles)
+        correction = profiles[LifecyclePhase.CORRECTION_RESUME]
+        profiles[LifecyclePhase.CORRECTION_RESUME] = replace(
+            correction,
+            profile_version=correction.profile_version + ".drift",
+        )
+        return LifecycleProfileEngine(
+            replace(engine.manifest, profiles=profiles),
+            source_root=engine.source_root,
+            effective_deny_patterns=engine.effective_deny_patterns,
+        )
+
+    monkeypatch.setattr(
+        server_module.LifecycleProfileEngine,
+        "from_file",
+        staticmethod(changed_profile_engine),
+    )
+
+    result = await dispatcher.resume_claude_task(task_id, "Carry on.")
+
+    assert result["error"] == "PolicyViolation"
+    assert result["details"]["field"] == "profile_version"
+    assert result["details"]["phase"] == "CORRECTION_RESUME"
+    assert dispatcher.store.load(task_id).run_count == 1
+
+
+async def test_resume_refuses_a_truncated_persisted_lifecycle_report(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    first = await _dispatch_then(dispatcher, request_payload, monkeypatch)
+    task_id = first["task_id"]
+    path = dispatcher.store.task_dir(task_id) / "evidence" / "lifecycle-feasibility.json"
+    report = json.loads(path.read_text(encoding="utf-8"))
+    report["phases"] = [
+        row for row in report["phases"] if row["phase"] == "CORRECTION_RESUME"
+    ]
+    report.pop("computed_at")
+    report.pop("unreachable_phases")
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = await dispatcher.resume_claude_task(task_id, "Carry on.")
+
+    assert result["error"] == "StateCorruption"
+    assert dispatcher.store.load(task_id).run_count == 1
+
+
+async def test_resume_refuses_type_confused_lifecycle_proof_fields(
+    dispatcher, request_payload, fake_env, monkeypatch
+):
+    first = await _dispatch_then(dispatcher, request_payload, monkeypatch)
+    task_id = first["task_id"]
+    path = dispatcher.store.task_dir(task_id) / "evidence" / "lifecycle-feasibility.json"
+    report = json.loads(path.read_text(encoding="utf-8"))
+    report["feasible"] = 1
+    report["phases"][0]["approved_hashes_verified"] = 1
+    report["phases"][0]["projected_skill_bytes"] = float(
+        report["phases"][0]["projected_skill_bytes"]
+    )
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = await dispatcher.resume_claude_task(task_id, "Carry on.")
+
+    assert result["error"] == "StateCorruption"
+    assert dispatcher.store.load(task_id).run_count == 1

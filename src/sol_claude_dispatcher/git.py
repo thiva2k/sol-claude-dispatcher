@@ -53,18 +53,28 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Mapping
 
 from .errors import (
+    ForbiddenGitInvocation,
     GitEvidenceCollectionFailed,
     InvalidRepository,
     WorktreeCreationFailed,
 )
 from .models import ScopeSpec, worktree_name_for
+from .phase import current_execution
+from .evidence.git_order import (
+    CwdRole,
+    GitInvocationJournal,
+    GitPath,
+    PinBlock,
+    execute_declared_git,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .project_guidance import RepositoryIdentity
@@ -87,6 +97,8 @@ __all__ = [
     "write_full_diff",
     "check_scope",
     "primary_tree_status",
+    "Gate7GitExecutor",
+    "resolve_git_executable",
 ]
 
 #: Per-invocation timeout for the small, bounded git commands this module
@@ -123,6 +135,167 @@ _WORKTREE_ADD_TIMEOUT_SECONDS = 300
 _STDERR_EXCERPT = 400
 
 
+def resolve_git_executable(candidate: str | os.PathLike[str] | None = None) -> Path:
+    """Resolve Git once to an absolute executable path (Gate 7 T-40).
+
+    Resolution is intentionally outside the child environment.  The Git child
+    receives no ``PATH`` and therefore cannot be redirected by an inherited or
+    repository-controlled executable search path.
+    """
+
+    if candidate is None:
+        found = shutil.which("git", path=os.defpath)
+        if found is None:
+            raise GitEvidenceCollectionFailed(
+                "The Git executable could not be resolved from the system default path."
+            )
+        raw = found
+    else:
+        raw = os.fspath(candidate)
+        if not os.path.isabs(raw):
+            raise GitEvidenceCollectionFailed(
+                "The configured Git executable must be an absolute path.",
+                details={"git_executable": str(raw)},
+            )
+    resolved = Path(raw).resolve(strict=True)
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise GitEvidenceCollectionFailed(
+            "The resolved Git executable is not an executable regular file.",
+            details={"git_executable": str(resolved)},
+        )
+    return resolved
+
+
+class Gate7GitExecutor:
+    """The sole Wave-0 executor for declared pre-worker Git rows.
+
+    Construction does not grant permission.  The caller first completes the
+    raw administrative gate and then calls :meth:`establish`, which writes the
+    durable establishment row bound to the current PREPARE execution.  Every
+    later call is joined against the declared order by ``git_order.py``.
+    """
+
+    def __init__(
+        self,
+        *,
+        repository_root: Path,
+        journal_path: Path,
+        empty_hooks_path: Path,
+        path: GitPath,
+        git_executable: str | os.PathLike[str] | None = None,
+    ) -> None:
+        self.repository_root = Path(repository_root)
+        self.journal = GitInvocationJournal(Path(journal_path))
+        self.path = path
+        self.git_executable = resolve_git_executable(git_executable)
+        self.pin_block = PinBlock(str(Path(empty_hooks_path).resolve(strict=True)))
+
+    def establish(self) -> None:
+        self.journal.establish(self.path)
+
+    def run(
+        self,
+        row_id: str,
+        *,
+        values: Mapping[str, str] | None = None,
+        variant: int = 0,
+        input_bytes: bytes | None = None,
+        timeout: int = _GIT_TIMEOUT_SECONDS,
+    ) -> subprocess.CompletedProcess[bytes]:
+        def runner(argv, *, cwd: Path, env: dict[str, str]):
+            try:
+                return subprocess.run(
+                    list(argv),
+                    cwd=os.fspath(cwd),
+                    env=env,
+                    input=input_bytes,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=timeout,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise GitEvidenceCollectionFailed(
+                    "A declared Gate 7 Git row could not complete.",
+                    details={"row": row_id, "reason": type(exc).__name__},
+                ) from exc
+
+        executed = execute_declared_git(
+            journal=self.journal,
+            path=self.path,
+            row_id=row_id,
+            git_executable=str(self.git_executable),
+            pin_block=self.pin_block,
+            cwd=self.repository_root,
+            cwd_role=CwdRole.PRIMARY,
+            runner=runner,
+            values=values,
+            variant=variant,
+        )
+        result = executed.result
+        if result.returncode != 0:
+            raise GitEvidenceCollectionFailed(
+                "A declared Gate 7 Git row failed.",
+                details={
+                    "row": row_id,
+                    "returncode": result.returncode,
+                    "stderr": os.fsdecode(result.stderr)[:_STDERR_EXCERPT],
+                },
+            )
+        return result
+
+    def verify_exact_base(self, base_commit: str) -> str:
+        if not re.fullmatch(r"[0-9a-f]{40}", base_commit):
+            raise InvalidRepository(
+                "base_ref must be an exact 40-character lowercase commit object name."
+            )
+        result = self.run("G1", values={"base_commit": base_commit})
+        observed = os.fsdecode(result.stdout).strip()
+        if observed != base_commit:
+            raise InvalidRepository(
+                "Git did not verify the exact requested base commit.",
+                details={"requested": base_commit, "observed": observed},
+            )
+        return observed
+
+    def capture_base_tree(self, base_commit: str) -> bytes:
+        return self.run("G2", values={"base_commit": base_commit}).stdout
+
+    def list_worktrees(self, *, resume: bool = False) -> bytes:
+        row = "G1_PRIME" if resume else "G3"
+        return self.run(row).stdout
+
+    def create_detached_worktree(self, path: Path, base_commit: str) -> WorktreeRef:
+        target = Path(path)
+        if target.exists():
+            raise WorktreeCreationFailed(
+                "Refusing to create a task worktree over an existing path.",
+                details={"path": str(target)},
+            )
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        except OSError as exc:
+            raise WorktreeCreationFailed(
+                "The task worktree parent cannot be prepared.",
+                details={"path": str(target), "reason": str(exc)},
+            ) from exc
+        self.run(
+            "G4",
+            values={"worktree_path": str(target), "base_commit": base_commit},
+            timeout=_WORKTREE_ADD_TIMEOUT_SECONDS,
+        )
+        return WorktreeRef(path=target, head_commit=base_commit, branch=None)
+
+    def read_objects_batch(self, object_ids: tuple[str, ...]) -> bytes:
+        if any(not re.fullmatch(r"[0-9a-f]{40}", oid) for oid in object_ids):
+            raise GitEvidenceCollectionFailed("G8 received an invalid object id.")
+        payload = b"".join(oid.encode("ascii") + b"\n" for oid in object_ids)
+        return self.run("G8", input_bytes=payload).stdout
+
+    def verify_promisor_completeness(self) -> bytes:
+        return self.run("G9").stdout
+
+
 def _git_env() -> dict[str, str]:
     """Environment for every git command this module runs."""
     env = dict(os.environ)
@@ -140,6 +313,12 @@ def _run_git(
     args: list[str], *, cwd: Path, timeout: int = _GIT_TIMEOUT_SECONDS
 ) -> subprocess.CompletedProcess[str]:
     """Run ``git <args>`` in ``cwd`` as an argv list. Never raises on nonzero exit."""
+    execution = current_execution()
+    if execution is not None:
+        raise ForbiddenGitInvocation(
+            "Legacy Git helpers are forbidden inside dispatcher tool execution.",
+            details={"tool": execution.tool, "phase": execution.phase.name},
+        )
     return subprocess.run(
         ["git", *args],
         cwd=str(cwd),
@@ -764,6 +943,12 @@ def write_full_diff(worktree: Path, base_commit: str, dest: Path) -> int:
     Fails closed with :class:`GitEvidenceCollectionFailed`; on failure no
     partial file is left behind at ``dest``.
     """
+    execution = current_execution()
+    if execution is not None:
+        raise ForbiddenGitInvocation(
+            "Legacy full-diff Git is forbidden inside dispatcher tool execution.",
+            details={"tool": execution.tool, "phase": execution.phase.name},
+        )
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp_path = dest.parent / f".{dest.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"

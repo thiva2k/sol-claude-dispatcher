@@ -138,7 +138,9 @@ worker_tools = [
     "NotebookEdit",
 ]
 
-# Fable is read-only. No Edit, no Write, no Bash.
+# Fable's code-level allowlist is exactly Read/Glob/Grep. This setting may be a
+# non-empty subset, but cannot add names, wildcards/default bundles, mutators or
+# subagent tools. Do not use []: without --tools the CLI restores its defaults.
 reviewer_tools = ["Read", "Glob", "Grep"]
 
 # Deny patterns applied on top of the tool list. This list is ADDITIVE ONLY:

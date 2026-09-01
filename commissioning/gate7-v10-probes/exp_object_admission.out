@@ -1,0 +1,42 @@
+==============================================================================
+git binary : /usr/local/bin/git
+git version: git version 2.51.1
+python     : 3.12.13
+uid        : 0
+==============================================================================
+
+### A. OBJECT-SHAPED CORRUPT BYTES CHANGE THE PINNED G9 ROW
+  blob oid                         : c2981a9931b383b5eb128dc5e3505654ab5269b6
+  path shape                       : objects/c2/981a9931b383b5eb128dc5e3505654ab5269b6
+  VALID OBJECT CONTROL             : True (canonical object digest matches pathname)
+  missing-object G9 row            : '?c2981a9931b383b5eb128dc5e3505654ab5269b6'
+  MISSING CONTROL FIRED            : True
+  corrupt file entry_type          : regular
+  corrupt path matches 2/38 shape  : True
+  canonical validator accepts      : False (inflate failed: error)
+  pinned G9 rows for oid afterward : ['c2981a9931b383b5eb128dc5e3505654ab5269b6 f']
+  G9 OUTPUT CHANGED                : True
+
+### B. A NORMAL COMMIT CREATES FAN-OUT DIRECTORIES
+  commits needed for a new fan-out : 1
+  new fan-out directories          : ['1e', '25', '70']
+  new loose files (sample)         : ['1e/ab4b18c0a4b1dfa7546c1e636858841739bba4', '25/92940ef35e70f81246550f41e9cef3c3f7537f', '70/885e446257a5a02e522fdd358e2774020954ee']
+  DIRECTORY/OBJECT CONTROL FIRED   : True
+
+### C. NONE==NONE IS BLIND TO A SAME-LENGTH SYMLINK TARGET CHANGE
+  baseline tuple                   : ('symlink', 2, None)
+  size-changing target tuple       : ('symlink', 6, None)
+  TUPLE DETECTOR ARMED             : True
+  same-length current tuple        : ('symlink', 2, None)
+  targets                          : 'aa' -> 'bb'
+  NONE==NONE HIDES TARGET CHANGE   : True
+
+### D. SHA-256 IS DECLARED IN RAW CONFIG AND USES A 62-HEX TAIL
+  oid                              : cb3eb26e214a7ecff1d66c73afaa9a45dc6167f179f40d37a1255444120a918a
+  loose tail length                : 62
+  raw config declares sha256       : True
+  SHA256 CONTROL FIRED             : True
+
+==============================================================================
+ALL FOUR CONTROLS FIRED
+==============================================================================

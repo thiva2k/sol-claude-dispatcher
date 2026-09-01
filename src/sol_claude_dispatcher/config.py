@@ -60,6 +60,7 @@ __all__ = [
     "load_config_from_mapping",
     "DEFAULT_CONFIG_FILENAME",
     "PLACEHOLDER_ROOT",
+    "FABLE_REVIEWER_TOOL_ALLOWLIST",
 ]
 
 DEFAULT_CONFIG_FILENAME = "dispatcher.toml"
@@ -67,6 +68,13 @@ DEFAULT_CONFIG_FILENAME = "dispatcher.toml"
 #: The value shipped in ``config/dispatcher.example.toml``. Loading a config
 #: that still contains it is an error: it means nobody chose an allowlist.
 PLACEHOLDER_ROOT = "/CONFIGURE/ME"
+
+#: The complete Claude built-in tool authority available to Fable.  This is a
+#: closed code-level allowlist, not documentation for an open-ended config
+#: field: operator config may choose a non-empty subset, but may not add a
+#: wildcard, a default bundle, a mutator, a subagent tool, or a future tool
+#: name.  Keeping the tuple ordered also makes the shipped argv deterministic.
+FABLE_REVIEWER_TOOL_ALLOWLIST: tuple[str, ...] = ("Read", "Glob", "Grep")
 
 
 class _StrictSection(BaseModel):
@@ -314,7 +322,9 @@ class ClaudeSettings(_StrictSection):
             "NotebookEdit",
         ]
     )
-    #: Read-only tool set for Fable (§7.3). No Edit, no Write, no Bash.
+    #: Read-only tool set for Fable (§7.3).  Config may narrow the closed
+    #: code-level allowlist but can never widen it.  Empty is refused: omitting
+    #: ``--tools`` would restore the Claude CLI's default tool bundle.
     reviewer_tools: list[str] = Field(
         default_factory=lambda: ["Read", "Glob", "Grep"]
     )
@@ -358,6 +368,32 @@ class ClaudeSettings(_StrictSection):
                 f"'bypassPermissions' is deliberately not offered"
             )
         return v
+
+    @field_validator("reviewer_tools")
+    @classmethod
+    def _reviewer_tools_are_a_closed_nonempty_subset(
+        cls, tools: list[str]
+    ) -> list[str]:
+        if not tools:
+            raise ValueError(
+                "claude.reviewer_tools must be a non-empty subset of "
+                "['Read', 'Glob', 'Grep']; an empty list omits --tools and "
+                "would restore the CLI default tool bundle"
+            )
+        unexpected = [
+            tool for tool in tools if tool not in FABLE_REVIEWER_TOOL_ALLOWLIST
+        ]
+        if unexpected:
+            raise ValueError(
+                "claude.reviewer_tools is a closed allowlist; only "
+                f"{list(FABLE_REVIEWER_TOOL_ALLOWLIST)!r} are permitted, got "
+                f"unexpected entries {unexpected!r}"
+            )
+        if len(tools) != len(set(tools)):
+            raise ValueError(
+                "claude.reviewer_tools must not contain duplicate entries"
+            )
+        return tools
 
 
 # ---------------------------------------------------------------------------

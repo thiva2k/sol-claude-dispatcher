@@ -37,13 +37,13 @@ def test_lock_name_same_for_symlink_alias(tmp_path: Path) -> None:
     assert locks.lock_name_for(real) == locks.lock_name_for(alias)
 
 
-def test_lock_name_is_derived_from_the_git_top_level(tmp_path: Path) -> None:
-    """P0-2: a subdirectory of a repository must not get its own lock."""
+def test_lock_name_does_not_spawn_git_to_infer_a_parent_root(tmp_path: Path) -> None:
+    """Gate 7: only the already-authorised raw root may define lock identity."""
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     (repo / "src").mkdir()
-    assert locks.lock_name_for(repo / "src") == locks.lock_name_for(repo)
+    assert locks.lock_name_for(repo / "src") != locks.lock_name_for(repo)
 
 
 def test_lock_name_differs_for_different_repos(tmp_path: Path) -> None:

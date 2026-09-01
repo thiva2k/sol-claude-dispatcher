@@ -35,11 +35,19 @@ from sol_claude_dispatcher.errors import (
     ApprovedSkillChanged,
     ConfigurationError,
     ProjectGuidanceNotApproved,
+    ProjectGuidanceRepositoryMismatch,
     ProjectGuidanceResumeDrift,
     ProjectGuidanceSourceChanged,
     SkillPolicyViolation,
     UnapprovedProjectGuidanceFile,
 )
+from sol_claude_dispatcher.evidence.gitadmin import (
+    baseline_path,
+    capture_repository_administration,
+    repository_identity_key,
+    write_baseline,
+)
+from sol_claude_dispatcher.evidence.identity import capture_repository_authority
 from sol_claude_dispatcher.git import collect_repository_identity
 from sol_claude_dispatcher.project_guidance import (
     DISPATCHER_AUTHORED,
@@ -651,7 +659,13 @@ def gate45(
                 target_repo, skills=skills, guidance=guidance, policy_path=policy_path
             )
         )
-        return Dispatcher(load_config(config_path))
+        config = load_config(config_path)
+        if not baseline_path(config.state_path, target_repo).exists():
+            write_baseline(
+                config.state_path,
+                capture_repository_administration(target_repo),
+            )
+        return Dispatcher(config)
 
     build.disp = disp  # type: ignore[attr-defined]
     build.repo = target_repo  # type: ignore[attr-defined]
@@ -660,8 +674,9 @@ def gate45(
 
 @pytest.fixture
 def payload(target_repo: Path) -> dict:
+    base_commit = _git(["rev-parse", "HEAD"], target_repo)
     return {
-        "repository": {"root": str(target_repo), "base_ref": "HEAD"},
+        "repository": {"root": str(target_repo), "base_ref": base_commit},
         "task": {
             "kind": "implementation",
             "objective": "Normalise the handover payload.",
@@ -744,7 +759,10 @@ class TestEphemeralEnablement:
         safe-off) and ``test_no_environment_variable_can_enable_projection``
         (no env hatch exists) both keep their original assertions.
         """
-        production = load_config(PROJECT_ROOT / "config" / "dispatcher.toml")
+        production_path = PROJECT_ROOT / "config" / "dispatcher.toml"
+        if not production_path.exists():
+            pytest.skip("host-local production config is not installed")
+        production = load_config(production_path)
 
         # The approved production boundary is unchanged by activation.
         assert production.security.allowed_repository_roots == ["/home/dev/full-voice-agent"]
@@ -773,7 +791,10 @@ class TestEphemeralEnablement:
         """No edit to the host-local config can select a native runtime."""
         import tomllib
 
-        raw = tomllib.loads((PROJECT_ROOT / "config" / "dispatcher.toml").read_bytes().decode())
+        production_path = PROJECT_ROOT / "config" / "dispatcher.toml"
+        if not production_path.exists():
+            pytest.skip("host-local production config is not installed")
+        raw = tomllib.loads(production_path.read_bytes().decode())
 
         for section in ("skills", "project_guidance"):
             data = json.loads(json.dumps(raw))
@@ -823,13 +844,15 @@ class TestEphemeralEnablement:
 
 
 class TestFlagsDisabled:
-    async def test_disabled_dispatch_sends_exactly_the_policy_file(
+    async def test_disabled_projection_still_receives_lifecycle_policy(
         self, gate45, payload, fake_env
     ):
         dispatcher = gate45(skills=False, guidance=False)
         _assert_ok(await dispatcher.dispatch_claude_task(payload))
         prompt = _system_prompt(_invocations(fake_env)[0])
-        assert prompt == (PROJECT_ROOT / "prompts" / "worker-policy.md").read_text()
+        policy = (PROJECT_ROOT / "prompts" / "worker-policy.md").read_text()
+        assert prompt.startswith(policy)
+        assert "# Core execution method" in prompt
         assert ENVELOPE_PRECEDENCE_PREAMBLE not in prompt
 
     async def test_disabled_dispatch_records_no_context_evidence(
@@ -1016,7 +1039,12 @@ class TestDispatchAnchor:
         assert original.context_fingerprint is not None
 
         envelope = dispatcher.store.load_envelope(task_id)
-        identity = dispatcher.context.repository_identity(gate45.repo)
+        authority = capture_repository_authority(
+            gate45.repo, authorized_root=gate45.repo
+        )
+        identity = dispatcher.context.repository_identity(
+            gate45.repo, authority=authority
+        )
         resume_context = dispatcher.context.for_worker(
             envelope,
             run_kind=RunKind.RESUME,
@@ -1095,6 +1123,30 @@ class TestResume:
             runs[0].metadata.project_guidance_fingerprint
         )
 
+    async def test_resume_uses_task_sealed_identity_after_manifest_drift(
+        self, gate45, payload, fake_env
+    ):
+        dispatcher = gate45()
+        task_id = await self._dispatch(dispatcher, payload)
+        seal_path = dispatcher.store.task_dir(task_id) / "evidence" / "preworker-seal"
+        sealed_before = json.loads((seal_path / "identity-record.json").read_text())
+        manifest_path = Path(dispatcher.config.approved_guidance_file)
+        manifest = json.loads(manifest_path.read_text())
+        manifest["repositories"][0]["root_commit"] = "f" * 40
+        assert manifest["repositories"][0]["root_commit"] != sealed_before[
+            "pin_root_commit"
+        ]
+        manifest_path.write_text(json.dumps(manifest, indent=1))
+
+        restarted = Dispatcher(dispatcher.config)
+        before_invocations = len(_invocations(fake_env))
+        refused = await restarted.resume_claude_task(task_id, "continue")
+
+        assert refused["error"] == ProjectGuidanceRepositoryMismatch.__name__
+        assert "root_commit" in refused["details"]["mismatched_fields"]
+        assert len(_invocations(fake_env)) == before_invocations
+        assert json.loads((seal_path / "identity-record.json").read_text()) == sealed_before
+
     async def test_resume_fails_closed_on_a_changed_instruction_source(
         self, gate45, payload, fake_env
     ):
@@ -1116,9 +1168,10 @@ class TestResume:
         assert result["error"] == ProjectGuidanceSourceChanged.__name__
         # No worker was launched under the changed guidance.
         assert len(_invocations(fake_env)) == before
-        assert dispatcher.store.load(task_id).last_error["error"] == (
-            ProjectGuidanceSourceChanged.__name__
-        )
+        assert dispatcher.store.load(task_id).last_error is None
+        refusal = dispatcher.store.load_refusals(task_id=task_id)[-1]
+        assert refusal["code"] == ProjectGuidanceSourceChanged.__name__
+        assert refusal["phase"] == "PREPARE"
 
     async def test_diverged_alias_pair_reports_drift_not_source_changed(
         self, gate45, payload, fake_env
@@ -1228,22 +1281,17 @@ class TestUnapprovedScope:
             result["details"]["operator_text"]
         )
 
-    async def test_the_refused_task_lands_in_failed_with_last_error(
+    async def test_preworker_guidance_refusal_creates_no_task(
         self, gate45, payload, fake_env
     ):
         dispatcher = gate45()
         payload["scope"]["allowed_paths"] = ["HattonHills/**"]
         result = await dispatcher.dispatch_claude_task(payload)
-        task_id = result["details"].get("task_id")
-        # The refusal happens after the envelope is persisted, so the task is
-        # inspectable; whichever id it got, exactly one task must be FAILED.
-        states = [
-            json.loads((d / "state.json").read_text())
-            for d in dispatcher.store.root.iterdir()
-        ]
-        assert [s["state"] for s in states] == ["failed"]
-        assert states[0]["last_error"]["error"] == ProjectGuidanceNotApproved.__name__
-        assert task_id is None or task_id == states[0]["task_id"]
+        assert dispatcher.store.list_tasks() == []
+        key = repository_identity_key(payload["repository"]["root"])
+        refusal = dispatcher.store.load_refusals(repository_key=key)[-1]
+        assert refusal["phase"] == "PREPARE"
+        assert refusal["code"] == ProjectGuidanceNotApproved.__name__
 
     async def test_an_unreviewed_instruction_file_blocks_the_dispatch(
         self, gate45, payload, fake_env
@@ -1311,6 +1359,48 @@ class TestFableReview:
         record = dispatcher.store.load(result["task_id"])
         assert record.project_guidance.audience == "worker"
 
+    async def test_fable_uses_task_sealed_identity_after_manifest_drift(
+        self, gate45, payload, fake_env, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A restarted reviewer compares live policy to sealed task identity."""
+
+        dispatcher = gate45()
+        result = _assert_ok(await dispatcher.dispatch_claude_task(payload))
+        task_id = result["task_id"]
+        seal_path = dispatcher.store.task_dir(task_id) / "evidence" / "preworker-seal"
+        sealed_before = json.loads((seal_path / "identity-record.json").read_text())
+        assert sealed_before["root_commit_provenance"] == "approved_onboarding_fact"
+        assert sealed_before["provenance"] == "sealed_at_prepare"
+        assert sealed_before["pins_applied"] == ["PIN1", "PIN2", "PIN3", "PIN4"]
+
+        manifest_path = Path(dispatcher.config.approved_guidance_file)
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes)
+        assert sealed_before["manifest_sha256"] == hashlib.sha256(
+            manifest_bytes
+        ).hexdigest()
+        assert sealed_before["pin_root_commit"] == manifest["repositories"][0][
+            "root_commit"
+        ]
+        sealed_origin = sealed_before["pin_origin_url"]
+        manifest["repositories"][0]["origin_url"] = "ssh://drift.invalid/repository"
+        manifest_path.write_text(json.dumps(manifest, indent=1))
+
+        # A new process would construct a new Dispatcher and read the changed
+        # manifest.  Identity still comes from the old task seal, so the live
+        # manifest cannot rewrite the task's origin/root facts.
+        restarted = Dispatcher(dispatcher.config)
+        monkeypatch.setenv("FAKE_CLAUDE_MODE", "fable-review")
+        before_invocations = len(_invocations(fake_env))
+        refused = await restarted.review_task_with_fable(task_id)
+
+        assert refused["error"] == ProjectGuidanceRepositoryMismatch.__name__
+        assert "origin_url" in refused["details"]["mismatched_fields"]
+        assert len(_invocations(fake_env)) == before_invocations
+        sealed_after = json.loads((seal_path / "identity-record.json").read_text())
+        assert sealed_after["pin_origin_url"] == sealed_origin
+        assert sealed_after == sealed_before
+
     async def test_scoped_review_without_an_approved_review_entry_fails_closed(
         self, gate45, payload, fake_env
     ):
@@ -1322,14 +1412,12 @@ class TestFableReview:
         """
         dispatcher = gate45()
         payload["scope"]["allowed_paths"] = ["SLIC Agent/**"]
-        result = _assert_ok(await dispatcher.dispatch_claude_task(payload))
-        review = await dispatcher.review_task_with_fable(result["task_id"])
-        assert review["error"] == ProjectGuidanceNotApproved.__name__
-        assert review["details"]["audience"] == "fable_review"
-        # And the worker dispatch itself was fine: SLIC has a worker projection.
-        assert "SLIC-SOURCE-ARTIFACT-SENTINEL" in _system_prompt(
-            _invocations(fake_env)[0]
-        )
+        result = await dispatcher.dispatch_claude_task(payload)
+        assert result["error"] == ProjectGuidanceNotApproved.__name__
+        assert result["details"]["audience"] == "fable_review"
+        # Future-phase preflight refuses before paying for a worker that could
+        # never reach its required independent review.
+        assert _invocations(fake_env) == []
 
 
 # ---------------------------------------------------------------------------
@@ -1410,13 +1498,9 @@ class TestTransportCeiling:
 
         assert result["error"] == "ContextTooLarge"
         details = result["details"]
-        assert details["maximum_bytes"] == 122_880
-        assert details["actual_bytes"] > details["maximum_bytes"]
-        assert details["excess_bytes"] == (
-            details["actual_bytes"] - details["maximum_bytes"]
-        )
-        assert details["source"] == "preflight"
-        assert details["role"] == "implementer"
+        assert details["transport_ceiling_bytes"] == 122_880
+        assert details["composed_bytes"] > details["transport_ceiling_bytes"]
+        assert details["infeasible_phase"] == "DISPATCH_IMPLEMENTATION"
 
     async def test_no_worker_process_is_started(
         self, gate45, payload, fake_env, tmp_path: Path
@@ -1433,14 +1517,16 @@ class TestTransportCeiling:
         result = await dispatcher.dispatch_claude_task(payload)
         details = result["details"]
 
-        # Every selected skill and every selected guidance scope is named.
-        assert details["skill_count"] == len(details["skill_ids"])
-        assert details["skill_count"] >= 1
-        assert details["guidance_scope_count"] == len(details["guidance_scope_ids"])
-        assert details["guidance_scope_count"] >= 1
-        assert "pg.root" in details["guidance_scope_ids"] or any(
-            sid.startswith("pg.") for sid in details["guidance_scope_ids"]
-        )
+        # The complete selected lifecycle profile and every reachable phase
+        # measurement are returned; no artifact is silently dropped.
+        assert details["artifact_ids"] == ["core", "implementation"]
+        assert details["profile_id"] == "dispatch-implementation"
+        assert set(details["phases"]) == {
+            "DISPATCH_IMPLEMENTATION",
+            "CORRECTION_RESUME",
+            "VALIDATION_ONLY_RESUME",
+            "FABLE_REVIEW",
+        }
 
     async def test_the_refusal_quotes_no_projected_content(
         self, gate45, payload, fake_env, tmp_path: Path
@@ -1456,12 +1542,13 @@ class TestTransportCeiling:
         ):
             assert sentinel not in rendered
 
-    async def test_the_task_fails_closed_with_the_error_recorded(
+    async def test_the_preworker_refusal_is_repository_audited(
         self, gate45, payload, fake_env, tmp_path: Path
     ):
         dispatcher = gate45(policy_path=self._oversized_policy(tmp_path))
         result = await dispatcher.dispatch_claude_task(payload)
-        assert "task_id" in result["details"]
-        record = dispatcher.store.load(result["details"]["task_id"])
-        assert record.state.value == "failed"
-        assert record.last_error["error"] == "ContextTooLarge"
+        assert dispatcher.store.list_tasks() == []
+        key = repository_identity_key(payload["repository"]["root"])
+        refusal = dispatcher.store.load_refusals(repository_key=key)[-1]
+        assert refusal["code"] == "ContextTooLarge"
+        assert refusal["phase"] == "PREPARE"

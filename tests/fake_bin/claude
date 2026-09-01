@@ -46,6 +46,9 @@ mode                 behaviour
 ``FAKE_CLAUDE_TOUCH``      comma-separated cwd-relative paths to create in
                            ``scope-violation`` mode (default
                            ``.github/workflows/pwn.yml,src/unrelated/leak.py``).
+``FAKE_CLAUDE_ADMIN_TOUCH`` optional filename to create in the linked-worktree
+                           registration gitdir. Test-only administrative-tamper
+                           control; never shells out.
 ``FAKE_CLAUDE_NOISE_BYTES``         stdout noise emitted before the structured
                                     result in ``huge-output`` mode (default 0).
 ``FAKE_CLAUDE_STDERR_NOISE_BYTES``  stderr noise in ``huge-output`` mode
@@ -247,6 +250,17 @@ def main() -> int:
     resume_id = parsed["values"].get("--resume") or parsed["values"].get("-r")
     override = os.environ.get("FAKE_CLAUDE_EXIT_CODE")
     forced_stdout = os.environ.get("FAKE_CLAUDE_STDOUT")
+
+    admin_touch = os.environ.get("FAKE_CLAUDE_ADMIN_TOUCH")
+    if admin_touch:
+        if "/" in admin_touch or admin_touch in {".", ".."}:
+            raise ValueError("FAKE_CLAUDE_ADMIN_TOUCH must be one filename")
+        raw = open(".git", "r", encoding="utf-8").read().strip()
+        target = raw.removeprefix("gitdir: ")
+        if not os.path.isabs(target):
+            target = os.path.realpath(os.path.join(os.getcwd(), target))
+        with open(os.path.join(target, admin_touch), "wb") as handle:
+            handle.write(b"worker administrative tamper")
 
     if forced_stdout is not None:
         sys.stdout.write(forced_stdout)

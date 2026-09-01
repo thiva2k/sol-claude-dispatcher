@@ -34,24 +34,28 @@ Contract (authoritative, see ``docs/INTERFACES.md``)::
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import shlex
 import signal
+import stat
 import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .errors import ValidationBudgetExceeded
+from .errors import ValidationAttributionUnknown, ValidationBudgetExceeded
 from .models import (
     TaskEnvelope,
     TaskRequest,
     ValidationCommand,
     ValidationResult,
     WorkerResult,
+    utc_now,
 )
-from .runner import StreamCapture
+from .runner import ExecveTransportMeasurement, StreamCapture, measure_execve_transport
 from .security import SECRET_ENV_MARKERS
 
 __all__ = [
@@ -88,6 +92,17 @@ _WORKER_MARKER_KEYS: tuple[str, ...] = (
 #: Prefix marking dispatcher-internal configuration (paths, tokens, overrides).
 _DISPATCHER_ENV_PREFIX = "SOL_DISPATCHER_"
 
+# Validation is an execution domain, never a repository-authority domain.
+# These literal values are part of the Gate 7 journal contract (§5.17.6).
+_VALIDATION_PHASE = "POST_WORKER"
+_VALIDATION_CWD_ROLE = "task_worktree"
+_VALIDATION_ENV_POLICY = "validation_environment/1"
+_VALIDATION_START_NEW_SESSION = True
+
+#: Program names are recorded so a run can be inspected without leaking argv.
+#: Only the basename, and only this many characters, is ever reported.
+_MAX_PROGRAM_CHARS = 64
+
 
 def validation_environment(base_env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Build the environment for a dispatcher-run validation subprocess (P1-6).
@@ -122,6 +137,99 @@ def validation_environment(base_env: Mapping[str, str] | None = None) -> dict[st
 
 def _tail(text: str, limit: int = _TAIL_BYTES) -> str:
     return text[-limit:] if len(text) > limit else text
+
+
+def _utc_now() -> str:
+    return utc_now().isoformat()
+
+
+def _program_name(argv: list[str]) -> str:
+    """Return only the bounded basename used for journal classification.
+
+    Arguments can contain credentials and repository paths, so the journal
+    never records them. Taking the basename also means ``git``, ``./git`` and
+    ``/usr/bin/git`` receive the same classification; authority must not vary
+    with the spelling of the executable path.
+    """
+
+    return os.path.basename(argv[0])[:_MAX_PROGRAM_CHARS]
+
+
+def _validation_journal_base(
+    argv: list[str], *, sequence: int, argv_sha256: str
+) -> dict[str, object]:
+    program = _program_name(argv)
+    return {
+        "schema_version": 1,
+        # ``sequence`` is retained for readers of the first implementation;
+        # ``index`` is the zero-based field specified by Gate 7 §5.17.6.
+        "sequence": sequence,
+        "index": sequence - 1,
+        "domain": "trusted_validation",
+        "phase": _VALIDATION_PHASE,
+        "program": program,
+        "argv_sha256": argv_sha256,
+        "argv_len": len(argv),
+        "cwd_role": _VALIDATION_CWD_ROLE,
+        "authority": False,
+        "is_git": program == "git",
+        "env_policy": _VALIDATION_ENV_POLICY,
+        # Validation deliberately does not receive the authority-domain pins.
+        "pins_applied": [],
+        "start_new_session": _VALIDATION_START_NEW_SESSION,
+        # An attempt is durable before spawn. Until completion, these facts
+        # are unknown rather than guessed from a child that may not exist.
+        "pid": None,
+        "pgid": None,
+        "sigkill": False,
+        "descendants_observed": None,
+    }
+
+
+def _transport_refusal_facts(
+    measurement: ExecveTransportMeasurement,
+) -> dict[str, object]:
+    """Return bounded size facts for a validation execve refusal.
+
+    Environment names and values may be secret-adjacent, and argv elements may
+    contain credentials or repository paths.  The refusal therefore records
+    only counts and byte sizes.  Element indices are deliberately omitted too:
+    validation has no need to identify an environment entry to prove that the
+    exact final transport block was refused.
+    """
+
+    if measurement.oversized_argv_indices:
+        constraint = "argv_element"
+    elif measurement.oversized_envp_indices:
+        constraint = "envp_element"
+    else:
+        constraint = "aggregate"
+    return {
+        "refusal_code": "ContextTooLarge",
+        "refusal_source": "execve_preflight",
+        "binding_constraint": constraint,
+        "argv_count": len(measurement.argv_element_bytes),
+        "envp_count": len(measurement.envp_element_bytes),
+        "argv_bytes": measurement.argv_bytes,
+        "envp_bytes": measurement.envp_bytes,
+        "pointer_bytes": measurement.pointer_bytes,
+        "total_bytes": measurement.total_bytes,
+        "aggregate_limit_bytes": measurement.aggregate_limit_bytes,
+        "arg_max_bytes": measurement.arg_max_bytes,
+        "safety_reserve_bytes": measurement.safety_reserve_bytes,
+        "largest_argv_element_bytes": max(
+            measurement.argv_element_bytes, default=0
+        ),
+        "largest_envp_element_bytes": max(
+            measurement.envp_element_bytes, default=0
+        ),
+        "oversized_argv_element_count": len(
+            measurement.oversized_argv_indices
+        ),
+        "oversized_envp_element_count": len(
+            measurement.oversized_envp_indices
+        ),
+    }
 
 
 async def _pump_streams(
@@ -199,7 +307,12 @@ async def _terminate(proc: "asyncio.subprocess.Process") -> bool:
 
 
 async def run_validation_command(
-    cmd: ValidationCommand, cwd: Path, *, env: Mapping[str, str] | None = None
+    cmd: ValidationCommand,
+    cwd: Path,
+    *,
+    env: Mapping[str, str] | None = None,
+    journal_path: Path | None = None,
+    sequence: int = 1,
 ) -> ValidationResult:
     """Execute one trusted argv command and capture its outcome (§9).
 
@@ -223,6 +336,53 @@ async def run_validation_command(
     argv = list(cmd.argv)
     start = time.monotonic()
     child_env = validation_environment() if env is None else dict(env)
+    argv_sha256 = hashlib.sha256(
+        json.dumps(argv, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    ).hexdigest()
+    attempt = {
+        **_validation_journal_base(
+            argv, sequence=sequence, argv_sha256=argv_sha256
+        ),
+        "ts": _utc_now(),
+        "event": "spawn_attempt",
+        "started_ns": time.time_ns(),
+    }
+
+    # Measure the exact final argv and the exact constructed child environment
+    # before claiming a spawn attempt.  This is the same NUL-inclusive,
+    # pointer-inclusive accounting used by the worker boundary: every string
+    # is capped at 131,071 encoded content bytes and the aggregate retains an
+    # 8 KiB reserve below SC_ARG_MAX.  An E2BIG-shaped input is a deterministic
+    # validation refusal, not an ordinary subprocess failure.
+    transport = measure_execve_transport(argv, child_env)
+    if not transport.transportable:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        if journal_path is not None:
+            _append_validation_journal(
+                journal_path,
+                {
+                    **attempt,
+                    "ts": _utc_now(),
+                    "event": "spawn_refused",
+                    "duration_ms": duration_ms,
+                    **_transport_refusal_facts(transport),
+                },
+            )
+        return ValidationResult(
+            argv=argv,
+            exit_code=None,
+            passed=False,
+            timed_out=False,
+            duration_ms=duration_ms,
+            stdout_tail="",
+            stderr_tail=(
+                "[dispatcher] validation command refused before spawn: "
+                "execve transport boundary exceeded"
+            ),
+        )
+
+    if journal_path is not None:
+        _append_validation_journal(journal_path, attempt)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -232,7 +392,7 @@ async def run_validation_command(
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.DEVNULL,
             env=child_env,
-            start_new_session=True,
+            start_new_session=_VALIDATION_START_NEW_SESSION,
         )
     except OSError as exc:
         # Binary missing, not executable, cwd unusable, etc. Validation
@@ -240,7 +400,7 @@ async def run_validation_command(
         # this host; report the failure rather than raising, so one bad
         # command does not abort the whole validation pass.
         duration_ms = int((time.monotonic() - start) * 1000)
-        return ValidationResult(
+        result = ValidationResult(
             argv=argv,
             exit_code=None,
             passed=False,
@@ -249,6 +409,20 @@ async def run_validation_command(
             stdout_tail="",
             stderr_tail=_tail(f"could not start command: {exc}"),
         )
+        if journal_path is not None:
+            _append_validation_journal(
+                journal_path,
+                {
+                    **attempt,
+                    "ts": _utc_now(),
+                    "event": "completion",
+                    "returncode": None,
+                    "timed_out": False,
+                    "sigkill": False,
+                    "duration_ms": duration_ms,
+                },
+            )
+        return result
 
     # Dedicated readers, owned here: a timeout cancels the *wait*, never the
     # evidence already read (§20, P1-8 adjacent).
@@ -286,7 +460,7 @@ async def run_validation_command(
         # ValidationResult has no dedicated field for it.
         stderr_tail = stderr_tail + "\n[dispatcher] command timed out; SIGKILL sent"
 
-    return ValidationResult(
+    result = ValidationResult(
         argv=argv,
         exit_code=exit_code,
         passed=(exit_code == 0 and not timed_out),
@@ -299,10 +473,32 @@ async def run_validation_command(
         stdout_truncated=stdout_truncated,
         stderr_truncated=stderr_truncated,
     )
+    if journal_path is not None:
+        _append_validation_journal(
+            journal_path,
+            {
+                **attempt,
+                "ts": _utc_now(),
+                "event": "completion",
+                "pid": proc.pid,
+                # start_new_session=True makes the child the leader of its
+                # new process group. This records no descendant count.
+                "pgid": proc.pid,
+                "returncode": exit_code,
+                "timed_out": timed_out,
+                "sigkill": killed_with_sigkill,
+                "duration_ms": duration_ms,
+            },
+        )
+    return result
 
 
 async def run_validations(
-    envelope: TaskEnvelope, cwd: Path, config: Config
+    envelope: TaskEnvelope,
+    cwd: Path,
+    config: Config,
+    *,
+    journal_path: Path | None = None,
 ) -> list[ValidationResult]:
     """Run every envelope validation command when enabled by config (§17).
 
@@ -322,9 +518,54 @@ async def run_validations(
 
     child_env = validation_environment()
     results: list[ValidationResult] = []
-    for cmd in envelope.validation.commands:
-        results.append(await run_validation_command(cmd, cwd, env=child_env))
+    for sequence, cmd in enumerate(envelope.validation.commands, 1):
+        results.append(
+            await run_validation_command(
+                cmd,
+                cwd,
+                env=child_env,
+                journal_path=journal_path,
+                sequence=sequence,
+            )
+        )
     return results
+
+
+def _append_validation_journal(path: Path, row: Mapping[str, object]) -> None:
+    """Append one non-authority validation event without following links."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        + "\n"
+    ).encode("ascii")
+    flags = (
+        os.O_WRONLY
+        | os.O_APPEND
+        | os.O_CREAT
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        fd = os.open(path, flags, 0o600)
+        try:
+            opened = os.fstat(fd)
+            if not stat.S_ISREG(opened.st_mode):
+                raise OSError("validation journal is not a regular file")
+            view = memoryview(payload)
+            while view:
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("short validation journal write")
+                view = view[written:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        raise ValidationAttributionUnknown(
+            "The validation invocation journal could not be written.",
+            details={"journal": str(path), "reason": str(exc)},
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -350,21 +591,6 @@ async def run_validations(
 #: whether the envelope was refused on first dispatch or only once a resume
 #: raised the effective execution timeout.
 BudgetPhase = str
-
-#: Program names are reported so a refusal can be acted on. Only the basename,
-#: and only this many characters of it — arguments are where credentials,
-#: hostnames and repository paths live, and none of them belong in an error.
-_MAX_PROGRAM_CHARS = 64
-
-
-def _program_name(argv: list[str]) -> str:
-    """The basename of a validation command's program, bounded.
-
-    ``argv[0]`` is a program, not caller prose: ``ValidationCommand`` already
-    refuses shell interpreters and null bytes. Everything after it is dropped.
-    """
-    return os.path.basename(argv[0])[:_MAX_PROGRAM_CHARS]
-
 
 def validation_budget_facts(
     envelope: TaskEnvelope | TaskRequest,
