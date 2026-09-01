@@ -148,7 +148,7 @@ meant to.
 ```bash
 scripts/doctor.sh              # 1. read-only diagnostic — nothing modified
 scripts/smoke-test-fake.sh     # 2. full pytest suite against the fake binary
-scripts/trust-repo-admin.py REPO --state-root state   # 3. onboard each repository, once
+.venv/bin/python scripts/trust-repo-admin.py REPO --state-root state   # 3. onboard, once
 scripts/generate-codex-config.sh   # 4. PRINT the Codex MCP snippet (does not install it)
 # 5. apply the printed snippet to ~/.codex/config.toml yourself, then restart Codex
 scripts/smoke-test-live.sh     # 6. optional — costs real Claude usage, asks first
@@ -187,6 +187,14 @@ this repository.**
    .venv/bin/python scripts/trust-repo-admin.py \
        /absolute/path/to/repo --state-root /absolute/path/to/state
    ```
+   The command is invoked through the venv interpreter deliberately: the script
+   is not committed with an executable bit, and it must run against the
+   dispatcher's own dependencies rather than whatever `python3` resolves to.
+
+   It shows you what trusting the repository would mean and writes **nothing**
+   until you type `trust`. Declining, or interrupting it, leaves no baseline.
+   Pass `--confirm` only where no terminal exists and the review has genuinely
+   already happened; `--replace` is gated by the same confirmation.
    The state root must be the one the dispatcher itself resolves from
    `[dispatcher].state_dir` (a relative value is resolved against the config
    file's project root), or the baseline is written where nothing will read it.

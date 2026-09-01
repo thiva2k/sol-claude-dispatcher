@@ -235,7 +235,10 @@ echo
 # refuse RepositoryAdministrationUnreconciled. `set -e` is still in force here,
 # so a refusal aborts the smoke test rather than letting it proceed.
 echo "Establishing the Gate 7 administrative baseline for the throwaway repo:"
-"$VENV_PY" "${SCRIPT_DIR}/trust-repo-admin.py" "$REPO" --state-root "$STATE_DIR"
+# --confirm: onboarding refuses without an explicit decision, and this script
+# has no TTY. Asserting review is honest here -- the fixture is a repository
+# this script created seconds ago, and its assignments are printed above.
+"$VENV_PY" "${SCRIPT_DIR}/trust-repo-admin.py" "$REPO" --state-root "$STATE_DIR" --confirm
 echo
 
 # The embedded harness below exercises two independent code paths so both

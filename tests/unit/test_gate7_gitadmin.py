@@ -18,6 +18,7 @@ from sol_claude_dispatcher.errors import (
 )
 from sol_claude_dispatcher.evidence.gitadmin import (
     ObjectEntry,
+    baseline_path,
     capture_repository_administration,
     load_baseline,
     reconcile_repository_administration,
@@ -326,3 +327,67 @@ def test_unreadable_baseline_is_still_a_capture_failure(tmp_path: Path) -> None:
             load_baseline(state, repo)
     finally:
         path.chmod(0o600)
+
+
+def _baseline_at(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A captured repo plus the state root and baseline path for it."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_raw_repo(repo)
+    state = tmp_path / "state"
+    path = baseline_path(state, repo)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return repo, state, path
+
+
+def test_a_symlinked_baseline_is_never_followed(tmp_path: Path) -> None:
+    """The baseline is the trust anchor; its bytes must come from the state dir.
+
+    Following a symlink would let approved administrative state live anywhere on
+    the filesystem, outside the 0700 directory the dispatcher owns, where a
+    process that cannot write the state dir could still choose what the
+    dispatcher trusts.
+    """
+    repo, state, path = _baseline_at(tmp_path)
+    elsewhere = tmp_path / "elsewhere.json"
+    real = write_baseline(state, capture_repository_administration(repo))
+    elsewhere.write_bytes(real.read_bytes())
+    real.unlink()
+    path.symlink_to(elsewhere)
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, repo)
+
+
+def test_a_dangling_baseline_symlink_is_refused_not_reported_absent(
+    tmp_path: Path,
+) -> None:
+    """"Absent" invites onboarding; a planted symlink must not earn that answer.
+
+    Reporting Unestablished here would tell the operator to run
+    trust-repo-admin.py, and onboarding would then replace whatever the link
+    points at -- turning a suspicious artefact into an approved baseline.
+    """
+    _repo, state, path = _baseline_at(tmp_path)
+    path.symlink_to(tmp_path / "nowhere.json")
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, _repo)
+
+
+def test_write_refuses_a_dangling_symlink_without_replace(tmp_path: Path) -> None:
+    """`exists()` is False for a dangling link, so the guard must use lexists."""
+    repo, state, path = _baseline_at(tmp_path)
+    path.symlink_to(tmp_path / "nowhere.json")
+
+    with pytest.raises((RepositoryAdministrationUnreconciled, GitAdministrativeCaptureFailed)):
+        write_baseline(state, capture_repository_administration(repo))
+
+
+def test_write_refuses_a_non_regular_entry_even_with_replace(tmp_path: Path) -> None:
+    """--replace is for reviewed divergence, not for clearing planted artefacts."""
+    repo, state, path = _baseline_at(tmp_path)
+    path.symlink_to(tmp_path / "nowhere.json")
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        write_baseline(state, capture_repository_administration(repo), replace=True)
