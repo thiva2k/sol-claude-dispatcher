@@ -11,7 +11,10 @@ from sol_claude_dispatcher.evidence.gitadmin import (
     write_baseline,
 )
 from sol_claude_dispatcher.evidence.prepare import prepare_dispatch
-from sol_claude_dispatcher.errors import GitAdministrativeCaptureFailed
+from sol_claude_dispatcher.errors import (
+    GitAdministrativeCaptureFailed,
+    RepositoryAdministrationUnestablished,
+)
 from sol_claude_dispatcher.phase import begin_tool_execution
 
 
@@ -79,7 +82,7 @@ def test_prepare_refuses_without_operator_baseline_and_creates_no_worktree(
     hooks.mkdir()
     target = tmp_path / "worktrees" / "sol-22222222"
     with begin_tool_execution("dispatch"):
-        with pytest.raises(GitAdministrativeCaptureFailed):
+        with pytest.raises(RepositoryAdministrationUnestablished):
             prepare_dispatch(
                 repository_root=git_repo,
                 state_root=tmp_path / "state",

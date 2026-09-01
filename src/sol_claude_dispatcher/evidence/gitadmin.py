@@ -21,6 +21,7 @@ from typing import Any, Literal
 
 from ..errors import (
     GitAdministrativeCaptureFailed,
+    RepositoryAdministrationUnestablished,
     RepositoryAdministrationUnreconciled,
     RepositoryAdministrationUnsupported,
     RepositoryObjectStoreEntryUnsupported,
@@ -1165,6 +1166,22 @@ def load_baseline(
     path = baseline_path(state_root, root)
     try:
         raw = path.read_bytes()
+    except FileNotFoundError as exc:
+        # No baseline has ever been established for this repository. That is a
+        # distinct condition from a baseline that exists and cannot be read,
+        # and GATE7-DESIGN.md ORDER 1 R6 names it: "no baseline ->
+        # RepositoryAdministrationUnestablished -> row 0". Both refuse, but only
+        # this one is remediable by onboarding the repository, so the operator
+        # is told which of the two situations they are actually in.
+        raise RepositoryAdministrationUnestablished(
+            "Repository administration is not established.",
+            details={"baseline": str(path), "reason": str(exc)},
+            remediation=(
+                "Establish the operator baseline once, after reviewing the "
+                "repository's trusted execution and transport assignments: "
+                "scripts/trust-repo-admin.py <repository> --state-root <state>"
+            ),
+        ) from exc
     except OSError as exc:
         raise GitAdministrativeCaptureFailed(
             "Administrative baseline could not be read.",

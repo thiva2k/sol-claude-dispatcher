@@ -11,6 +11,7 @@ import pytest
 
 from sol_claude_dispatcher.errors import (
     GitAdministrativeCaptureFailed,
+    RepositoryAdministrationUnestablished,
     RepositoryAdministrationUnreconciled,
     RepositoryObjectStoreEntryUnsupported,
     RepositoryObjectStoreMalformed,
@@ -287,3 +288,41 @@ def test_selected_registration_exact_changes_refuse_but_report_only_changes_do_n
     assert raised.value.details["changed_registration"] == [
         "worktree-registration/opaque-id/HEAD"
     ]
+
+
+def test_absent_baseline_is_unestablished_not_a_capture_failure(tmp_path: Path) -> None:
+    """A repository nobody has onboarded is a distinct condition from a broken one.
+
+    Both refuse, but only this one is remediable by running trust-repo-admin.py,
+    and the operator cannot tell which situation they are in from the refusal
+    alone unless the taxonomy separates them (GATE7-DESIGN.md ORDER 1, R6).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_raw_repo(repo)
+
+    with pytest.raises(RepositoryAdministrationUnestablished) as excinfo:
+        load_baseline(tmp_path / "state", repo)
+
+    assert "trust-repo-admin.py" in (excinfo.value.remediation or "")
+
+
+def test_unreadable_baseline_is_still_a_capture_failure(tmp_path: Path) -> None:
+    """An established-but-unreadable baseline must NOT be reported as absent.
+
+    Onboarding it again would silently replace a baseline a human approved, so
+    this case keeps the capture-failure taxonomy and its own remediation.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_raw_repo(repo)
+    state = tmp_path / "state"
+    path = write_baseline(state, capture_repository_administration(repo))
+    path.chmod(0o000)
+    try:
+        if os.access(path, os.R_OK):  # running as root: the mode cannot deny us
+            pytest.skip("filesystem permissions are not enforced for this user")
+        with pytest.raises(GitAdministrativeCaptureFailed):
+            load_baseline(state, repo)
+    finally:
+        path.chmod(0o600)
