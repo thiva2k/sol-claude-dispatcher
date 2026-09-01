@@ -219,6 +219,25 @@ echo "Other-repo fixture: ${OTHER_REPO} (created=${OTHER_REPO_CREATED})"
 echo "Production config (never touched): ${REAL_CONFIG}"
 echo
 
+# Gate 7 R6: establish the operator administrative baseline for the throwaway
+# repo, exactly as a real operator would. prepare_dispatch() loads the baseline
+# before the first git process of a dispatch (evidence/prepare.py:640) and
+# refuses closed when it is absent; nothing on the dispatch path ever creates
+# one, because re-baselining is deliberately an explicit operator action
+# (evidence/gitadmin.py:1149). The real trust-repo-admin.py is invoked rather
+# than calling write_baseline() directly so that the live harness exercises the
+# operator flow it claims to cover, including the SHA-256 object-format refusal
+# and full loose-object validation that the shortcut would skip.
+#
+# ORDERING: this must run after the last mutation of $REPO's administrative
+# state (the seed commit and `git config` writes above). refs, config and HEAD
+# are in the exact-equality set, so a later write makes the first dispatch
+# refuse RepositoryAdministrationUnreconciled. `set -e` is still in force here,
+# so a refusal aborts the smoke test rather than letting it proceed.
+echo "Establishing the Gate 7 administrative baseline for the throwaway repo:"
+"$VENV_PY" "${SCRIPT_DIR}/trust-repo-admin.py" "$REPO" --state-root "$STATE_DIR"
+echo
+
 # The embedded harness below exercises two independent code paths so both
 # are proven live:
 #
@@ -286,6 +305,17 @@ def git(cwd: Path, args: list[str]) -> str:
     if proc.returncode != 0:
         raise RuntimeError(f"git {args} failed in {cwd}: {proc.stderr}")
     return proc.stdout
+
+
+def head_commit() -> str:
+    """Resolve REPO's HEAD to the exact 40-character object name.
+
+    ``repository.base_ref`` forbids symbolic refs: on task ``49231f6e`` a
+    literal ``"HEAD"`` let the recorded base track the local checkout while
+    the CLI tracked the remote default branch, 120 commits ahead. The
+    dispatcher refuses it at ingress, so the harness must resolve it here.
+    """
+    return git(Path(REPO), ["rev-parse", "HEAD"]).strip()
 
 
 # --- setup: same startup guard the real MCP server runs (§22 layer 4) ------
@@ -386,7 +416,7 @@ async def dispatch_resume_review_cycle(
 ) -> None:
     section(f"{label}: real worker (dispatch_claude_task)")
     request = {
-        "repository": {"root": REPO, "base_ref": "HEAD"},
+        "repository": {"root": REPO, "base_ref": head_commit()},
         "task": {
             "kind": "implementation",
             "objective": (
@@ -528,7 +558,7 @@ async def mcp_phase() -> None:
             check("MCP tools/list: exactly the four registered tools", names == sorted(TOOL_NAMES), str(names))
 
             request = {
-                "repository": {"root": REPO, "base_ref": "HEAD"},
+                "repository": {"root": REPO, "base_ref": head_commit()},
                 "task": {
                     "kind": "implementation",
                     "objective": (
