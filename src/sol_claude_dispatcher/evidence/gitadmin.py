@@ -21,6 +21,7 @@ from typing import Any, Literal
 
 from ..errors import (
     GitAdministrativeCaptureFailed,
+    RepositoryAdministrationUnestablished,
     RepositoryAdministrationUnreconciled,
     RepositoryAdministrationUnsupported,
     RepositoryObjectStoreEntryUnsupported,
@@ -1148,12 +1149,30 @@ def write_baseline(
     """Atomically write an operator baseline; never called by reconciliation."""
 
     path = baseline_path(state_root, snapshot.canonical_root)
-    if path.exists() and not replace:
-        raise RepositoryAdministrationUnreconciled(
-            "An administrative baseline already exists; replacement must be explicit.",
-            details={"baseline": str(path)},
-            remediation="Re-run the operator command with --replace after reviewing the divergence.",
-        )
+    # lexists, not exists: a dangling symlink is an existing entry that
+    # exists() reports as absent, which would let onboarding replace a planted
+    # link without the operator ever passing --replace.
+    if os.path.lexists(path):
+        if not path.is_symlink() and path.is_file():
+            if not replace:
+                raise RepositoryAdministrationUnreconciled(
+                    "An administrative baseline already exists; replacement must be explicit.",
+                    details={"baseline": str(path)},
+                    remediation="Re-run the operator command with --replace after reviewing the divergence.",
+                )
+        else:
+            # --replace exists to approve a reviewed divergence, not to clear
+            # an artefact nobody can explain. Whatever is here is not a
+            # baseline this code wrote, so a human looks before it is removed.
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline path is not a regular file.",
+                details={"baseline": str(path), "is_symlink": path.is_symlink()},
+                remediation=(
+                    "Inspect the path by hand and remove it deliberately. It was "
+                    "not written by this dispatcher, and --replace will not "
+                    "overwrite it."
+                ),
+            )
     content = (json.dumps(snapshot.to_dict(), indent=2, sort_keys=True) + "\n").encode("utf-8")
     _atomic_write(path, content)
     return path
@@ -1164,12 +1183,61 @@ def load_baseline(
 ) -> GitAdminSnapshot:
     path = baseline_path(state_root, root)
     try:
-        raw = path.read_bytes()
+        # O_NOFOLLOW so the trust anchor's bytes can only come from the state
+        # directory the dispatcher owns. A symlink here -- live or dangling --
+        # fails with ELOOP and is refused below, never silently followed to
+        # content some other process chose.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError as exc:
+        # No baseline has ever been established for this repository. That is a
+        # distinct condition from a baseline that exists and cannot be read,
+        # and GATE7-DESIGN.md ORDER 1 R6 names it: "no baseline ->
+        # RepositoryAdministrationUnestablished -> row 0". Both refuse, but only
+        # this one is remediable by onboarding the repository, so the operator
+        # is told which of the two situations they are actually in.
+        raise RepositoryAdministrationUnestablished(
+            "Repository administration is not established.",
+            details={"baseline": str(path), "reason": str(exc)},
+            remediation=(
+                "Establish the operator baseline once, after reviewing the "
+                "repository's trusted execution and transport assignments: "
+                ".venv/bin/python scripts/trust-repo-admin.py <repository> "
+                "--state-root <state>"
+            ),
+        ) from exc
     except OSError as exc:
+        # ELOOP lands here: the path exists but is a symbolic link. It is
+        # deliberately NOT reported as unestablished -- that answer would send
+        # the operator to trust-repo-admin.py, and onboarding would then turn
+        # the planted link into an approved baseline.
         raise GitAdministrativeCaptureFailed(
             "Administrative baseline could not be read.",
-            details={"baseline": str(path), "reason": str(exc)},
+            details={
+                "baseline": str(path),
+                "reason": str(exc),
+                "is_symlink": path.is_symlink(),
+            },
+            remediation=(
+                "The path exists but is not a readable regular file. Inspect it "
+                "by hand; do not onboard the repository to make this go away."
+            ),
         ) from exc
+    try:
+        stat_result = os.fstat(fd)
+        if not stat.S_ISREG(stat_result.st_mode):
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline is not a regular file.",
+                details={"baseline": str(path), "mode": stat_result.st_mode},
+            )
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        raw = b"".join(chunks)
+    finally:
+        os.close(fd)
     try:
         data = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
