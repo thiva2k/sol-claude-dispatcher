@@ -8,7 +8,6 @@ import pytest
 from sol_claude_dispatcher.errors import (
     BaseObjectVerificationFailed,
     RepositoryIdentityUnsealed,
-    SealAbsentAfterWorker,
     SealIntegrityFailed,
 )
 from sol_claude_dispatcher.evidence.basetree import git_blob_oid
@@ -124,20 +123,6 @@ def test_manifest_is_published_last_and_existing_seal_is_immutable(
         seal.create_task_seal(materialisation, **args)
     after = {p.relative_to(materialisation): p.read_bytes() for p in materialisation.rglob("*") if p.is_file()}
     assert before == after
-
-
-def test_load_or_create_never_reconstructs_after_worker(tmp_path: Path) -> None:
-    materialisation = tmp_path / "materialisation"
-    called = False
-
-    def builder() -> seal.LoadedTaskSeal:
-        nonlocal called
-        called = True
-        raise AssertionError("must not rebuild")
-
-    with pytest.raises(SealAbsentAfterWorker):
-        seal.load_or_create_task_seal(materialisation, worker_has_run=True, builder=builder)
-    assert called is False
 
 
 def test_identity_is_required_by_production_consumers_not_reconstructed(

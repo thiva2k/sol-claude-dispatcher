@@ -19,7 +19,6 @@ from typing import Callable, Mapping
 from ..errors import (
     BaseObjectVerificationFailed,
     RepositoryIdentityUnsealed,
-    SealAbsentAfterWorker,
     SealIntegrityFailed,
 )
 from ..models import utc_now
@@ -537,22 +536,3 @@ def load_task_seal(
         identity_record=identity,
         artefact_payloads=tuple(sorted(artefact_payloads.items())),
     )
-
-
-def load_or_create_task_seal(
-    materialisation: str | os.PathLike[str],
-    *,
-    worker_has_run: bool,
-    builder: Callable[[], LoadedTaskSeal],
-) -> LoadedTaskSeal:
-    """Per-task entry point: verify existing, create once, never reconstruct."""
-
-    manifest = Path(materialisation) / "seal-manifest.json"
-    if manifest.exists() or manifest.is_symlink():
-        return load_task_seal(materialisation)
-    if worker_has_run:
-        raise SealAbsentAfterWorker(
-            "The pre-worker seal is absent after a worker ran and cannot be rebuilt.",
-            details={"materialisation": str(materialisation)},
-        )
-    return builder()
