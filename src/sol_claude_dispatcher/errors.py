@@ -95,7 +95,6 @@ __all__ = [
     "RepositoryObjectStoreMalformed",
     "RepositoryRootDrift",
     "RunFinalizationFailed",
-    "SealAbsentAfterWorker",
     "SealBudgetExceeded",
     "SealIntegrityFailed",
     "SealPinSetStale",
@@ -692,12 +691,6 @@ class SealIntegrityFailed(DispatcherError):
     code = "SealIntegrityFailed"
 
 
-class SealAbsentAfterWorker(DispatcherError):
-    """A pre-worker seal is absent after durable worker ownership existed."""
-
-    code = "SealAbsentAfterWorker"
-
-
 class SealProvenanceInvalid(InternalDispatcherError):
     """A seal claims provenance inconsistent with durable worker ownership."""
 
@@ -1013,7 +1006,6 @@ ERROR_CODES: frozenset[str] = frozenset(
         "RepositoryObjectStoreMalformed",
         "RepositoryRootDrift",
         "RunFinalizationFailed",
-        "SealAbsentAfterWorker",
         "SealBudgetExceeded",
         "SealIntegrityFailed",
         "SealPinSetStale",
