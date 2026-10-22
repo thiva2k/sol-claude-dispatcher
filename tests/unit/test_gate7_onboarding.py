@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import os
@@ -56,7 +57,7 @@ def test_unsupported_format_refuses_before_baseline_or_git(
 
     monkeypatch.setattr("subprocess.Popen", forbidden)
     with pytest.raises(UnsupportedObjectFormat) as exc_info:
-        module.trust_repository(repo, state)
+        module.trust_repository(repo, state, confirmed=True)
     assert exc_info.value.details["object_format"] == object_format
     assert not baseline_path(state, repo).exists()
 
@@ -69,7 +70,7 @@ def test_sha1_or_absent_format_writes_loadable_baseline(
     repo.mkdir()
     _raw_repo(repo, object_format)
     state = tmp_path / "state"
-    report = _load_script().trust_repository(repo, state)
+    report = _load_script().trust_repository(repo, state, confirmed=True)
     assert report["object_format"] == "sha1"
     assert report["baseline"] == str(baseline_path(state, repo))
     assert load_baseline(state, repo).repository_key == report["repository_key"]
@@ -117,24 +118,125 @@ def test_cli_writes_nothing_without_confirmation(tmp_path: Path, capsys) -> None
     assert not os.path.lexists(baseline_path(state, repo))
 
 
-def test_cli_aborts_when_the_operator_declines(tmp_path: Path, monkeypatch) -> None:
+def test_cli_aborts_when_the_operator_declines(tmp_path: Path, monkeypatch, capsys) -> None:
     repo, state = _repo_and_state(tmp_path)
     module = _load_script()
     monkeypatch.setattr(module.sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "no")
+    monkeypatch.setattr(module.sys.stdin, "readline", lambda: "no\n")
 
     assert module.main([str(repo), "--state-root", str(state)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Type 'trust' to establish this baseline:" in captured.err
+    assert "Nothing was written." in captured.err
     assert not os.path.lexists(baseline_path(state, repo))
 
 
-def test_cli_establishes_after_an_explicit_yes(tmp_path: Path, monkeypatch) -> None:
+def test_cli_establishes_after_an_explicit_yes(tmp_path: Path, monkeypatch, capsys) -> None:
     repo, state = _repo_and_state(tmp_path)
     module = _load_script()
     monkeypatch.setattr(module.sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "trust")
+    monkeypatch.setattr(module.sys.stdin, "readline", lambda: "trust\n")
 
     assert module.main([str(repo), "--state-root", str(state)]) == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["baseline_established"] is True
+    assert "Type 'trust' to establish this baseline:" in captured.err
+    assert "Type 'trust'" not in captured.out
     assert load_baseline(state, repo).repository_key
+
+
+def test_cli_aborts_on_eof_without_writing(tmp_path: Path, monkeypatch, capsys) -> None:
+    repo, state = _repo_and_state(tmp_path)
+    module = _load_script()
+    monkeypatch.setattr(module.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(module.sys.stdin, "readline", lambda: "")
+
+    assert module.main([str(repo), "--state-root", str(state)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Traceback" not in captured.err
+    assert "Nothing was written." in captured.err
+    assert not os.path.lexists(baseline_path(state, repo))
+
+
+def test_cli_aborts_on_terminal_hangup(tmp_path: Path, monkeypatch, capsys) -> None:
+    """A pty master closing raises EIO from the read, not EOFError."""
+    repo, state = _repo_and_state(tmp_path)
+    module = _load_script()
+    monkeypatch.setattr(module.sys.stdin, "isatty", lambda: True)
+
+    def hangup() -> str:
+        raise OSError(errno.EIO, "Input/output error")
+
+    monkeypatch.setattr(module.sys.stdin, "readline", hangup)
+
+    assert module.main([str(repo), "--state-root", str(state)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Traceback" not in captured.err
+    assert "Nothing was written." in captured.err
+    assert not os.path.lexists(baseline_path(state, repo))
+
+
+def test_cli_pty_hangup_aborts_without_a_traceback(tmp_path: Path) -> None:
+    """Close the pty master only after the prompt. Closing it earlier makes isatty() false."""
+    import pty
+    import select
+    import time
+
+    repo, state = _repo_and_state(tmp_path)
+    master, slave = pty.openpty()
+    proc = subprocess.Popen(
+        [sys.executable, str(SCRIPT), str(repo), "--state-root", str(state)],
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    os.close(slave)
+    captured = b""
+    deadline = time.monotonic() + 30
+    master_open = True
+    try:
+        assert proc.stderr is not None
+        while b"Type 'trust' to establish this baseline:" not in captured:
+            if time.monotonic() > deadline or proc.poll() is not None:
+                break
+            ready, _, _ = select.select([proc.stderr], [], [], 0.2)
+            if not ready:
+                continue
+            chunk = os.read(proc.stderr.fileno(), 65536)
+            if not chunk:
+                break
+            captured += chunk
+        os.close(master)
+        master_open = False
+        stdout, rest = proc.communicate(timeout=30)
+    finally:
+        if master_open:
+            os.close(master)
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=30)
+    stderr = captured + (rest or b"")
+    assert proc.returncode == 1
+    assert b"Traceback" not in stderr
+    assert b"Nothing was written." in stderr
+    assert stdout == b""
+    assert not os.path.lexists(baseline_path(state, repo))
+
+
+def test_trust_repository_requires_an_explicit_confirmation(tmp_path: Path) -> None:
+    """The one-shot writer must not be callable as a silent review bypass."""
+    repo, state = _repo_and_state(tmp_path)
+    module = _load_script()
+    with pytest.raises(TypeError):
+        module.trust_repository(repo, state)
+    assert not os.path.lexists(baseline_path(state, repo))
+    with pytest.raises(ValueError, match="confirmed=True"):
+        module.trust_repository(repo, state, confirmed=False)
+    assert not os.path.lexists(baseline_path(state, repo))
 
 
 def test_replace_is_gated_by_the_same_confirmation(tmp_path: Path) -> None:
@@ -174,6 +276,7 @@ def test_no_document_invokes_the_script_without_an_interpreter() -> None:
     sources = [
         _ROOT / "README.md",
         _ROOT / "docs" / "OPERATIONS.md",
+        _ROOT / "docs" / "GATE7-DESIGN.md",
         _ROOT / "scripts" / "gate" / "README.md",
         _ROOT / "src" / "sol_claude_dispatcher" / "evidence" / "gitadmin.py",
     ]
@@ -186,9 +289,18 @@ def test_no_document_invokes_the_script_without_an_interpreter() -> None:
                 continue
             before = line.split("trust-repo-admin.py")[0]
             if "python" not in before and "scripts/trust-repo-admin.py" in line:
-                # a bare path invocation, not prose referring to the file
-                if before.strip().endswith(("$", "#", "`", "")) and (
+                # a bare path invocation, not prose referring to the file.
+                # The design-doc pseudocode is indented and backtick-wrapped
+                # with an argument, so it does not sit at column zero.
+                prompt_command = before.strip().endswith(("$", "#", "`", "")) and (
                     before.lstrip().startswith(("scripts/", "./scripts/", "`scripts/"))
-                ):
+                )
+                backtick_command = "`scripts/trust-repo-admin.py " in line
+                if prompt_command or backtick_command:
                     offenders.append(f"{source.relative_to(_ROOT)}:{number}: {line.strip()}")
     assert offenders == [], "documented invocations missing an interpreter:\n" + "\n".join(offenders)
+
+
+def test_operations_says_replace_refuses_a_non_regular_entry() -> None:
+    text = (_ROOT / "docs" / "OPERATIONS.md").read_text()
+    assert "non-regular entry is refused even with `--replace`" in text

@@ -224,20 +224,36 @@ echo
 # before the first git process of a dispatch (evidence/prepare.py:640) and
 # refuses closed when it is absent; nothing on the dispatch path ever creates
 # one, because re-baselining is deliberately an explicit operator action
-# (evidence/gitadmin.py:1149). The real trust-repo-admin.py is invoked rather
-# than calling write_baseline() directly so that the live harness exercises the
-# operator flow it claims to cover, including the SHA-256 object-format refusal
+# (write_baseline is never called by reconciliation). The real
+# trust-repo-admin.py is invoked rather than calling write_baseline()
+# directly, so the live harness exercises the operator flow it claims to
+# cover, including the SHA-256 object-format refusal
 # and full loose-object validation that the shortcut would skip.
 #
 # ORDERING: this must run after the last mutation of $REPO's administrative
 # state (the seed commit and `git config` writes above). refs, config and HEAD
 # are in the exact-equality set, so a later write makes the first dispatch
-# refuse RepositoryAdministrationUnreconciled. `set -e` is still in force here,
-# so a refusal aborts the smoke test rather than letting it proceed.
+# refuse RepositoryAdministrationUnreconciled. The preview below is allowed
+# to exit 3. `set -e` is restored before --confirm, so a refusal there
+# aborts the smoke test rather than letting it proceed.
 echo "Establishing the Gate 7 administrative baseline for the throwaway repo:"
-# --confirm: onboarding refuses without an explicit decision, and this script
-# has no TTY. Asserting review is honest here -- the fixture is a repository
-# this script created seconds ago, and its assignments are printed above.
+# No TTY here, so the tool will not prompt. Run it once without --confirm:
+# trusted_exec_assignments are printed on stderr and the process exits 3,
+# writing nothing. Exit 0 would mean a baseline was written before review.
+# Any other status is a capture failure. Only exit 3 continues.
+set +e
+"$VENV_PY" "${SCRIPT_DIR}/trust-repo-admin.py" "$REPO" --state-root "$STATE_DIR"
+preview_rc=$?
+set -e
+if [[ "$preview_rc" -eq 0 ]]; then
+  echo "trust-repo-admin.py wrote a baseline during preview; expected exit 3." >&2
+  exit 1
+fi
+if [[ "$preview_rc" -ne 3 ]]; then
+  exit "$preview_rc"
+fi
+# The assignments were printed above. --confirm asserts that review for a
+# repository this script created seconds ago.
 "$VENV_PY" "${SCRIPT_DIR}/trust-repo-admin.py" "$REPO" --state-root "$STATE_DIR" --confirm
 echo
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import zlib
@@ -16,6 +17,7 @@ from sol_claude_dispatcher.errors import (
     RepositoryObjectStoreEntryUnsupported,
     RepositoryObjectStoreMalformed,
 )
+from sol_claude_dispatcher.evidence import gitadmin as gitadmin_module
 from sol_claude_dispatcher.evidence.gitadmin import (
     ObjectEntry,
     baseline_path,
@@ -474,3 +476,76 @@ def test_replace_updates_a_regular_baseline_only(tmp_path: Path) -> None:
     assert path.read_bytes() != before
     assert path.is_file() and not path.is_symlink()
     assert load_baseline(state, repo).repository_key
+
+
+def test_in_place_rewrite_during_read_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """Same inode, new bytes: a device/inode compare would trust the rewrite."""
+    repo, state, path = _baseline_at(tmp_path)
+    write_baseline(state, capture_repository_administration(repo))
+    real_read = gitadmin_module.os.read
+    rewritten = {"done": False}
+
+    def rewriting_read(fd: int, size: int) -> bytes:
+        if not rewritten["done"]:
+            rewritten["done"] = True
+            writer = os.open(path, os.O_WRONLY | os.O_APPEND)
+            try:
+                os.write(writer, b"\n")
+            finally:
+                os.close(writer)
+        return real_read(fd, size)
+
+    monkeypatch.setattr(gitadmin_module.os, "read", rewriting_read)
+    with pytest.raises(GitAdministrativeCaptureFailed, match="changed while it was read"):
+        load_baseline(state, repo)
+
+
+def test_replace_restores_a_symlink_planted_after_the_recheck(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The gap is the moment after the inode check and before the publish.
+
+    Planting the symlink inside the exchange, after that check has passed,
+    is the race. The publish must put the symlink back and leave its target
+    alone.
+    """
+    repo, state, path = _baseline_at(tmp_path)
+    write_baseline(state, capture_repository_administration(repo))
+    target = tmp_path / "outside-target.json"
+    target.write_bytes(b'{"planted":true}\n')
+    real_exchange = gitadmin_module._exchange_directory_entries
+    armed = {"yes": True}
+
+    def exchange(dir_fd: int, source: str, destination: str) -> None:
+        if armed["yes"]:
+            armed["yes"] = False
+            path.unlink()
+            path.symlink_to(target)
+        real_exchange(dir_fd, source, destination)
+
+    monkeypatch.setattr(gitadmin_module, "_exchange_directory_entries", exchange)
+    with pytest.raises(GitAdministrativeCaptureFailed, match="changed while it was written") as exc:
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+    assert exc.value.details["restored"] is True
+    assert path.is_symlink()
+    assert os.readlink(path) == str(target)
+    assert target.read_bytes() == b'{"planted":true}\n'
+    assert not any(entry.name.startswith(".git-admin-baseline.json.") for entry in path.parent.iterdir())
+
+
+def test_replace_leaves_the_baseline_when_exchange_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo, state, path = _baseline_at(tmp_path)
+    write_baseline(state, capture_repository_administration(repo))
+    before = path.read_bytes()
+
+    def fail(dir_fd: int, source: str, destination: str) -> None:
+        raise OSError(errno.ENOSYS, "Function not implemented")
+
+    monkeypatch.setattr(gitadmin_module, "_exchange_directory_entries", fail)
+    with pytest.raises(GitAdministrativeCaptureFailed, match="could not be replaced"):
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+    assert path.is_file() and not path.is_symlink()
+    assert path.read_bytes() == before
+    assert not any(entry.name.startswith(".git-admin-baseline.json.") for entry in path.parent.iterdir())

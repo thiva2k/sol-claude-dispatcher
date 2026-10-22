@@ -8,6 +8,8 @@ boundary.
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -1154,11 +1156,17 @@ def _baseline_parts(path: Path) -> tuple[Path, str, str, str]:
     return state_root, repos_name, key_name, filename
 
 
-def _same_regular_file(before: os.stat_result, after: os.stat_result) -> bool:
-    """True when both stats name one regular inode.
+def _same_regular_file(
+    before: os.stat_result, after: os.stat_result, *, across_rename: bool = False
+) -> bool:
+    """True when both stats name one regular inode that was not rewritten.
 
-    Compared after lstat and again on the opened descriptor so a replacement
-    between the classification and the read is refused instead of trusted.
+    Device and inode catch a replacement. Size and mtime_ns catch an
+    in-place rewrite of that same inode, which a device and inode compare
+    would trust. ctime_ns catches a metadata change too, except across a
+    rename or ``RENAME_EXCHANGE``: Linux updates ctime when the directory
+    entry moves and leaves size and mtime alone. Access time is never
+    compared; reading the file updates it.
     """
 
     return (
@@ -1166,6 +1174,9 @@ def _same_regular_file(before: os.stat_result, after: os.stat_result) -> bool:
         and stat.S_ISREG(after.st_mode)
         and before.st_dev == after.st_dev
         and before.st_ino == after.st_ino
+        and before.st_size == after.st_size
+        and before.st_mtime_ns == after.st_mtime_ns
+        and (across_rename or before.st_ctime_ns == after.st_ctime_ns)
     )
 
 
@@ -1467,6 +1478,88 @@ def _publish_create(dir_fd: int, path: Path, filename: str, content: bytes, *, r
     _fsync_dir(dir_fd)
 
 
+# Python's os module does not expose renameat2. RENAME_EXCHANGE swaps two
+# existing directory entries in one syscall, so the entry that was replaced
+# is still there under the other name and can be checked.
+_RENAME_EXCHANGE = 1 << 1
+_renameat2 = None
+
+
+def _exchange_directory_entries(dir_fd: int, source: str, destination: str) -> None:
+    """Atomically swap two names in one directory.
+
+    A plain ``rename`` would replace whatever entry is at the destination,
+    including a symlink planted after the inode check, and the displaced
+    entry would be gone. ``renameat2(RENAME_EXCHANGE)`` leaves it under
+    ``source``. There is no fallback: if the syscall is missing, replacement
+    is refused.
+    """
+
+    global _renameat2
+    if _renameat2 is None:
+        libc = ctypes.CDLL(None, use_errno=True)
+        try:
+            function = libc.renameat2
+        except AttributeError as exc:
+            raise OSError(errno.ENOSYS, "renameat2 is not available") from exc
+        function.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        function.restype = ctypes.c_int
+        _renameat2 = function
+    rc = _renameat2(
+        dir_fd,
+        os.fsencode(source),
+        dir_fd,
+        os.fsencode(destination),
+        _RENAME_EXCHANGE,
+    )
+    if rc == 0:
+        return
+    err = ctypes.get_errno()
+    raise OSError(err, os.strerror(err) if err else "renameat2 failed", source)
+
+
+def _same_directory_entry(before: os.stat_result, after: os.stat_result) -> bool:
+    """True when both lstats name the same directory entry, of any type."""
+
+    return (
+        before.st_dev == after.st_dev
+        and before.st_ino == after.st_ino
+        and stat.S_IFMT(before.st_mode) == stat.S_IFMT(after.st_mode)
+    )
+
+
+def _restore_exchanged_entry(
+    dir_fd: int,
+    temporary: str,
+    filename: str,
+    displaced: os.stat_result,
+) -> tuple[bool, bool]:
+    """Swap the names back. Return ``(restored, keep_temporary)``.
+
+    ``restored`` means the destination again names the entry the exchange
+    displaced. ``keep_temporary`` means the caller must not unlink that name:
+    the undo failed, or the previous baseline is still there.
+    """
+
+    try:
+        _exchange_directory_entries(dir_fd, temporary, filename)
+        back_dest = os.stat(filename, dir_fd=dir_fd, follow_symlinks=False)
+        back_temp = os.stat(temporary, dir_fd=dir_fd, follow_symlinks=False)
+    except OSError:
+        return False, True
+    return (
+        _same_directory_entry(displaced, back_dest),
+        # The undo is itself an exchange, so ctime is not an identity.
+        _same_regular_file(displaced, back_temp, across_rename=True),
+    )
+
+
 def _publish_replace(
     dir_fd: int,
     path: Path,
@@ -1474,15 +1567,28 @@ def _publish_replace(
     content: bytes,
     expected: os.stat_result,
 ) -> None:
-    """Replace one regular baseline with a new inode.
+    """Replace one regular baseline inode.
 
-    The second lstat refuses a symlink swapped in after the decision to
-    replace. A swap in the instant between that lstat and ``rename`` can
-    still replace the new symlink; ``rename`` does not follow it, so the
-    result is the operator's bytes, not the link target.
+    The pre-check and the publish are not one operation. ``rename`` would
+    install the operator's bytes over a symlink planted in that gap and
+    report success, because rename replaces the directory entry rather than
+    following it. The publish is an exchange. If the name that should now
+    hold the previous inode does not, the entries are swapped back and the
+    publish fails.
+
+    Residual, which userspace cannot close: between the exchange returning
+    and the stat of the swapped-out name, a writer of this 0700 directory
+    can replace that name. The undo cannot tell that apart from an exchange
+    that displaced a symlink, and would put the new entry back on the
+    destination. After the previous inode has been unlinked, a later
+    replacement of the published name fails this call but cannot be undone.
+    The next load still refuses a non-regular or rewritten entry. A writer
+    who can replace files in this directory can do that after a successful
+    return as well; the directory mode is what bounds that writer.
     """
 
     temporary = _write_temp(dir_fd, filename, content)
+    keep_temporary = False
     try:
         current = os.stat(filename, dir_fd=dir_fd, follow_symlinks=False)
         if not _same_regular_file(expected, current):
@@ -1494,11 +1600,84 @@ def _publish_replace(
                 },
                 remediation=_WRITE_REFUSAL_REMEDIATION,
             )
-        os.rename(temporary, filename, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        published = os.stat(temporary, dir_fd=dir_fd, follow_symlinks=False)
+        try:
+            _exchange_directory_entries(dir_fd, temporary, filename)
+        except OSError as exc:
+            raise GitAdministrativeCaptureFailed(
+                "Administrative baseline could not be replaced.",
+                details={
+                    "baseline": str(path),
+                    "reason": str(exc),
+                    "errno": exc.errno,
+                },
+                remediation=_WRITE_REFUSAL_REMEDIATION,
+            ) from exc
+        try:
+            displaced = os.stat(temporary, dir_fd=dir_fd, follow_symlinks=False)
+            installed = os.stat(filename, dir_fd=dir_fd, follow_symlinks=False)
+        except OSError as exc:
+            keep_temporary = True
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline path changed while it was written.",
+                details={"baseline": str(path), "reason": str(exc), "restored": False},
+                remediation=_WRITE_REFUSAL_REMEDIATION,
+            ) from exc
+        # across_rename: the exchange updates ctime and leaves size and mtime.
+        if _same_regular_file(
+            expected, displaced, across_rename=True
+        ) and _same_regular_file(published, installed, across_rename=True):
+            _unlink_at(dir_fd, temporary)
+            _fsync_dir(dir_fd)
+            try:
+                final = os.stat(filename, dir_fd=dir_fd, follow_symlinks=False)
+            except OSError as exc:
+                raise GitAdministrativeCaptureFailed(
+                    "The administrative baseline path changed while it was written.",
+                    details={
+                        "baseline": str(path),
+                        "reason": str(exc),
+                        "restored": False,
+                    },
+                    remediation=_WRITE_REFUSAL_REMEDIATION,
+                ) from exc
+            if not _same_regular_file(published, final, across_rename=True):
+                raise GitAdministrativeCaptureFailed(
+                    "The administrative baseline path changed while it was written.",
+                    details={
+                        "baseline": str(path),
+                        "is_symlink": stat.S_ISLNK(final.st_mode),
+                        "restored": False,
+                    },
+                    remediation=_WRITE_REFUSAL_REMEDIATION,
+                )
+            return
+        # The destination is our inode but the displaced name is not the
+        # previous baseline, or the destination is no longer our inode.
+        # Swap back only when one of those two identities is still in hand.
+        # Swapping two unidentified names would publish an unknown entry.
+        restored = False
+        if _same_regular_file(
+            published, installed, across_rename=True
+        ) or _same_regular_file(expected, displaced, across_rename=True):
+            restored, keep_temporary = _restore_exchanged_entry(
+                dir_fd, temporary, filename, displaced
+            )
+        else:
+            keep_temporary = True
+        raise GitAdministrativeCaptureFailed(
+            "The administrative baseline path changed while it was written.",
+            details={
+                "baseline": str(path),
+                "is_symlink": stat.S_ISLNK(displaced.st_mode) or stat.S_ISLNK(installed.st_mode),
+                "restored": restored,
+            },
+            remediation=_WRITE_REFUSAL_REMEDIATION,
+        )
     except BaseException:
-        _unlink_at(dir_fd, temporary)
+        if not keep_temporary:
+            _unlink_at(dir_fd, temporary)
         raise
-    _fsync_dir(dir_fd)
 
 
 def write_baseline(

@@ -8,6 +8,7 @@ filesystem parsing only and intentionally spawns no Git process.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import sys
@@ -85,15 +86,23 @@ def trust_repository(
     state_root: str | Path,
     *,
     replace: bool = False,
+    confirmed: bool,
 ) -> dict[str, Any]:
-    """Capture and establish in one call, with no confirmation step.
+    """Capture and establish in one call.
 
-    For programmatic callers that are themselves asserting the review happened.
-    The CLI deliberately does not use this: an operator gets
+    ``confirmed`` is keyword-only and has no default, so a caller that has
+    not passed it cannot write a baseline: the call fails with ``TypeError``
+    before this body runs. ``confirmed=True`` is the caller asserting that it
+    has already reviewed ``trusted_exec_assignments``. This function does not
+    perform that review, and the CLI does not call it. An operator gets
     :func:`preview_repository`, a confirmation, and only then
     :func:`establish_baseline`.
     """
 
+    if confirmed is not True:
+        raise ValueError(
+            "trust_repository writes a baseline only when the caller passes confirmed=True."
+        )
     report, snapshot = preview_repository(repository, state_root)
     baseline = establish_baseline(state_root, snapshot, replace=replace)
     report["baseline"] = str(baseline)
@@ -162,9 +171,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "re-run with --confirm. Nothing was written.\n"
             )
             return 3
+        # Prompt on stderr. stdout stays empty until the baseline exists,
+        # and then it is exactly one JSON document.
+        sys.stderr.write("Type 'trust' to establish this baseline: ")
+        sys.stderr.flush()
         try:
-            reply = input("Type 'trust' to establish this baseline: ")
-        except (EOFError, KeyboardInterrupt):
+            reply = sys.stdin.readline()
+        except KeyboardInterrupt:
+            reply = ""
+        except OSError as exc:
+            # Closing a pty master makes the slave read fail with EIO, not
+            # EOFError. Uncaught, that prints a traceback.
+            if exc.errno != errno.EIO:
+                raise
+            reply = ""
+        if reply == "":
             sys.stderr.write("\nAborted. Nothing was written.\n")
             return 1
         if reply.strip() != "trust":
