@@ -13,7 +13,6 @@ import json
 import os
 import re
 import stat
-import tempfile
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -1108,36 +1107,398 @@ def baseline_path(state_root: os.PathLike[str] | str, root: os.PathLike[str] | s
     return Path(state_root) / "repos" / key / "git-admin-baseline.json"
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(path.parent, 0o700)
-    fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    tmp = Path(raw_tmp)
+# O_NOFOLLOW applies only to the final component of the path it is given.
+# The baseline is state_root/repos/<key>/git-admin-baseline.json. Refusing a
+# symlink at the file is not enough: a symlink at repos/ or at the key
+# directory is followed, and the bytes then live outside the state tree where
+# a process that cannot write this directory can still choose what is trusted.
+_BASELINE_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0)
+_BASELINE_NOFOLLOW_DIR_FLAGS = _BASELINE_DIR_FLAGS | os.O_NOFOLLOW
+_BASELINE_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+_BASELINE_CREATE_FLAGS = (
+    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+)
+_UNESTABLISHED_REMEDIATION = (
+    "Establish the operator baseline once, after reviewing the "
+    "repository's trusted execution and transport assignments: "
+    ".venv/bin/python scripts/trust-repo-admin.py <repository> "
+    "--state-root <state>"
+)
+_READ_REFUSAL_REMEDIATION = (
+    "The path exists but is not a readable regular file. Inspect it "
+    "by hand; do not onboard the repository to make this go away."
+)
+_WRITE_REFUSAL_REMEDIATION = (
+    "Inspect the path by hand and remove it deliberately. It was "
+    "not written by this dispatcher, and --replace will not "
+    "overwrite it."
+)
+
+
+def _baseline_parts(path: Path) -> tuple[Path, str, str, str]:
+    """Split a baseline path into the directory components walked below.
+
+    ``state_root`` itself may be a symlink the operator configured. The three
+    components under it may not: they are the dispatcher's own tree.
+    """
+
+    filename = path.name
+    key_name = path.parent.name
+    repos_name = path.parent.parent.name
+    state_root = path.parent.parent.parent
+    if repos_name != "repos" or filename != "git-admin-baseline.json" or not key_name:
+        raise GitAdministrativeCaptureFailed(
+            "Administrative baseline path has an unexpected shape.",
+            details={"baseline": str(path)},
+        )
+    return state_root, repos_name, key_name, filename
+
+
+def _same_regular_file(before: os.stat_result, after: os.stat_result) -> bool:
+    """True when both stats name one regular inode.
+
+    Compared after lstat and again on the opened descriptor so a replacement
+    between the classification and the read is refused instead of trusted.
+    """
+
+    return (
+        stat.S_ISREG(before.st_mode)
+        and stat.S_ISREG(after.st_mode)
+        and before.st_dev == after.st_dev
+        and before.st_ino == after.st_ino
+    )
+
+
+def _raise_baseline_absence_or_capture(path: Path, exc: OSError) -> None:
+    """ENOENT is 'no baseline'. Every other open failure is a capture failure.
+
+    A symlink is not absent. Reporting it as unestablished would send the
+    operator to onboarding, which would then publish a baseline through the
+    link.
+    """
+
+    if isinstance(exc, FileNotFoundError):
+        raise RepositoryAdministrationUnestablished(
+            "Repository administration is not established.",
+            details={"baseline": str(path), "reason": str(exc)},
+            remediation=_UNESTABLISHED_REMEDIATION,
+        ) from exc
+    raise GitAdministrativeCaptureFailed(
+        "Administrative baseline could not be read.",
+        details={
+            "baseline": str(path),
+            "reason": str(exc),
+            "errno": exc.errno,
+            "is_symlink": _baseline_symlink_component(path) is not None,
+            "symlink_component": _baseline_symlink_component(path),
+        },
+        remediation=_READ_REFUSAL_REMEDIATION,
+    ) from exc
+
+
+def _baseline_symlink_component(path: Path) -> str | None:
+    """Return the first baseline component under the state root that is a symlink."""
+
+    state_root, repos_name, key_name, filename = _baseline_parts(path)
+    current = state_root
+    for name in (repos_name, key_name, filename):
+        current = current / name
+        try:
+            info = os.lstat(current)
+        except OSError:
+            return None
+        if stat.S_ISLNK(info.st_mode):
+            return name
+    return None
+
+
+def _read_baseline_file(key_fd: int, path: Path, filename: str) -> bytes:
+    """Read the baseline through an already-opened real key directory."""
+
+    try:
+        before = os.stat(filename, dir_fd=key_fd, follow_symlinks=False)
+    except OSError as exc:
+        _raise_baseline_absence_or_capture(path, exc)
+    # Classify before open. Opening a FIFO for reading blocks until some
+    # other process opens it for writing, which would stall the MCP server
+    # on its stdio transport instead of refusing.
+    if not stat.S_ISREG(before.st_mode):
+        raise GitAdministrativeCaptureFailed(
+            "The administrative baseline is not a regular file.",
+            details={
+                "baseline": str(path),
+                "mode": before.st_mode,
+                "entry_type": _mode_name(before.st_mode),
+                "is_symlink": stat.S_ISLNK(before.st_mode),
+            },
+            remediation=_READ_REFUSAL_REMEDIATION,
+        )
+    try:
+        fd = os.open(filename, _BASELINE_READ_FLAGS, dir_fd=key_fd)
+    except OSError as exc:
+        _raise_baseline_absence_or_capture(path, exc)
+    try:
+        opened = os.fstat(fd)
+        if not _same_regular_file(before, opened):
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline changed while it was opened.",
+                details={"baseline": str(path)},
+                remediation=_READ_REFUSAL_REMEDIATION,
+            )
+        chunks: list[bytes] = []
+        while True:
+            try:
+                chunk = os.read(fd, 1 << 20)
+            except OSError as exc:
+                raise GitAdministrativeCaptureFailed(
+                    "Administrative baseline could not be read.",
+                    details={"baseline": str(path), "reason": str(exc)},
+                    remediation=_READ_REFUSAL_REMEDIATION,
+                ) from exc
+            if not chunk:
+                break
+            chunks.append(chunk)
+        if not _same_regular_file(opened, os.fstat(fd)):
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline changed while it was read.",
+                details={"baseline": str(path)},
+                remediation=_READ_REFUSAL_REMEDIATION,
+            )
+        try:
+            final = os.stat(filename, dir_fd=key_fd, follow_symlinks=False)
+        except OSError as exc:
+            _raise_baseline_absence_or_capture(path, exc)
+        if not _same_regular_file(opened, final):
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline path changed while it was read.",
+                details={"baseline": str(path), "is_symlink": stat.S_ISLNK(final.st_mode)},
+                remediation=_READ_REFUSAL_REMEDIATION,
+            )
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _open_owned_directory(
+    parent_fd: int,
+    name: str,
+    path: Path,
+    *,
+    create: bool,
+    force_mode: bool,
+) -> int:
+    """Open one child directory of ``parent_fd`` without following a symlink.
+
+    Loading must not create or chmod anything. A read that tightened directory
+    modes would mutate the state tree it was only supposed to trust. ``force_mode``
+    preserves the previous publisher's behaviour of forcing the key directory
+    to 0700 on every write; newly created parents are tightened too, because
+    ``os.mkdir`` is masked by umask and a strict umask would otherwise leave a
+    directory this process just created inaccessible.
+    """
+
+    created = False
+    if create:
+        try:
+            os.mkdir(name, 0o700, dir_fd=parent_fd)
+            created = True
+        except FileExistsError:
+            pass
+    try:
+        child = os.open(name, _BASELINE_NOFOLLOW_DIR_FLAGS, dir_fd=parent_fd)
+    except OSError as exc:
+        if create:
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline directory is not a real directory.",
+                details={
+                    "baseline": str(path),
+                    "component": name,
+                    "reason": str(exc),
+                    "is_symlink": _baseline_symlink_component(path) == name,
+                },
+                remediation=_WRITE_REFUSAL_REMEDIATION,
+            ) from exc
+        _raise_baseline_absence_or_capture(path, exc)
+    if not create or not (created or force_mode):
+        return child
+    try:
+        os.fchmod(child, 0o700)
+    except BaseException:
+        os.close(child)
+        raise
+    return child
+
+
+def _open_baseline_directories(path: Path, *, create: bool) -> int:
+    """Return a directory fd for the key directory, without following its links.
+
+    The caller closes the descriptor. ``create`` is only for the writer;
+    loading a baseline must not create directories on the way to a refusal.
+    """
+
+    state_root, repos_name, key_name, _filename = _baseline_parts(path)
+    if create:
+        existed = state_root.exists()
+        state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if not existed:
+            os.chmod(state_root, 0o700)
+    try:
+        state_fd = os.open(state_root, _BASELINE_DIR_FLAGS)
+    except OSError as exc:
+        if create:
+            raise GitAdministrativeCaptureFailed(
+                "Administrative baseline directory could not be opened.",
+                details={"baseline": str(path), "reason": str(exc)},
+                remediation=_WRITE_REFUSAL_REMEDIATION,
+            ) from exc
+        _raise_baseline_absence_or_capture(path, exc)
+    try:
+        repos_fd = _open_owned_directory(
+            state_fd, repos_name, path, create=create, force_mode=False
+        )
+    finally:
+        os.close(state_fd)
+    try:
+        return _open_owned_directory(
+            repos_fd, key_name, path, create=create, force_mode=True
+        )
+    finally:
+        os.close(repos_fd)
+
+
+def _fsync_dir(dir_fd: int) -> None:
+    try:
+        os.fsync(dir_fd)
+    except OSError:
+        # Best-effort, as with the previous publisher: a filesystem that
+        # cannot sync a directory still has the rename or link committed.
+        pass
+
+
+def _unlink_at(dir_fd: int, name: str) -> None:
+    try:
+        os.unlink(name, dir_fd=dir_fd)
+    except OSError:
+        pass
+
+
+def _write_temp(dir_fd: int, filename: str, content: bytes) -> str:
+    """Create a complete private file in the key directory and return its name."""
+
+    name = f".{filename}.{os.getpid()}.{os.urandom(8).hex()}"
+    fd = os.open(name, _BASELINE_CREATE_FLAGS, 0o600, dir_fd=dir_fd)
     try:
         os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "wb", closefd=True) as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(tmp, path)
-        try:
-            dir_fd = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-        except OSError:
-            pass
+        view = memoryview(content)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short write while publishing administrative baseline")
+            view = view[written:]
+        os.fsync(fd)
     except BaseException:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
+        os.close(fd)
+        _unlink_at(dir_fd, name)
         raise
+    os.close(fd)
+    return name
+
+
+def _refuse_existing_baseline(path: Path, info: os.stat_result, *, replace: bool) -> None:
+    if not stat.S_ISREG(info.st_mode):
+        # --replace approves a reviewed divergence. It does not clear an
+        # artefact this dispatcher did not write, including a symlink whose
+        # target a different process can still change.
+        raise GitAdministrativeCaptureFailed(
+            "The administrative baseline path is not a regular file.",
+            details={
+                "baseline": str(path),
+                "is_symlink": stat.S_ISLNK(info.st_mode),
+                "entry_type": _mode_name(info.st_mode),
+            },
+            remediation=_WRITE_REFUSAL_REMEDIATION,
+        )
+    if not replace:
+        raise RepositoryAdministrationUnreconciled(
+            "An administrative baseline already exists; replacement must be explicit.",
+            details={"baseline": str(path)},
+            remediation="Re-run the operator command with --replace after reviewing the divergence.",
+        )
+
+
+def _publish_create(dir_fd: int, path: Path, filename: str, content: bytes, *, replace: bool) -> None:
+    """Publish a new baseline without replacing an entry that appears underneath.
+
+    ``rename`` replaces a symlink. ``link`` does not: if the name exists,
+    including as a dangling symlink planted after the absence check, it fails
+    with EEXIST and the planted entry stays where it was.
+    """
+
+    temporary = _write_temp(dir_fd, filename, content)
+    try:
+        os.link(
+            temporary,
+            filename,
+            src_dir_fd=dir_fd,
+            dst_dir_fd=dir_fd,
+            follow_symlinks=False,
+        )
+    except FileExistsError as exc:
+        _unlink_at(dir_fd, temporary)
+        try:
+            info = os.stat(filename, dir_fd=dir_fd, follow_symlinks=False)
+        except OSError as stat_exc:
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline path changed while it was written.",
+                details={"baseline": str(path), "reason": str(stat_exc)},
+                remediation=_WRITE_REFUSAL_REMEDIATION,
+            ) from exc
+        _refuse_existing_baseline(path, info, replace=replace)
+        _publish_replace(dir_fd, path, filename, content, info)
+        return
+    except OSError as exc:
+        _unlink_at(dir_fd, temporary)
+        raise GitAdministrativeCaptureFailed(
+            "Administrative baseline could not be written.",
+            details={"baseline": str(path), "reason": str(exc)},
+            remediation=_WRITE_REFUSAL_REMEDIATION,
+        ) from exc
+    _unlink_at(dir_fd, temporary)
+    _fsync_dir(dir_fd)
+
+
+def _publish_replace(
+    dir_fd: int,
+    path: Path,
+    filename: str,
+    content: bytes,
+    expected: os.stat_result,
+) -> None:
+    """Replace one regular baseline with a new inode.
+
+    The second lstat refuses a symlink swapped in after the decision to
+    replace. A swap in the instant between that lstat and ``rename`` can
+    still replace the new symlink; ``rename`` does not follow it, so the
+    result is the operator's bytes, not the link target.
+    """
+
+    temporary = _write_temp(dir_fd, filename, content)
+    try:
+        current = os.stat(filename, dir_fd=dir_fd, follow_symlinks=False)
+        if not _same_regular_file(expected, current):
+            raise GitAdministrativeCaptureFailed(
+                "The administrative baseline path changed while it was written.",
+                details={
+                    "baseline": str(path),
+                    "is_symlink": stat.S_ISLNK(current.st_mode),
+                },
+                remediation=_WRITE_REFUSAL_REMEDIATION,
+            )
+        os.rename(temporary, filename, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except BaseException:
+        _unlink_at(dir_fd, temporary)
+        raise
+    _fsync_dir(dir_fd)
 
 
 def write_baseline(
@@ -1149,32 +1510,27 @@ def write_baseline(
     """Atomically write an operator baseline; never called by reconciliation."""
 
     path = baseline_path(state_root, snapshot.canonical_root)
-    # lexists, not exists: a dangling symlink is an existing entry that
-    # exists() reports as absent, which would let onboarding replace a planted
-    # link without the operator ever passing --replace.
-    if os.path.lexists(path):
-        if not path.is_symlink() and path.is_file():
-            if not replace:
-                raise RepositoryAdministrationUnreconciled(
-                    "An administrative baseline already exists; replacement must be explicit.",
-                    details={"baseline": str(path)},
-                    remediation="Re-run the operator command with --replace after reviewing the divergence.",
-                )
-        else:
-            # --replace exists to approve a reviewed divergence, not to clear
-            # an artefact nobody can explain. Whatever is here is not a
-            # baseline this code wrote, so a human looks before it is removed.
-            raise GitAdministrativeCaptureFailed(
-                "The administrative baseline path is not a regular file.",
-                details={"baseline": str(path), "is_symlink": path.is_symlink()},
-                remediation=(
-                    "Inspect the path by hand and remove it deliberately. It was "
-                    "not written by this dispatcher, and --replace will not "
-                    "overwrite it."
-                ),
-            )
+    _state_root, _repos_name, _key_name, filename = _baseline_parts(path)
     content = (json.dumps(snapshot.to_dict(), indent=2, sort_keys=True) + "\n").encode("utf-8")
-    _atomic_write(path, content)
+    key_fd = _open_baseline_directories(path, create=True)
+    try:
+        try:
+            info = os.stat(filename, dir_fd=key_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            info = None
+        except OSError as exc:
+            raise GitAdministrativeCaptureFailed(
+                "Administrative baseline path could not be classified.",
+                details={"baseline": str(path), "reason": str(exc)},
+                remediation=_WRITE_REFUSAL_REMEDIATION,
+            ) from exc
+        if info is None:
+            _publish_create(key_fd, path, filename, content, replace=replace)
+        else:
+            _refuse_existing_baseline(path, info, replace=replace)
+            _publish_replace(key_fd, path, filename, content, info)
+    finally:
+        os.close(key_fd)
     return path
 
 
@@ -1182,62 +1538,14 @@ def load_baseline(
     state_root: os.PathLike[str] | str, root: os.PathLike[str] | str
 ) -> GitAdminSnapshot:
     path = baseline_path(state_root, root)
+    # Walk repos/ and the key directory with O_NOFOLLOW, then the file.
+    # Opening the file alone still follows a symlink in either directory, so
+    # the trust anchor would not actually live in the state tree.
+    key_fd = _open_baseline_directories(path, create=False)
     try:
-        # O_NOFOLLOW so the trust anchor's bytes can only come from the state
-        # directory the dispatcher owns. A symlink here -- live or dangling --
-        # fails with ELOOP and is refused below, never silently followed to
-        # content some other process chose.
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except FileNotFoundError as exc:
-        # No baseline has ever been established for this repository. That is a
-        # distinct condition from a baseline that exists and cannot be read,
-        # and GATE7-DESIGN.md ORDER 1 R6 names it: "no baseline ->
-        # RepositoryAdministrationUnestablished -> row 0". Both refuse, but only
-        # this one is remediable by onboarding the repository, so the operator
-        # is told which of the two situations they are actually in.
-        raise RepositoryAdministrationUnestablished(
-            "Repository administration is not established.",
-            details={"baseline": str(path), "reason": str(exc)},
-            remediation=(
-                "Establish the operator baseline once, after reviewing the "
-                "repository's trusted execution and transport assignments: "
-                ".venv/bin/python scripts/trust-repo-admin.py <repository> "
-                "--state-root <state>"
-            ),
-        ) from exc
-    except OSError as exc:
-        # ELOOP lands here: the path exists but is a symbolic link. It is
-        # deliberately NOT reported as unestablished -- that answer would send
-        # the operator to trust-repo-admin.py, and onboarding would then turn
-        # the planted link into an approved baseline.
-        raise GitAdministrativeCaptureFailed(
-            "Administrative baseline could not be read.",
-            details={
-                "baseline": str(path),
-                "reason": str(exc),
-                "is_symlink": path.is_symlink(),
-            },
-            remediation=(
-                "The path exists but is not a readable regular file. Inspect it "
-                "by hand; do not onboard the repository to make this go away."
-            ),
-        ) from exc
-    try:
-        stat_result = os.fstat(fd)
-        if not stat.S_ISREG(stat_result.st_mode):
-            raise GitAdministrativeCaptureFailed(
-                "The administrative baseline is not a regular file.",
-                details={"baseline": str(path), "mode": stat_result.st_mode},
-            )
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(fd, 1 << 20)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        raw = b"".join(chunks)
+        raw = _read_baseline_file(key_fd, path, path.name)
     finally:
-        os.close(fd)
+        os.close(key_fd)
     try:
         data = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

@@ -391,3 +391,86 @@ def test_write_refuses_a_non_regular_entry_even_with_replace(tmp_path: Path) -> 
 
     with pytest.raises(GitAdministrativeCaptureFailed):
         write_baseline(state, capture_repository_administration(repo), replace=True)
+    assert path.is_symlink()
+    assert not (tmp_path / "nowhere.json").exists()
+
+
+def test_symlinked_key_directory_is_not_trusted(tmp_path: Path) -> None:
+    """O_NOFOLLOW on the baseline file does not cover the directory that holds it.
+
+    A symlink at ``repos/<repository-key>`` is an intermediate component.
+    Opening the file with O_NOFOLLOW follows that directory and will trust
+    bytes that live outside the state tree, which is the same failure the
+    file-symlink refusal exists to prevent. Onboarding must not write through
+    it or chmod the directory it points at.
+    """
+    repo, state, path = _baseline_at(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside.chmod(0o755)
+    sentinel = outside / "git-admin-baseline.json"
+    sentinel.write_bytes(b'{"planted":true}\n')
+    mode_before = outside.stat().st_mode
+    key_dir = path.parent
+    key_dir.rmdir()
+    key_dir.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, repo)
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        write_baseline(state, capture_repository_administration(repo))
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+
+    assert key_dir.is_symlink()
+    assert sentinel.read_bytes() == b'{"planted":true}\n'
+    assert outside.stat().st_mode == mode_before
+    assert sorted(entry.name for entry in outside.iterdir()) == ["git-admin-baseline.json"]
+
+
+def test_symlinked_repos_directory_is_not_trusted(tmp_path: Path) -> None:
+    """``repos/`` is inside the state tree; a symlink there is not a baseline."""
+    repo, state, path = _baseline_at(tmp_path)
+    key_dir = path.parent
+    repos = key_dir.parent
+    key_dir.rmdir()
+    outside = tmp_path / "outside-repos"
+    outside.mkdir()
+    repos.rmdir()
+    repos.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, repo)
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+
+    assert repos.is_symlink()
+    assert list(outside.iterdir()) == []
+
+
+def test_fifo_baseline_is_refused_without_blocking(tmp_path: Path) -> None:
+    """Classify before open. A FIFO read blocks until a writer arrives."""
+    repo, state, path = _baseline_at(tmp_path)
+    os.mkfifo(path)
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, repo)
+
+    assert path.is_fifo()
+
+
+def test_replace_updates_a_regular_baseline_only(tmp_path: Path) -> None:
+    repo, state, path = _baseline_at(tmp_path)
+    write_baseline(state, capture_repository_administration(repo))
+    before = path.read_bytes()
+    config = repo / ".git" / "config"
+    config.write_bytes(config.read_bytes() + b"\thooksPath = /tmp/hooks-from-test\n")
+
+    with pytest.raises(RepositoryAdministrationUnreconciled):
+        write_baseline(state, capture_repository_administration(repo))
+    assert path.read_bytes() == before
+
+    write_baseline(state, capture_repository_administration(repo), replace=True)
+    assert path.read_bytes() != before
+    assert path.is_file() and not path.is_symlink()
+    assert load_baseline(state, repo).repository_key
