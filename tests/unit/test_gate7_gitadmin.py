@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import zlib
@@ -11,12 +12,15 @@ import pytest
 
 from sol_claude_dispatcher.errors import (
     GitAdministrativeCaptureFailed,
+    RepositoryAdministrationUnestablished,
     RepositoryAdministrationUnreconciled,
     RepositoryObjectStoreEntryUnsupported,
     RepositoryObjectStoreMalformed,
 )
+from sol_claude_dispatcher.evidence import gitadmin as gitadmin_module
 from sol_claude_dispatcher.evidence.gitadmin import (
     ObjectEntry,
+    baseline_path,
     capture_repository_administration,
     load_baseline,
     reconcile_repository_administration,
@@ -287,3 +291,261 @@ def test_selected_registration_exact_changes_refuse_but_report_only_changes_do_n
     assert raised.value.details["changed_registration"] == [
         "worktree-registration/opaque-id/HEAD"
     ]
+
+
+def test_absent_baseline_is_unestablished_not_a_capture_failure(tmp_path: Path) -> None:
+    """A repository nobody has onboarded is a distinct condition from a broken one.
+
+    Both refuse, but only this one is remediable by running trust-repo-admin.py,
+    and the operator cannot tell which situation they are in from the refusal
+    alone unless the taxonomy separates them (GATE7-DESIGN.md ORDER 1, R6).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_raw_repo(repo)
+
+    with pytest.raises(RepositoryAdministrationUnestablished) as excinfo:
+        load_baseline(tmp_path / "state", repo)
+
+    assert "trust-repo-admin.py" in (excinfo.value.remediation or "")
+
+
+def test_unreadable_baseline_is_still_a_capture_failure(tmp_path: Path) -> None:
+    """An established-but-unreadable baseline must NOT be reported as absent.
+
+    Onboarding it again would silently replace a baseline a human approved, so
+    this case keeps the capture-failure taxonomy and its own remediation.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_raw_repo(repo)
+    state = tmp_path / "state"
+    path = write_baseline(state, capture_repository_administration(repo))
+    path.chmod(0o000)
+    try:
+        if os.access(path, os.R_OK):  # running as root: the mode cannot deny us
+            pytest.skip("filesystem permissions are not enforced for this user")
+        with pytest.raises(GitAdministrativeCaptureFailed):
+            load_baseline(state, repo)
+    finally:
+        path.chmod(0o600)
+
+
+def _baseline_at(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A captured repo plus the state root and baseline path for it."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_raw_repo(repo)
+    state = tmp_path / "state"
+    path = baseline_path(state, repo)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return repo, state, path
+
+
+def test_a_symlinked_baseline_is_never_followed(tmp_path: Path) -> None:
+    """The baseline is the trust anchor; its bytes must come from the state dir.
+
+    Following a symlink would let approved administrative state live anywhere on
+    the filesystem, outside the 0700 directory the dispatcher owns, where a
+    process that cannot write the state dir could still choose what the
+    dispatcher trusts.
+    """
+    repo, state, path = _baseline_at(tmp_path)
+    elsewhere = tmp_path / "elsewhere.json"
+    real = write_baseline(state, capture_repository_administration(repo))
+    elsewhere.write_bytes(real.read_bytes())
+    real.unlink()
+    path.symlink_to(elsewhere)
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, repo)
+
+
+def test_a_dangling_baseline_symlink_is_refused_not_reported_absent(
+    tmp_path: Path,
+) -> None:
+    """"Absent" invites onboarding; a planted symlink must not earn that answer.
+
+    Reporting Unestablished here would tell the operator to run
+    trust-repo-admin.py, and onboarding would then replace whatever the link
+    points at -- turning a suspicious artefact into an approved baseline.
+    """
+    _repo, state, path = _baseline_at(tmp_path)
+    path.symlink_to(tmp_path / "nowhere.json")
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, _repo)
+
+
+def test_write_refuses_a_dangling_symlink_without_replace(tmp_path: Path) -> None:
+    """`exists()` is False for a dangling link, so the guard must use lexists."""
+    repo, state, path = _baseline_at(tmp_path)
+    path.symlink_to(tmp_path / "nowhere.json")
+
+    with pytest.raises((RepositoryAdministrationUnreconciled, GitAdministrativeCaptureFailed)):
+        write_baseline(state, capture_repository_administration(repo))
+
+
+def test_write_refuses_a_non_regular_entry_even_with_replace(tmp_path: Path) -> None:
+    """--replace is for reviewed divergence, not for clearing planted artefacts."""
+    repo, state, path = _baseline_at(tmp_path)
+    path.symlink_to(tmp_path / "nowhere.json")
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+    assert path.is_symlink()
+    assert not (tmp_path / "nowhere.json").exists()
+
+
+def test_symlinked_key_directory_is_not_trusted(tmp_path: Path) -> None:
+    """O_NOFOLLOW on the baseline file does not cover the directory that holds it.
+
+    A symlink at ``repos/<repository-key>`` is an intermediate component.
+    Opening the file with O_NOFOLLOW follows that directory and will trust
+    bytes that live outside the state tree, which is the same failure the
+    file-symlink refusal exists to prevent. Onboarding must not write through
+    it or chmod the directory it points at.
+    """
+    repo, state, path = _baseline_at(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside.chmod(0o755)
+    sentinel = outside / "git-admin-baseline.json"
+    sentinel.write_bytes(b'{"planted":true}\n')
+    mode_before = outside.stat().st_mode
+    key_dir = path.parent
+    key_dir.rmdir()
+    key_dir.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, repo)
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        write_baseline(state, capture_repository_administration(repo))
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+
+    assert key_dir.is_symlink()
+    assert sentinel.read_bytes() == b'{"planted":true}\n'
+    assert outside.stat().st_mode == mode_before
+    assert sorted(entry.name for entry in outside.iterdir()) == ["git-admin-baseline.json"]
+
+
+def test_symlinked_repos_directory_is_not_trusted(tmp_path: Path) -> None:
+    """``repos/`` is inside the state tree; a symlink there is not a baseline."""
+    repo, state, path = _baseline_at(tmp_path)
+    key_dir = path.parent
+    repos = key_dir.parent
+    key_dir.rmdir()
+    outside = tmp_path / "outside-repos"
+    outside.mkdir()
+    repos.rmdir()
+    repos.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, repo)
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+
+    assert repos.is_symlink()
+    assert list(outside.iterdir()) == []
+
+
+def test_fifo_baseline_is_refused_without_blocking(tmp_path: Path) -> None:
+    """Classify before open. A FIFO read blocks until a writer arrives."""
+    repo, state, path = _baseline_at(tmp_path)
+    os.mkfifo(path)
+
+    with pytest.raises(GitAdministrativeCaptureFailed):
+        load_baseline(state, repo)
+
+    assert path.is_fifo()
+
+
+def test_replace_updates_a_regular_baseline_only(tmp_path: Path) -> None:
+    repo, state, path = _baseline_at(tmp_path)
+    write_baseline(state, capture_repository_administration(repo))
+    before = path.read_bytes()
+    config = repo / ".git" / "config"
+    config.write_bytes(config.read_bytes() + b"\thooksPath = /tmp/hooks-from-test\n")
+
+    with pytest.raises(RepositoryAdministrationUnreconciled):
+        write_baseline(state, capture_repository_administration(repo))
+    assert path.read_bytes() == before
+
+    write_baseline(state, capture_repository_administration(repo), replace=True)
+    assert path.read_bytes() != before
+    assert path.is_file() and not path.is_symlink()
+    assert load_baseline(state, repo).repository_key
+
+
+def test_in_place_rewrite_during_read_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """Same inode, new bytes: a device/inode compare would trust the rewrite."""
+    repo, state, path = _baseline_at(tmp_path)
+    write_baseline(state, capture_repository_administration(repo))
+    real_read = gitadmin_module.os.read
+    rewritten = {"done": False}
+
+    def rewriting_read(fd: int, size: int) -> bytes:
+        if not rewritten["done"]:
+            rewritten["done"] = True
+            writer = os.open(path, os.O_WRONLY | os.O_APPEND)
+            try:
+                os.write(writer, b"\n")
+            finally:
+                os.close(writer)
+        return real_read(fd, size)
+
+    monkeypatch.setattr(gitadmin_module.os, "read", rewriting_read)
+    with pytest.raises(GitAdministrativeCaptureFailed, match="changed while it was read"):
+        load_baseline(state, repo)
+
+
+def test_replace_restores_a_symlink_planted_after_the_recheck(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The gap is the moment after the inode check and before the publish.
+
+    Planting the symlink inside the exchange, after that check has passed,
+    is the race. The publish must put the symlink back and leave its target
+    alone.
+    """
+    repo, state, path = _baseline_at(tmp_path)
+    write_baseline(state, capture_repository_administration(repo))
+    target = tmp_path / "outside-target.json"
+    target.write_bytes(b'{"planted":true}\n')
+    real_exchange = gitadmin_module._exchange_directory_entries
+    armed = {"yes": True}
+
+    def exchange(dir_fd: int, source: str, destination: str) -> None:
+        if armed["yes"]:
+            armed["yes"] = False
+            path.unlink()
+            path.symlink_to(target)
+        real_exchange(dir_fd, source, destination)
+
+    monkeypatch.setattr(gitadmin_module, "_exchange_directory_entries", exchange)
+    with pytest.raises(GitAdministrativeCaptureFailed, match="changed while it was written") as exc:
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+    assert exc.value.details["restored"] is True
+    assert path.is_symlink()
+    assert os.readlink(path) == str(target)
+    assert target.read_bytes() == b'{"planted":true}\n'
+    assert not any(entry.name.startswith(".git-admin-baseline.json.") for entry in path.parent.iterdir())
+
+
+def test_replace_leaves_the_baseline_when_exchange_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo, state, path = _baseline_at(tmp_path)
+    write_baseline(state, capture_repository_administration(repo))
+    before = path.read_bytes()
+
+    def fail(dir_fd: int, source: str, destination: str) -> None:
+        raise OSError(errno.ENOSYS, "Function not implemented")
+
+    monkeypatch.setattr(gitadmin_module, "_exchange_directory_entries", fail)
+    with pytest.raises(GitAdministrativeCaptureFailed, match="could not be replaced"):
+        write_baseline(state, capture_repository_administration(repo), replace=True)
+    assert path.is_file() and not path.is_symlink()
+    assert path.read_bytes() == before
+    assert not any(entry.name.startswith(".git-admin-baseline.json.") for entry in path.parent.iterdir())

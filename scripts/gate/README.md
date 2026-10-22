@@ -69,3 +69,32 @@ removed and the raw evidence is copied to
   this repository by name.
 - **Every temp tree is removed**, and a stray-sentinel scan by run nonce over
   the protected roots is printed with the result.
+
+## Known staleness against the Gate 7 Wave 0 contract (unfixed)
+
+These harnesses predate the sealed lifecycle and **will refuse before reaching
+their first live invocation**. This is recorded rather than repaired because
+verifying a fix costs real Claude usage, and an unverified edit to a live-cost
+harness is worth less than an accurate warning. `scripts/smoke-test-live.sh` hit
+both of these and has been fixed; use it as the reference for what a correct
+call site now looks like.
+
+1. **`"base_ref": "HEAD"` is refused.** `repository.base_ref` must be an exact
+   40-character lowercase commit object name — symbolic refs are forbidden
+   (`models.py`, `RepositoryRequest._base_ref_is_an_exact_object_name`).
+   Resolve it first: `git -C <repo> rev-parse HEAD`. Affects
+   `blocking_live.py:466`, `mcp_stdio.py:206,351`, `run_gate.py:452`,
+   `b2_live.py:470,1500`.
+2. **No operator administrative baseline is established.** Every dispatch and
+   resume loads one first and refuses `RepositoryAdministrationUnestablished`
+   when it is absent. After building the throwaway fixture — and after the *last*
+   mutation of its administrative state, since refs and config are compared for
+   exact equality — each harness must run:
+   ```bash
+   .venv/bin/python scripts/trust-repo-admin.py <fixture-repo> --state-root <its-state-dir>
+   ```
+   The state root must be the one that harness writes into its ephemeral config.
+
+Repository-guard fixtures are the exception: rejections are decided before the
+baseline is consulted, so `/tmp/other-repo`, subdirectories and this repository
+must stay un-onboarded or the rejections stop proving anything.

@@ -7959,7 +7959,7 @@ is a worker act.**
 current := capture(role="PREPARE_ADMIN_GATE")
 if no baseline exists:
     -> RepositoryAdministrationUnestablished          (PREPARE refusal)
-       remediation: an operator runs `scripts/trust-repo-admin.py <repo>`,
+       remediation: an operator runs `.venv/bin/python scripts/trust-repo-admin.py <repo>`,
        which first parses `extensions.objectFormat` from the already-open raw
        common config and refuses anything except absent/`sha1`, then validates
        every loose object canonically, then records the baseline and PRINTS

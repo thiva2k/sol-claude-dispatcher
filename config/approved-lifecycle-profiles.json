@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "manifest_version": "2026-08-29.1",
+  "manifest_version": "2026-10-22.1",
   "provenance_policy": "Every projection is handwritten inert text derived only from the enumerated source-controlled files. Whole-file source hash drift and projection hash drift both refuse; hashes are never refreshed at runtime.",
   "review_status": "Owner-authorized Gate 7 implementation; independent implementation review remains required before merge or deployment.",
   "artifacts": [
@@ -16,7 +16,7 @@
           "source_id": "gate7.lifecycle-methodology",
           "source_kind": "source_controlled_design",
           "source_path": "docs/GATE7-DESIGN.md",
-          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sha256": "08c2c25f5be66f99a7ed8a0e0051094808f868aeca58c08d5077ea265332cb58",
           "source_sections": ["9.1 Where the duplication is, conceptually", "9.2 Targets"],
           "concepts": ["small verified increments", "reproduce before fixing", "evidence before claims"]
         },
@@ -42,7 +42,7 @@
           "source_id": "gate7.lifecycle-methodology",
           "source_kind": "source_controlled_design",
           "source_path": "docs/GATE7-DESIGN.md",
-          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sha256": "08c2c25f5be66f99a7ed8a0e0051094808f868aeca58c08d5077ea265332cb58",
           "source_sections": ["9.1 Where the duplication is, conceptually", "9.2 Targets"],
           "concepts": ["test-driven change", "incremental implementation", "verification before completion"]
         }
@@ -60,7 +60,7 @@
           "source_id": "gate7.lifecycle-methodology",
           "source_kind": "source_controlled_design",
           "source_path": "docs/GATE7-DESIGN.md",
-          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sha256": "08c2c25f5be66f99a7ed8a0e0051094808f868aeca58c08d5077ea265332cb58",
           "source_sections": ["9.1 Where the duplication is, conceptually"],
           "concepts": ["decomposition with acceptance criteria"]
         },
@@ -104,7 +104,7 @@
           "source_id": "gate7.lifecycle-methodology",
           "source_kind": "source_controlled_design",
           "source_path": "docs/GATE7-DESIGN.md",
-          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sha256": "08c2c25f5be66f99a7ed8a0e0051094808f868aeca58c08d5077ea265332cb58",
           "source_sections": ["9.1 Where the duplication is, conceptually"],
           "concepts": ["reduce complexity without changing behaviour", "small verified increments"]
         }
@@ -140,7 +140,7 @@
           "source_id": "gate7.lifecycle-methodology",
           "source_kind": "source_controlled_design",
           "source_path": "docs/GATE7-DESIGN.md",
-          "source_sha256": "caa085b2f4feda2fb728b5b564c8624b7ad81f132d78e3c3873afbeb84ef78de",
+          "source_sha256": "08c2c25f5be66f99a7ed8a0e0051094808f868aeca58c08d5077ea265332cb58",
           "source_sections": ["9.1 Where the duplication is, conceptually", "4.3 The four profiles"],
           "concepts": ["address the finding, not the reviewer", "verification and fixup", "no initial planning material"]
         }

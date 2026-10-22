@@ -148,16 +148,17 @@ meant to.
 ```bash
 scripts/doctor.sh              # 1. read-only diagnostic — nothing modified
 scripts/smoke-test-fake.sh     # 2. full pytest suite against the fake binary
-scripts/generate-codex-config.sh   # 3. PRINT the Codex MCP snippet (does not install it)
-# 4. apply the printed snippet to ~/.codex/config.toml yourself, then restart Codex
-scripts/smoke-test-live.sh     # 5. optional — costs real Claude usage, asks first
+.venv/bin/python scripts/trust-repo-admin.py REPO --state-root state   # 3. onboard, once
+scripts/generate-codex-config.sh   # 4. PRINT the Codex MCP snippet (does not install it)
+# 5. apply the printed snippet to ~/.codex/config.toml yourself, then restart Codex
+scripts/smoke-test-live.sh     # 6. optional — costs real Claude usage, asks first
 ```
 
 ## Activation (brief §45)
 
 Exact commands, in order. Steps 1–4 are safe to run yourself right now;
-**step 5 is manual and intentionally not automated by anything in this
-repository.**
+**steps 5 and 6 are manual and intentionally not automated by anything in
+this repository.**
 
 1. **Inspect the dispatcher**
    ```bash
@@ -178,7 +179,43 @@ repository.**
    ```bash
    scripts/smoke-test-live.sh
    ```
-5. **Add the MCP server to Codex** — manual, by design:
+5. **Establish the administrative baseline for every repository you will
+   dispatch against.** Gate 7 refuses every dispatch and every resume against a
+   repository whose administrative state no human has trusted, and nothing on
+   the dispatch path will establish one for you — that refusal is the feature:
+   ```bash
+   .venv/bin/python scripts/trust-repo-admin.py \
+       /absolute/path/to/repo --state-root /absolute/path/to/state
+   ```
+   The command is invoked through the venv interpreter deliberately: the script
+   is not committed with an executable bit, and it must run against the
+   dispatcher's own dependencies rather than whatever `python3` resolves to.
+
+   It shows you what trusting the repository would mean and writes **nothing**
+   until you type `trust`. Declining, or interrupting it, leaves no baseline.
+   Pass `--confirm` only where no terminal exists and the review has genuinely
+   already happened; `--replace` is gated by the same confirmation.
+   The state root must be the one the dispatcher itself resolves from
+   `[dispatcher].state_dir` (a relative value is resolved against the config
+   file's project root), or the baseline is written where nothing will read it.
+
+   **Read what it prints.** `trusted_exec_assignments` lists every execution and
+   transport surface — hooks, filters, `core.sshCommand` — that you are
+   permanently trusting in that repository. Approving it unread defeats the
+   gate.
+
+   Omitting this step produces `RepositoryAdministrationUnestablished` on the
+   first dispatch. Note that `scripts/check-production-activation.py` will still
+   report a fully active host: it checks configuration, not deployment state.
+
+   The baseline is deliberately **not** self-updating. Any commit, fetch,
+   branch update or `git gc` in that repository changes its administrative
+   state, and the next dispatch refuses `RepositoryAdministrationUnreconciled`
+   until you review the divergence and re-run the command with `--replace`.
+   Work the dispatcher itself performs — worker loose objects, its own
+   worktrees — is exempt and never forces a re-baseline.
+
+6. **Add the MCP server to Codex** — manual, by design:
    ```bash
    scripts/generate-codex-config.sh
    ```
