@@ -41,7 +41,6 @@ WAVE0_ERROR_NAMES = {
     "RepositoryObjectStoreMalformed",
     "RepositoryRootDrift",
     "RunFinalizationFailed",
-    "SealAbsentAfterWorker",
     "SealBudgetExceeded",
     "SealIntegrityFailed",
     "SealPinSetStale",

@@ -1115,8 +1115,7 @@ Missing `session_id`, `selected_model` or `worktree_path` → `StateCorruption`.
 
 Required tests (§31): same session id; same model; same worktree; resume_count
 increments once per resume; cap enforced at the boundary (n-1 ok, n refused); a
-caller-supplied session id is ignored; escalation creates a *new* task rather
-than mutating the model.
+caller-supplied session id is ignored.
 
 ---
 
